@@ -25,6 +25,9 @@ uint16_t hash_fls_mem[HASH_TABLE_SIZE];
 
 void dbTask(void* arg)
 {
+    // Zero Entries
+    memset(entries, 0, sizeof(entries));
+
     HashTable table;
     FreeList hash_fls;
     free_list_init(&hash_fls, hash_fls_mem, HASH_TABLE_SIZE);
