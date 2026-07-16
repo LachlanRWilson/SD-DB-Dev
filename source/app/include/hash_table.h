@@ -16,6 +16,7 @@ extern "C" {
 #define MAX_NAME_LEN 64
 #define MAX_PHONE_LEN 15
 
+
 // Prime number that allows a hash table of 10000 entries to have a load factor of 70%
 #define HASH_TABLE_SIZE 14293
 
@@ -56,9 +57,9 @@ typedef struct
 // Information Struct about hash table
 typedef struct 
 {
-    HashEntry *htable;
-    Storage *storage;
-    FreeList *free_stack;
+    HashEntry *htable; // In RAM hash table
+    Storage *storage; // Storage type being used (Heap or SD Card)
+    FreeList *free_stack; // List of free list stack pointers
     size_t capacity;
     size_t size;
 #if defined (HOST_BUILD)
@@ -69,10 +70,14 @@ typedef struct
 
 /**
   * @brief  Create a hash table
-  * @param  buckets: Number of buckets (hash table capacity)
-  * @retval HashTable*: Pointer to the newly created hash table, or NULL on failure
+  * @param  table: Hash Table struct being initialised
+  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
+  * @param  entries: In RAM storage of hash table entries
+  * @param  size: number of elements in hash table
+  * @param  size: storage medium (Heap or SD Card) 
   */
-void hash_init( HashTable* table, FreeList *fstack,  HashEntry* entries, size_t
+
+void hash_init( HashTable* table, FreeList *fstacks,  HashEntry* entries, size_t
         size, Storage *storage);
 
 /**
@@ -97,6 +102,9 @@ bool hash_insert(HashTable *table, uint32_t id);
   * @retval Pointer to the matching contact, or NULL if not found
   */
 uint32_t hash_find(HashTable *table, uint32_t id);
+
+// TEMP FIX, needs to be transferred to hash_find
+uint32_t hash_find_entry(HashTable *table, uint32_t id, HashEntry** out);
 
 /**
   * @brief  Find a contacts message extent offset

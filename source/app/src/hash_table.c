@@ -56,8 +56,11 @@ void hash_create( HashTable* table, FreeList *fstack,  HashEntry* entries, size_
 
 /**
   * @brief  Create a hash table
-  * @param  buckets: Number of buckets (hash table capacity)
-  * @retval HashTable*: Pointer to the newly created hash table, or NULL on failure
+  * @param  table: Hash Table struct being initialised
+  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
+  * @param  entries: In RAM storage of hash table entries
+  * @param  size: number of elements in hash table
+  * @param  size: storage medium (Heap or SD Card) 
   */
 void hash_init( HashTable* table, FreeList *fstack,  HashEntry* entries, size_t
         size, Storage *storage)
@@ -92,7 +95,7 @@ bool hash_insert(HashTable *table, uint32_t id)
     uint32_t h1 = hash_primary(id, table->capacity);
     uint32_t h2 = hash_secondary(id, table->capacity);
 
-    // Iterate until no collision (shouldn't be too many as table is limited to 71Contact contact% table->capacity)
+    // Iterate until no collision (shouldn't be too many as table is limited to 70% table->capacity)
     for (uint32_t i = 0; i < table->capacity; i++)
     {
         // Calculate hash code based on step
@@ -165,7 +168,46 @@ uint32_t hash_find(HashTable *table, uint32_t id)
             // only sector pointer.
             //
             // So this must be reconstructed or loaded from SD.
+            return entry->sector; // placeholder until SD read layer exists
+        }
 
+        // ENTRY_DELETED → continue probing
+    }
+
+    return UINT32_MAX;
+}
+
+uint32_t hash_find_entry(HashTable *table, uint32_t id, HashEntry** out)
+{
+    if (table == NULL || table->htable == NULL || table->capacity == 0)
+    {
+        return UINT32_MAX;
+    }
+
+    uint32_t h1 = hash_primary(id, table->capacity);
+    uint32_t h2 = hash_secondary(id, table->capacity);
+
+    for (uint32_t i = 0; i < table->capacity; i++)
+    {
+        uint32_t index = (h1 + i * h2) % table->capacity;
+
+        HashEntry *entry = &table->htable[index];
+
+        // If we hit an empty slot, key was never inserted
+        if (entry->state == ENTRY_EMPTY)
+        {
+            return UINT32_MAX;
+        }
+
+        // If occupied and match found
+        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
+        {
+            // NOTE:
+            // currently do NOT store Contact in RAM,
+            // only sector pointer.
+            //
+            // So this must be reconstructed or loaded from SD.
+            *out = entry;
             return entry->sector; // placeholder until SD read layer exists
         }
 

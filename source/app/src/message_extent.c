@@ -132,6 +132,8 @@ bool message_extent_append(MessageExtent *self, uint32_t *last_extent, const Mes
     }
 
     *last_extent = new_idx;
+    // TEMP FIX
+    message_extent_append(self, last_extent, message);
 
     return true;
 }

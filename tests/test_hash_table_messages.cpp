@@ -59,7 +59,9 @@ protected:
     static constexpr uint32_t TEST_EXTENTS = 2 * HASH_TABLE_SIZE;
 
     HashTable table;
-    FreeList table_flss[2];
+
+    FreeList contact_fls;
+    FreeList message_fls;
 
     MessageExtent extent;
     MessageStorage storage;
@@ -88,17 +90,17 @@ protected:
 
 
         // Message Memory (2/3 of total)
-        free_list_init(&table_flss[MESSAGE_FLS], messages_mem, TEST_EXTENTS);
+        free_list_init(&message_fls, messages_mem, TEST_EXTENTS);
 
         // Contact Memory (1/3 of total)
-        free_list_init(&table_flss[CONTACT_FLS], contact_mem, HASH_TABLE_SIZE);
+        free_list_init(&contact_fls, contact_mem, HASH_TABLE_SIZE);
 
         /* ---------------- Message extent system ---------------- */
-        ASSERT_TRUE(message_extent_init(&extent, &storage, &table_flss[MESSAGE_FLS], TEST_EXTENTS));
+        ASSERT_TRUE(message_extent_init(&extent, &storage, &message_fls, TEST_EXTENTS));
 
         /* ---------------- Hash table ---------------- */
         HashEntry *entries = hash_create_software();
-        hash_init(&table, table_flss, entries, HASH_TABLE_SIZE, &heap_storage);
+        hash_init(&table, &contact_fls, entries, HASH_TABLE_SIZE, &heap_storage);
     }
 
     void TearDown() override
@@ -226,6 +228,14 @@ TEST_F(HashMessageExtentTest, MultipleContactsIsolation)
 
     hash_insert(&table, a);
     hash_insert(&table, b);
+    HashEntry *entry;
+    
+    // Set Hash Table last message correctly
+    hash_find_entry(&table, a, &entry);
+    entry->latest_msg_extent = message_extent_get(&extent, UINT16_MAX);
+
+    hash_find_entry(&table, b, &entry);
+    entry->latest_msg_extent = message_extent_get(&extent, UINT16_MAX);
 
     uint32_t sa = hash_find_message(&table, a);
     uint32_t sb = hash_find_message(&table, b);
@@ -254,8 +264,12 @@ TEST_F(HashMessageExtentTest, MultipleContactsIsolation)
 TEST_F(HashMessageExtentTest, UpdateLatestExtent)
 {
     uint32_t id = 999;
+    HashEntry *entry;
 
     hash_insert(&table, id);
+
+    hash_find_entry(&table, id, &entry);
+    entry->latest_msg_extent = message_extent_get(&extent, UINT16_MAX);
 
     uint32_t extent_offset = hash_find_message(&table, id);
 
@@ -264,7 +278,9 @@ TEST_F(HashMessageExtentTest, UpdateLatestExtent)
 
     for (int i = 0; i < MESSAGE_BLOCK_CAPACITY + 1; i++)
     {
-        message_extent_append(&extent, &extent_offset, &msg);
+        // if the message sector id changes
+            message_extent_append(&extent, &entry->latest_msg_extent, &msg);
+
     }
 
     uint32_t updated = hash_find_message(&table, id);
