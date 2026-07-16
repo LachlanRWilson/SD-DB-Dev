@@ -6,16 +6,10 @@
 /**
  * @brief Initialise heap-backed storage.
  */
-bool HeapStorage_Init(
-    HeapStorageContext *context,
-    uint8_t *memory,
-    uint32_t block_size,
-    uint32_t capacity_blocks)
+bool HeapStorage_Init( HeapStorageContext *context, uint8_t *memory, uint32_t block_size, uint32_t
+        capacity_blocks)
 {
-    if(context == NULL ||
-       memory == NULL ||
-       block_size == 0 ||
-       capacity_blocks == 0)
+    if(context == NULL || memory == NULL || block_size == 0 || capacity_blocks == 0)
     {
         return false;
     }

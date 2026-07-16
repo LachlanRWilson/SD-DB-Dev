@@ -1,238 +1,289 @@
 #include <gtest/gtest.h>
 #include <cstring>
 
-extern "C" {
+extern "C"
+{
+#include "hash_table.h"
 #include "message_extent.h"
 #include "free_list_stack.h"
+#include "heap_storage.h"
 }
-
-/* ============================================================
- * Simple heap-backed storage for testing
- * ============================================================ */
-
-struct HeapStorage
-{
-    MessageBlock *blocks;
-    uint32_t count;
-};
-
-static bool heap_read(void *ctx, uint32_t idx, MessageBlock *out)
-{
-    HeapStorage *h = (HeapStorage *)ctx;
-    if (idx >= h->count) return false;
-    *out = h->blocks[idx];
-    return true;
-}
-
-static bool heap_write(void *ctx, uint32_t idx, const MessageBlock *in)
-{
-    HeapStorage *h = (HeapStorage *)ctx;
-    if (idx >= h->count) return false;
-    h->blocks[idx] = *in;
-    return true;
-}
-
-static uint32_t heap_capacity(void *ctx)
-{
-    HeapStorage *h = (HeapStorage *)ctx;
-    return h->count;
-}
-
-/* ============================================================
- * Test fixture
- * ============================================================ */
 
 class MessageExtentTest : public ::testing::Test
 {
 protected:
-    static constexpr uint32_t TEST_EXTENTS = 3 * 14293;
+
+    static constexpr uint16_t TEST_EXTENTS = 2 * HASH_TABLE_SIZE;
 
     MessageExtent extent;
     FreeList free_list;
 
-    HeapStorage storage_ctx;
-    MessageStorage storage;
+    HeapStorageContext storage_ctx;
+    Storage storage;
 
-    MessageBlock *blocks = nullptr;
+    uint8_t *storage_memory = nullptr;
     uint16_t *pool = nullptr;
 
     void SetUp() override
     {
-         pool = new uint16_t[TEST_EXTENTS];
-        blocks = new MessageBlock[TEST_EXTENTS];
-        std::memset(blocks, 0, sizeof(MessageBlock) * TEST_EXTENTS);
+        /*
+         * Allocate heap-backed storage.
+         */
+        storage_memory =
+            new uint8_t[
+                TEST_EXTENTS * sizeof(MessageBlock)
+            ];
 
-        storage_ctx.blocks = blocks;
-        storage_ctx.count = TEST_EXTENTS;
+        ASSERT_NE(storage_memory, nullptr);
 
-        storage.read_block = heap_read;
-        storage.write_block = heap_write;
-        storage.capacity = heap_capacity;
+        memset(
+            storage_memory,
+            0,
+            TEST_EXTENTS * sizeof(MessageBlock));
+
+        ASSERT_TRUE(
+            HeapStorage_Init(
+                &storage_ctx,
+                storage_memory,
+                sizeof(MessageBlock),
+                TEST_EXTENTS));
+
+        storage = heap_storage;
         storage.context = &storage_ctx;
 
-        free_list_init(&free_list, pool, TEST_EXTENTS);
+        /*
+         * Initialise free list.
+         */
+        pool = new uint16_t[TEST_EXTENTS];
 
-        ASSERT_TRUE(message_extent_init(&extent, &storage, &free_list, TEST_EXTENTS));
+        ASSERT_NE(pool, nullptr);
+
+        for (uint16_t i = 0; i < TEST_EXTENTS; i++)
+        {
+            pool[i] = i;
+        }
+
+        ASSERT_TRUE(
+            free_list_init(
+                &free_list,
+                pool,
+                TEST_EXTENTS));
+
+        /*
+         * Initialise extent manager.
+         */
+        ASSERT_TRUE(
+            message_extent_init(
+                &extent,
+                &storage,
+                &free_list,
+                TEST_EXTENTS));
     }
 
     void TearDown() override
     {
-        delete[] blocks;
+        delete[] storage_memory;
         delete[] pool;
-        blocks = nullptr;
+
+        storage_memory = nullptr;
+        pool = nullptr;
     }
 };
 
-/* ============================================================
- * Tests
- * ============================================================ */
-
+/**
+ * @brief Verify initialisation.
+ */
 TEST_F(MessageExtentTest, Initialise)
 {
-    EXPECT_EQ(extent.capacity, 0);
+    EXPECT_EQ(extent.num_extents, 0u);
     EXPECT_EQ(extent.total_extents, TEST_EXTENTS);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify a single extent allocation.
+ */
 TEST_F(MessageExtentTest, AllocateFirstExtent)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     EXPECT_NE(idx, UINT16_MAX);
-    EXPECT_EQ(extent.capacity, 1);
+    EXPECT_EQ(extent.num_extents, 1u);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify multiple extent allocations.
+ */
 TEST_F(MessageExtentTest, AllocateMultipleExtents)
 {
-    uint32_t a = message_extent_get(&extent, UINT16_MAX);
-    uint32_t b = message_extent_get(&extent, UINT16_MAX);
+    uint16_t a = message_extent_get(&extent, UINT16_MAX);
+    uint16_t b = message_extent_get(&extent, UINT16_MAX);
 
     EXPECT_NE(a, UINT16_MAX);
     EXPECT_NE(b, UINT16_MAX);
     EXPECT_NE(a, b);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify appending a single message.
+ */
 TEST_F(MessageExtentTest, AppendSingleMessage)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
     msg.timestamp = 1;
     msg.direction = true;
     strcpy(msg.str, "hello");
 
-    EXPECT_TRUE(message_extent_append(&extent, &idx, &msg));
+    EXPECT_TRUE(
+        message_extent_append(
+            &extent,
+            &idx,
+            &msg));
 
-    MessageBlock block;
-    storage.read_block(&storage_ctx, idx, &block);
+    MessageBlockBuffer block;
 
-    EXPECT_EQ(block.header.msg_count, 1u);
+    storage.read_block(
+        storage.context,
+        idx,
+        block.buffer);
+
+    EXPECT_EQ(block.var.header.msg_count, 1u);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify multiple messages fit within one extent.
+ */
 TEST_F(MessageExtentTest, AppendMessagesSingleExtent)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
-    for (int i = 0; i < 10; i++)
+    for (uint16_t i = 0; i < 10; i++)
     {
         msg.timestamp = i;
-        EXPECT_TRUE(message_extent_append(&extent, &idx, &msg));
+
+        EXPECT_TRUE(
+            message_extent_append(
+                &extent,
+                &idx,
+                &msg));
     }
 
-    MessageBlock block;
-    storage.read_block(&storage_ctx, idx, &block);
+    MessageBlockBuffer block;
 
-    EXPECT_EQ(block.header.msg_count, 10u);
+    storage.read_block(
+        storage.context,
+        idx,
+        block.buffer);
+
+    EXPECT_EQ(block.var.header.msg_count, 10u);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify allocation of a new extent when full.
+ */
 TEST_F(MessageExtentTest, AllocateNewExtentWhenFull)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
-    for (uint32_t i = 0; i < MESSAGE_BLOCK_CAPACITY + 1; i++)
+    for (uint16_t i = 0; i < MESSAGE_BLOCK_CAPACITY + 1; i++)
     {
         msg.timestamp = i;
-        EXPECT_TRUE(message_extent_append(&extent, &idx, &msg));
+
+        EXPECT_TRUE(
+            message_extent_append(
+                &extent,
+                &idx,
+                &msg));
     }
 
-    MessageBlock block;
-    storage.read_block(&storage_ctx, idx, &block);
+    MessageBlockBuffer block;
 
-    EXPECT_NE(block.header.prev, UINT16_MAX);
+    storage.read_block(
+        storage.context,
+        idx,
+        block.buffer);
+
+    EXPECT_NE(block.var.header.prev, UINT16_MAX);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify previous extent links are maintained.
+ */
 TEST_F(MessageExtentTest, PreviousExtentLinks)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
-    for (uint32_t i = 0; i < MESSAGE_BLOCK_CAPACITY + 2; i++)
+    for (uint16_t i = 0; i < MESSAGE_BLOCK_CAPACITY + 2; i++)
     {
         msg.timestamp = i;
         message_extent_append(&extent, &idx, &msg);
     }
 
-    MessageBlock block;
-    storage.read_block(&storage_ctx, idx, &block);
+    MessageBlockBuffer block;
 
-    EXPECT_NE(block.header.prev, UINT16_MAX);
+    storage.read_block(
+        storage.context,
+        idx,
+        block.buffer);
+
+    EXPECT_NE(block.var.header.prev, UINT16_MAX);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify newest message contents.
+ */
 TEST_F(MessageExtentTest, ReadNewestMessage)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
     msg.timestamp = 999;
 
     message_extent_append(&extent, &idx, &msg);
 
-    MessageBlock block;
-    storage.read_block(&storage_ctx, idx, &block);
+    MessageBlockBuffer block;
 
-    EXPECT_EQ(block.messages[0].timestamp, 999u);
+    storage.read_block(
+        storage.context,
+        idx,
+        block.buffer);
+
+    EXPECT_EQ(block.var.messages[0].timestamp, 999u);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify counting across multiple extents.
+ */
 TEST_F(MessageExtentTest, ReadAcrossExtents)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
-    for (int i = 0; i < MESSAGE_BLOCK_CAPACITY * 2; i++)
+    for (uint16_t i = 0; i < MESSAGE_BLOCK_CAPACITY * 2; i++)
     {
         msg.timestamp = i;
         message_extent_append(&extent, &idx, &msg);
     }
 
-    EXPECT_GT(message_extent_count(&extent, idx), MESSAGE_BLOCK_CAPACITY);
+    EXPECT_GT(
+        message_extent_count(&extent, idx),
+        MESSAGE_BLOCK_CAPACITY);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify deleting a populated conversation.
+ */
 TEST_F(MessageExtentTest, DeleteConversation)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -241,21 +292,29 @@ TEST_F(MessageExtentTest, DeleteConversation)
         message_extent_append(&extent, &idx, &msg);
     }
 
-    EXPECT_TRUE(message_extent_delete(&extent, idx));
+    EXPECT_TRUE(
+        message_extent_delete(
+            &extent,
+            idx));
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify deleting an empty conversation.
+ */
 TEST_F(MessageExtentTest, DeleteEmptyConversation)
 {
-    EXPECT_TRUE(message_extent_delete(&extent, UINT16_MAX));
+    EXPECT_TRUE(
+        message_extent_delete(
+            &extent,
+            UINT16_MAX));
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify message counting.
+ */
 TEST_F(MessageExtentTest, MessageCount)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -264,60 +323,64 @@ TEST_F(MessageExtentTest, MessageCount)
         message_extent_append(&extent, &idx, &msg);
     }
 
-    EXPECT_EQ(message_extent_count(&extent, idx), 5u);
+    EXPECT_EQ(
+        message_extent_count(&extent, idx),
+        5u);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify allocator exhaustion.
+ */
 TEST_F(MessageExtentTest, OutOfExtents)
 {
-    uint32_t last = UINT16_MAX;
-
-    for (uint32_t i = 0; i < TEST_EXTENTS; i++)
+    for (uint16_t i = 0; i < TEST_EXTENTS; i++)
     {
-        last = message_extent_get(&extent, UINT16_MAX);
+        message_extent_get(&extent, UINT16_MAX);
     }
 
-    uint32_t fail = message_extent_get(&extent, UINT16_MAX);
-
-    EXPECT_EQ(fail, UINT16_MAX);
+    EXPECT_EQ(
+        message_extent_get(&extent, UINT16_MAX),
+        UINT16_MAX);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify reset restores initial state.
+ */
 TEST_F(MessageExtentTest, Reset)
 {
     message_extent_reset(&extent);
 
-    EXPECT_EQ(extent.capacity, 0);
+    EXPECT_EQ(extent.num_extents, 0u);
     EXPECT_EQ(extent.bottom_extent, extent.total_extents);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify a large conversation spanning multiple extents.
+ */
 TEST_F(MessageExtentTest, LargeConversation)
 {
-    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
+    uint16_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
-
-
-    for (int i = 0; i < 200; i++)
+    for (uint16_t i = 0; i < 200; i++)
     {
         msg.timestamp = i;
         message_extent_append(&extent, &idx, &msg);
     }
 
-    EXPECT_GT(message_extent_count(&extent, idx), 100u);
+    EXPECT_GT(
+        message_extent_count(&extent, idx),
+        100u);
 }
 
-/* ------------------------------------------------------------ */
-
+/**
+ * @brief Verify independent conversations remain isolated.
+ */
 TEST_F(MessageExtentTest, MultipleConversations)
 {
-    uint32_t a = message_extent_get(&extent, UINT16_MAX);
-    uint32_t b = message_extent_get(&extent, UINT16_MAX);
+    uint16_t a = message_extent_get(&extent, UINT16_MAX);
+    uint16_t b = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -326,11 +389,13 @@ TEST_F(MessageExtentTest, MultipleConversations)
 
     msg.timestamp = 2;
     message_extent_append(&extent, &b, &msg);
-    
-    MessageBlock ba, bb;
-    storage.read_block(&storage_ctx, a, &ba);
-    storage.read_block(&storage_ctx, b, &bb);
 
-    EXPECT_EQ(ba.messages[0].timestamp, 1u);
-    EXPECT_EQ(bb.messages[0].timestamp, 2u);
+    MessageBlockBuffer block_a;
+    MessageBlockBuffer block_b;
+
+    storage.read_block(storage.context, a, block_a.buffer);
+    storage.read_block(storage.context, b, block_b.buffer);
+
+    EXPECT_EQ(block_a.var.messages[0].timestamp, 1u);
+    EXPECT_EQ(block_b.var.messages[0].timestamp, 2u);
 }

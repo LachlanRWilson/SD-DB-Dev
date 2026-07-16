@@ -16,8 +16,8 @@ add_library(app_logic
     app/src/hash_table.c
     app/src/message_extent.c
     app/src/sd_storage.c
-    app/src/db_main.c
-    app/src/test_db_main.c
+    app/src/db_extent_main.c
+    app/src/test_db_extent.c
 )
 
 else ()

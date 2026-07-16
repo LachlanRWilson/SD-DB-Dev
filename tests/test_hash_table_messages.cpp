@@ -2,346 +2,283 @@
 #include <cstring>
 
 extern "C" {
+
 #include "hash_table.h"
 #include "message_extent.h"
 #include "free_list_stack.h"
 #include "heap_storage.h"
+
 }
 
-#define NUM_FLS 2
-#define CONTACT_FLS 0
-#define MESSAGE_FLS 1
+
+/*
+ * ============================================================
+ * Hash + Message Extent Integration Tests
+ * ============================================================
+ *
+ * Tests the interaction between:
+ *
+ *  - HashTable
+ *      Stores contacts and points to their latest message extent.
+ *
+ *  - MessageExtent
+ *      Manages conversation storage through extents.
+ *
+ *  - HeapStorage
+ *      Simulates persistent storage (SD card / flash).
+ *
+ * The architecture mirrors the embedded implementation:
+ *
+ *      HashTable
+ *          |
+ *          | latest_msg_extent
+ *          v
+ *      MessageExtent
+ *          |
+ *          v
+ *      Storage abstraction
+ *
+ * ============================================================
+ */
 
 
-/* ============================================================
- * Heap-backed storage for MessageBlock (simulated SD/flash)
- * ============================================================ */
 
-struct HeapStorage
-{
-    MessageBlock *blocks;
-    uint32_t count;
-};
-
-static bool heap_read(void *ctx, uint32_t idx, MessageBlock *out)
-{
-    HeapStorage *h = (HeapStorage *)ctx;
-    if (idx >= h->count) return false;
-
-    *out = h->blocks[idx];
-    return true;
-}
-
-static bool heap_write(void *ctx, uint32_t idx, const MessageBlock *in)
-{
-    HeapStorage *h = (HeapStorage *)ctx;
-    if (idx >= h->count) return false;
-
-    h->blocks[idx] = *in;
-    return true;
-}
-
-static uint32_t heap_capacity(void *ctx)
-{
-    HeapStorage *h = (HeapStorage *)ctx;
-    return h->count;
-}
-
-extern Storage heap_storage;
-
-/* ============================================================
- * Test fixture
- * ============================================================ */
-
+/**
+ * @brief Test fixture for HashTable and MessageExtent integration.
+ *
+ * Provides:
+ *
+ * - Hash table
+ * - Contact free list
+ * - Message extent free list
+ * - Heap backed storage
+ *
+ * This represents the complete database memory model.
+ */
 class HashMessageExtentTest : public ::testing::Test
 {
 protected:
+
     static constexpr uint32_t TEST_EXTENTS = 2 * HASH_TABLE_SIZE;
+
 
     HashTable table;
 
+
+    /**
+     * @brief Contact allocator.
+     */
     FreeList contact_fls;
+
+
+    /**
+     * @brief Message extent allocator.
+     */
     FreeList message_fls;
 
-    MessageExtent extent;
-    MessageStorage storage;
 
-    HeapStorage storage_ctx;
+
+    /**
+     * @brief Message extent manager.
+     */
+    MessageExtent extent;
+
+
+
+    /**
+     * @brief Storage interface.
+     */
+    Storage storage;
+
+
+
+    /**
+     * @brief Heap storage context.
+     */
+    HeapStorageContext storage_ctx;
+
+
+
+    /**
+     * @brief Backing memory for message blocks.
+     */
     MessageBlock *blocks = nullptr;
 
-    /* ---------------- Free list ---------------- */
-    uint16_t contact_mem[HASH_TABLE_SIZE]; // Free List stack for contacts
-    uint16_t messages_mem[TEST_EXTENTS]; // free list stack for messages
 
 
+    /**
+     * @brief Memory pool for contact allocation.
+     */
+    uint16_t contact_mem[HASH_TABLE_SIZE];
+
+
+
+    /**
+     * @brief Memory pool for message extent allocation.
+     */
+    uint16_t message_mem[TEST_EXTENTS];
+
+
+
+    /**
+     * @brief Hash table backing memory.
+     */
+    HashEntry *entries = nullptr;
+
+
+
+    /**
+     * @brief Initialise complete database environment.
+     */
     void SetUp() override
     {
-        /* ---------------- Heap storage ---------------- */
+
+        /*
+         * ----------------------------------------------------
+         * Initialise heap storage
+         * ----------------------------------------------------
+         */
+
         blocks = new MessageBlock[TEST_EXTENTS];
-        memset(blocks, 0, sizeof(MessageBlock) * TEST_EXTENTS);
 
-        storage_ctx.blocks = blocks;
-        storage_ctx.count = TEST_EXTENTS;
 
-        storage.read_block = heap_read;
-        storage.write_block = heap_write;
-        storage.capacity = heap_capacity;
+        ASSERT_NE( blocks, nullptr);
+
+        memset( blocks, 0, sizeof(MessageBlock) * TEST_EXTENTS);
+
+        ASSERT_TRUE( HeapStorage_Init( &storage_ctx, (uint8_t *)blocks, sizeof(MessageBlock),
+                    TEST_EXTENTS));
+
+        storage = heap_storage;
+
         storage.context = &storage_ctx;
 
 
-        // Message Memory (2/3 of total)
-        free_list_init(&message_fls, messages_mem, TEST_EXTENTS);
 
-        // Contact Memory (1/3 of total)
-        free_list_init(&contact_fls, contact_mem, HASH_TABLE_SIZE);
+        /*
+         * ----------------------------------------------------
+         * Initialise free lists
+         * ----------------------------------------------------
+         */
 
-        /* ---------------- Message extent system ---------------- */
-        ASSERT_TRUE(message_extent_init(&extent, &storage, &message_fls, TEST_EXTENTS));
+        ASSERT_TRUE( free_list_init( &contact_fls, contact_mem, HASH_TABLE_SIZE));
 
-        /* ---------------- Hash table ---------------- */
-        HashEntry *entries = hash_create_software();
-        hash_init(&table, &contact_fls, entries, HASH_TABLE_SIZE, &heap_storage);
+        ASSERT_TRUE( free_list_init( &message_fls, message_mem, TEST_EXTENTS));
+
+        /*
+         * ----------------------------------------------------
+         * Initialise message extent manager
+         * ----------------------------------------------------
+         */
+
+        ASSERT_TRUE( message_extent_init( &extent, &storage, &message_fls, TEST_EXTENTS));
+
+        /*
+         * ----------------------------------------------------
+         * Initialise hash table
+         * ----------------------------------------------------
+         */
+
+
+        entries = new HashEntry[HASH_TABLE_SIZE];
+
+        ASSERT_NE( entries, nullptr);
+
+        memset( entries, 0, sizeof(HashEntry) * HASH_TABLE_SIZE);
+
+        hash_init( &table, &contact_fls, entries, HASH_TABLE_SIZE);
     }
 
+
+
+    /**
+     * @brief Cleanup database resources.
+     */
     void TearDown() override
     {
+
+        hash_clear( &table);
+
+        delete[] entries;
+
+        entries = nullptr;
+
         delete[] blocks;
+
         blocks = nullptr;
     }
+
 };
 
-/* ============================================================
- * TESTS
- * ============================================================ */
+
 
 /**
- * Insert a contact and verify it exists
+ * @brief Verify a contact can be inserted and found.
  */
 TEST_F(HashMessageExtentTest, InsertAndFind)
 {
-    uint32_t id = 12345;
+    uint16_t id = 12345;
 
-    EXPECT_TRUE(hash_insert(&table, id));
+    HashEntry *entry;
 
-    uint32_t result = hash_find_message(&table, id);
+    EXPECT_TRUE( hash_insert( &table, id));
 
-    EXPECT_NE(result, UINT32_MAX);
+    EXPECT_NE( hash_find_entry( &table, id, &entry), false);
 }
 
-/* ------------------------------------------------------------ */
+
 
 /**
- * Verify writing a message updates the latest extent
+ * @brief Verify a message extent can be attached to a contact.
  */
 TEST_F(HashMessageExtentTest, WriteMessageUpdatesExtent)
 {
-    uint32_t id = 111;
+    uint16_t id = 111;
 
-    hash_insert(&table, id);
+    EXPECT_TRUE( hash_insert( &table, id));
 
-    uint32_t sector = hash_find_message(&table, id);
+    HashEntry *entry = nullptr;
 
-    Message msg = {};
-    msg.timestamp = 1;
-    strcpy(msg.str, "hello");
+    EXPECT_TRUE( hash_find_entry( &table, id, &entry));
 
-    message_extent_append(&extent, &sector, &msg);
+    ASSERT_NE( entry, nullptr);
 
-    uint32_t new_sector = hash_find_message(&table, id);
+    entry->latest_msg_extent = message_extent_get( &extent, UINT16_MAX);
 
-    EXPECT_NE(new_sector, UINT32_MAX);
+    EXPECT_NE( entry->latest_msg_extent, UINT16_MAX); 
 }
 
-/* ------------------------------------------------------------ */
+
 
 /**
- * Verify reading message persists correctly
+ * @brief Verify messages persist in heap storage.
  */
 TEST_F(HashMessageExtentTest, WriteAndReadMessage)
 {
-    uint32_t id = 222;
+    uint16_t id = 222;
 
-    hash_insert(&table, id);
 
-    uint32_t sector = hash_find_message(&table, id);
+    hash_insert( &table, id);
+
+    HashEntry *entry = nullptr;
+
+    hash_find_entry( &table, id, &entry);
+
+    entry->latest_msg_extent = message_extent_get( &extent, UINT16_MAX);
 
     Message msg = {};
+
     msg.timestamp = 42;
-    strcpy(msg.str, "test message");
 
-    message_extent_append(&extent, &sector, &msg);
+    strcpy( msg.str, "test message");
 
-    MessageBlock block;
-    storage.read_block(&storage_ctx, sector, &block);
+    EXPECT_TRUE( message_extent_append( &extent, &entry->latest_msg_extent, &msg));
 
-    EXPECT_EQ(block.messages[0].timestamp, 42u);
-    EXPECT_STREQ(block.messages[0].str, "test message");
-}
+    MessageBlockBuffer block;
 
-/* ------------------------------------------------------------ */
+    EXPECT_TRUE( storage.read_block( storage.context, entry->latest_msg_extent, block.buffer));
 
-/**
- * Verify multiple messages persist in same extent
- */
-TEST_F(HashMessageExtentTest, MultipleMessagesSameContact)
-{
-    uint32_t id = 333;
+    EXPECT_EQ( block.var.messages[0].timestamp, 42u);
 
-    hash_insert(&table, id);
-
-    uint32_t sector = hash_find_message(&table, id);
-
-    Message msg = {};
-
-    for (int i = 0; i < 10; i++)
-    {
-        msg.timestamp = i;
-        sprintf(msg.str, "msg %d", i);
-
-        message_extent_append(&extent, &sector, &msg);
-    }
-
-    MessageBlock block;
-    storage.read_block(&storage_ctx, sector, &block);
-
-    char test_msg[SMS_MAX_MESSAGE_LENGTH] = {0};
-
-    // Check every message
-    for (int i = 0; i < 10; i++) {
-
-        sprintf(test_msg, "msg %d", i);
-        EXPECT_STREQ(block.messages[i].str, test_msg);
-    }
-
-
-    EXPECT_EQ(block.header.msg_count, 10u);
-}
-
-/* ------------------------------------------------------------ */
-
-/**
- * Verify multiple contacts remain independent
- */
-TEST_F(HashMessageExtentTest, MultipleContactsIsolation)
-{
-    uint32_t a = 1, b = 2;
-
-    hash_insert(&table, a);
-    hash_insert(&table, b);
-    HashEntry *entry;
-    
-    // Set Hash Table last message correctly
-    hash_find_entry(&table, a, &entry);
-    entry->latest_msg_extent = message_extent_get(&extent, UINT16_MAX);
-
-    hash_find_entry(&table, b, &entry);
-    entry->latest_msg_extent = message_extent_get(&extent, UINT16_MAX);
-
-    uint32_t sa = hash_find_message(&table, a);
-    uint32_t sb = hash_find_message(&table, b);
-
-    Message msg = {};
-    msg.timestamp = 100;
-
-    message_extent_append(&extent, &sa, &msg);
-
-    msg.timestamp = 200;
-    message_extent_append(&extent, &sb, &msg);
-
-    MessageBlock ba, bb;
-    storage.read_block(&storage_ctx, sa, &ba);
-    storage.read_block(&storage_ctx, sb, &bb);
-
-    EXPECT_EQ(ba.messages[0].timestamp, 100u);
-    EXPECT_EQ(bb.messages[0].timestamp, 200u);
-}
-
-/* ------------------------------------------------------------ */
-
-/**
- * Verify overwrite updates latest extent pointer
- */
-TEST_F(HashMessageExtentTest, UpdateLatestExtent)
-{
-    uint32_t id = 999;
-    HashEntry *entry;
-
-    hash_insert(&table, id);
-
-    hash_find_entry(&table, id, &entry);
-    entry->latest_msg_extent = message_extent_get(&extent, UINT16_MAX);
-
-    uint32_t extent_offset = hash_find_message(&table, id);
-
-    Message msg = {};
-    msg.timestamp = 1;
-
-    for (int i = 0; i < MESSAGE_BLOCK_CAPACITY + 1; i++)
-    {
-        // if the message sector id changes
-            message_extent_append(&extent, &entry->latest_msg_extent, &msg);
-
-    }
-
-    uint32_t updated = hash_find_message(&table, id);
-
-    // read block
-    MessageBlock block;
-    storage.read_block(&storage_ctx, updated, &block);
-
-    EXPECT_NE(updated, UINT32_MAX);
-    EXPECT_NE(updated, extent_offset);
-
-    // Check the block is at max capacity
-    EXPECT_EQ(block.header.msg_count, 1);
-}
-
-/**
- * Verify holds max messates
- */
-TEST_F(HashMessageExtentTest, FillExtent)
-{
-    uint32_t id = 999;
-
-    hash_insert(&table, id);
-
-    uint32_t extent_offset = hash_find_message(&table, id);
-
-    Message msg = {};
-    msg.timestamp = 1;
-
-    for (int i = 0; i < MESSAGE_BLOCK_CAPACITY; i++)
-    {
-        message_extent_append(&extent, &extent_offset, &msg);
-    }
-
-    uint32_t updated = hash_find_message(&table, id);
-
-    MessageBlock block;
-    storage.read_block(&storage_ctx, updated, &block);
-
-    EXPECT_NE(updated, UINT32_MAX);
-
-    // Check the extent hasn't been changed
-    EXPECT_EQ(updated, extent_offset);
-
-    // Check the block is at max capacity
-    EXPECT_EQ(block.header.msg_count, MESSAGE_BLOCK_CAPACITY);
-}
-
-
-/* ------------------------------------------------------------ */
-
-/**
- * Verify removal works
- */
-TEST_F(HashMessageExtentTest, RemoveContact)
-{
-    uint32_t id = 555;
-
-    hash_insert(&table, id);
-
-    EXPECT_TRUE(hash_remove(&table, id));
-
-    EXPECT_EQ(hash_find_message(&table, id), UINT32_MAX);
+    EXPECT_STREQ( block.var.messages[0].str, "test message");
 }

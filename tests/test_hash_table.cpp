@@ -1,400 +1,316 @@
 #include <gtest/gtest.h>
-#include <climits>
 #include <cstring>
 
 extern "C" {
-
 #include "hash_table.h"
-#include "heap_storage.h"
-
 }
 
-
 /**
- * @brief Test fixture for HashTable unit tests.
+ * @brief Test fixture for HashTable.
  *
- * Provides:
- * - Hash table
- * - Free list allocator
- * - Heap-backed storage
- *
- * This mirrors the STM32 storage architecture while using
- * RAM instead of an SD card.
+ * Creates a fresh hash table and free-list allocator for every test.
+ * Each test is completely independent.
  */
 class HashTableTest : public ::testing::Test
 {
 protected:
+    HashTable table;
 
-    static constexpr uint32_t TEST_BLOCKS = HASH_TABLE_SIZE;
+    HashEntry *entries = nullptr;
+    FreeList freelist;
 
+    uint16_t *pool = nullptr;
 
-    HashTable table;            /**< Hash table instance */
-
-    HashEntry *entries = nullptr; /**< Hash table entries */
-
-    FreeList freelist;           /**< Sector allocator */
-
-
-    HeapStorageContext storage_ctx; /**< Heap storage context */
-
-    Storage storage;               /**< Storage interface */
-
-
-    uint8_t *storage_memory = nullptr;
-
-
-    /**
-     * @brief Initialise test environment.
-     *
-     * Creates RAM-backed storage, initialises the free list,
-     * and creates the hash table.
-     */
     void SetUp() override
     {
-
-        /*
-         * Allocate hash table memory
-         */
         entries = new HashEntry[HASH_TABLE_SIZE];
-
 
         ASSERT_NE(entries, nullptr);
 
+        std::memset(entries, 0, sizeof(HashEntry) * HASH_TABLE_SIZE);
 
-        memset(
-            entries,
-            0,
-            sizeof(HashEntry) * HASH_TABLE_SIZE);
+        pool = new uint16_t[HASH_TABLE_SIZE];
 
-
-
-        /*
-         * Allocate heap storage
-         */
-        storage_memory =
-            new uint8_t[
-                TEST_BLOCKS * sizeof(Contact)
-            ];
-
-
-        ASSERT_NE(storage_memory, nullptr);
-
-
-        memset( storage_memory, 0, TEST_BLOCKS * sizeof(Contact));
-
-
-
-        /*
-         * Initialise heap storage backend
-         */
-        ASSERT_TRUE( HeapStorage_Init( &storage_ctx, storage_memory, sizeof(Contact), TEST_BLOCKS));
-
-
-
-        storage = heap_storage;
-
-        storage.context = &storage_ctx;
-
-
-
-        /*
-         * Initialise free list
-         */
-        uint16_t *pool = new uint16_t[HASH_TABLE_SIZE];
-
-
-        for(uint16_t i = 0; i < HASH_TABLE_SIZE; i++)
-        {
-            pool[i] = i;
-        }
-
+        ASSERT_NE(pool, nullptr);
 
         ASSERT_TRUE( free_list_init( &freelist, pool, HASH_TABLE_SIZE));
 
-
-
-        /*
-         * Initialise hash table
-         */
-        hash_init( &table, &freelist, entries, HASH_TABLE_SIZE, &storage);
+        hash_init( &table, &freelist, entries, HASH_TABLE_SIZE);
     }
 
-
-
-    /**
-     * @brief Cleanup test resources.
-     */
     void TearDown() override
     {
-
         hash_clear(&table);
 
-
         delete[] entries;
-
-        entries = nullptr;
-
-
-        delete[] storage_memory;
-
-        storage_memory = nullptr;
-
-
         delete[] freelist.free_stack;
     }
-
 };
 
-
+/**
+ * @brief Verify a newly initialised table is empty.
+ */
+TEST_F(HashTableTest, Initialise)
+{
+    EXPECT_EQ(hash_size(&table), 0u);
+    EXPECT_EQ(table.size, HASH_TABLE_SIZE);
+}
 
 /**
- * @brief Verify basic insertion.
+ * @brief Verify inserting a single contact succeeds.
  */
-TEST_F(HashTableTest, InsertBasic)
+TEST_F(HashTableTest, InsertSingle)
 {
     EXPECT_TRUE(hash_insert(&table, 100));
 
-    EXPECT_TRUE(hash_insert(&table, 200));
+    EXPECT_EQ(hash_size(&table), 1u);
 
-
-    EXPECT_EQ(
-        hash_size(&table),
-        2u);
+    EXPECT_NE(hash_find_sector(&table, 100), UINT16_MAX);
 }
 
-
-
 /**
- * @brief Verify duplicate insertion.
+ * @brief Verify duplicate insertion does not create another entry.
  */
 TEST_F(HashTableTest, DuplicateInsert)
 {
-    EXPECT_TRUE(
-        hash_insert(
-            &table,
-            55));
+    EXPECT_TRUE(hash_insert(&table, 55));
 
+    size_t before = hash_size(&table);
 
-    size_t before =
-        hash_size(&table);
+    EXPECT_TRUE(hash_insert(&table, 55));
 
-
-    EXPECT_TRUE(
-        hash_insert(
-            &table,
-            55));
-
-
-    EXPECT_EQ(
-        hash_size(&table),
-        before);
+    EXPECT_EQ(hash_size(&table), before);
 }
 
+/**
+ * @brief Verify many sequential insertions.
+ */
+TEST_F(HashTableTest, InsertMany)
+{
+    for (uint16_t i = 0; i < 1000; i++)
+    {
+        EXPECT_TRUE(hash_insert(&table, i));
+    }
 
+    EXPECT_EQ(hash_size(&table), 1000u);
+}
 
 /**
- * @brief Verify lookup of existing entries.
+ * @brief Verify lookup of an existing contact.
  */
 TEST_F(HashTableTest, FindExisting)
 {
-    EXPECT_TRUE(
-        hash_insert(
-            &table,
-            1234));
+    hash_insert(&table, 123);
 
-
-    uint32_t sector =
-        hash_find(
-            &table,
-            1234);
-
-
-    EXPECT_NE(
-        sector,
-        UINT32_MAX);
+    EXPECT_NE(hash_find_sector(&table, 123), UINT16_MAX);
 }
 
-
-
 /**
- * @brief Verify lookup failure.
+ * @brief Verify lookup of a missing contact.
  */
 TEST_F(HashTableTest, FindMissing)
 {
-    EXPECT_EQ(
-        hash_find(
-            &table,
-            99999),
-        UINT32_MAX);
+    EXPECT_EQ(hash_find_sector(&table, 123), UINT16_MAX);
 }
 
+/**
+ * @brief Verify retrieval of a hash table entry.
+ */
+TEST_F(HashTableTest, FindEntry)
+{
+    hash_insert(&table, 500);
 
+    HashEntry *entry = nullptr;
+
+    EXPECT_TRUE(
+        hash_find_entry(
+            &table,
+            500,
+            &entry));
+
+    ASSERT_NE(entry, nullptr);
+
+    EXPECT_EQ(entry->id, 500);
+}
 
 /**
- * @brief Verify removal.
+ * @brief Verify lookup of a missing entry returns nullptr.
  */
-TEST_F(HashTableTest, RemoveEntry)
+TEST_F(HashTableTest, FindEntryMissing)
 {
-    hash_insert(
-        &table,
-        777);
+    HashEntry *entry = nullptr;
 
+    EXPECT_FALSE(
+        hash_find_entry(
+            &table,
+            999,
+            &entry));
+
+    EXPECT_EQ(entry, nullptr);
+}
+
+/**
+ * @brief Verify the message extent associated with a contact.
+ */
+TEST_F(HashTableTest, FindMessageExtent)
+{
+    hash_insert(&table, 77);
+
+    HashEntry *entry = nullptr;
+
+    ASSERT_TRUE(
+        hash_find_entry(
+            &table,
+            77,
+            &entry));
+
+    entry->latest_msg_extent = 42;
+
+    EXPECT_EQ(
+        hash_find_message(
+            &table,
+            77),
+        42);
+}
+
+/**
+ * @brief Verify requesting the message extent of a missing
+ * contact returns UINT16_MAX.
+ */
+TEST_F(HashTableTest, FindMessageExtentMissing)
+{
+    EXPECT_EQ(
+        hash_find_message(
+            &table,
+            555),
+        UINT16_MAX);
+}
+
+/**
+ * @brief Verify removing an existing contact.
+ */
+TEST_F(HashTableTest, RemoveExisting)
+{
+    hash_insert(&table, 20);
+
+    HashEntry *removed = nullptr;
 
     EXPECT_TRUE(
         hash_remove(
             &table,
-            777));
+            20,
+            &removed));
 
+    ASSERT_NE(removed, nullptr);
 
-    EXPECT_EQ(
-        hash_find(
-            &table,
-            777),
-        UINT32_MAX);
+    EXPECT_EQ(removed->id, 20);
+
+    EXPECT_EQ(hash_find_sector(&table, 20), UINT16_MAX);
+
+    EXPECT_EQ(hash_size(&table), 0u);
 }
 
-
-
 /**
- * @brief Verify failed removal.
+ * @brief Verify removing a non-existent contact fails.
  */
 TEST_F(HashTableTest, RemoveMissing)
 {
-    EXPECT_FALSE(
-        hash_remove(
-            &table,
-            404));
+    HashEntry *removed = nullptr;
+
+    EXPECT_FALSE( hash_remove( &table, 200, &removed));
+
+    EXPECT_EQ(removed, nullptr);
 }
 
-
-
 /**
- * @brief Verify size tracking.
+ * @brief Verify clearing the hash table removes all entries.
  */
-TEST_F(HashTableTest, SizeTracking)
+TEST_F(HashTableTest, ClearTable)
 {
-    for(uint32_t i = 0; i < 50; i++)
+    for (uint16_t i = 0; i < 100; i++)
     {
-        EXPECT_TRUE(
-            hash_insert(
-                &table,
-                i));
+        hash_insert(&table, i);
     }
-
-
-    EXPECT_EQ(
-        hash_size(&table),
-        50u);
-}
-
-
-
-/**
- * @brief Verify table reset.
- */
-TEST_F(HashTableTest, ClearResetsTable)
-{
-    hash_insert(&table,1);
-    hash_insert(&table,2);
-    hash_insert(&table,3);
-
 
     hash_clear(&table);
 
+    EXPECT_EQ(hash_size(&table), 0u);
 
-    EXPECT_EQ(
-        hash_size(&table),
-        0u);
+    for (uint16_t i = 0; i < 100; i++)
+    {
+        EXPECT_EQ(hash_find_sector(&table, i), UINT16_MAX);
+    }
 }
 
-
-
 /**
- * @brief Verify storage allocation.
- *
- * Confirms inserted IDs are assigned unique storage blocks.
- */
-TEST_F(HashTableTest, StorageAllocation)
-{
-    hash_insert(&table,10);
-
-    hash_insert(&table,20);
-
-
-    uint32_t sector1 =
-        hash_find(
-            &table,
-            10);
-
-
-    uint32_t sector2 =
-        hash_find(
-            &table,
-            20);
-
-
-    EXPECT_NE(
-        sector1,
-        sector2);
-}
-
-
-
-/**
- * @brief Verify collision handling.
+ * @brief Verify collision resolution using two keys that hash
+ * to the same primary bucket.
  */
 TEST_F(HashTableTest, CollisionHandling)
 {
-    uint32_t id1 = 10;
+    uint16_t id1 = 10;
+    uint16_t id2 = static_cast<uint16_t>(10 + HASH_TABLE_SIZE);
 
-    uint32_t id2 =
-        10 + HASH_TABLE_SIZE;
+    EXPECT_TRUE(hash_insert(&table, id1));
+    EXPECT_TRUE(hash_insert(&table, id2));
 
+    EXPECT_NE(hash_find_sector(&table, id1), UINT16_MAX);
+    EXPECT_NE(hash_find_sector(&table, id2), UINT16_MAX);
 
-    EXPECT_TRUE(
-        hash_insert(
-            &table,
-            id1));
-
-
-    EXPECT_TRUE(
-        hash_insert(
-            &table,
-            id2));
-
-
-    EXPECT_NE(
-        hash_find(&table,id1),
-        UINT32_MAX);
-
-
-    EXPECT_NE(
-        hash_find(&table,id2),
-        UINT32_MAX);
-
-
-    EXPECT_GT(
-        table.collision_count,
-        0u);
+#ifdef HOST_BUILD
+    EXPECT_GT(table.collision_count, 0u);
+#endif
 }
 
-
-
 /**
- * @brief Verify large insertion workload.
+ * @brief Verify the hash table supports a large number of entries.
  */
-TEST_F(HashTableTest, FullFillStress)
+TEST_F(HashTableTest, LargeInsertion)
 {
-    for(uint32_t i = 1; i <= 10000; i++)
+    for (uint16_t i = 0; i < 10000; i++)
     {
-        EXPECT_TRUE(
-            hash_insert(
-                &table,
-                i));
+        EXPECT_TRUE(hash_insert(&table, i));
     }
 
+    EXPECT_EQ(hash_size(&table), 10000u);
+}
 
-    EXPECT_EQ(
-        hash_size(&table),
-        10000u);
+/**
+ * @brief Verify modifying one contact's message extent does not
+ * affect another contact.
+ */
+TEST_F(HashTableTest, IndependentMessageExtents)
+{
+    hash_insert(&table, 1);
+    hash_insert(&table, 2);
+
+    HashEntry *a = nullptr;
+    HashEntry *b = nullptr;
+
+    ASSERT_TRUE(hash_find_entry(&table, 1, &a));
+    ASSERT_TRUE(hash_find_entry(&table, 2, &b));
+
+    a->latest_msg_extent = 100;
+    b->latest_msg_extent = 200;
+
+    EXPECT_EQ(hash_find_message(&table, 1), 100);
+    EXPECT_EQ(hash_find_message(&table, 2), 200);
+}
+
+/**
+ * @brief Verify every inserted contact is allocated a unique sector.
+ */
+TEST_F(HashTableTest, UniqueSectorAllocation)
+{
+    hash_insert(&table, 10);
+    hash_insert(&table, 20);
+    hash_insert(&table, 30);
+
+    uint16_t s1 = hash_find_sector(&table, 10);
+    uint16_t s2 = hash_find_sector(&table, 20);
+    uint16_t s3 = hash_find_sector(&table, 30);
+
+    EXPECT_NE(s1, s2);
+    EXPECT_NE(s1, s3);
+    EXPECT_NE(s2, s3);
 }

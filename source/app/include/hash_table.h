@@ -35,7 +35,7 @@ typedef struct
     char name[MAX_NAME_LEN];   /**< Contact name */
     uint8_t phone_len;         /**< Length of phone number */
     char phone[MAX_PHONE_LEN]; /**< Phone number */
-    uint32_t offset_id;        /**< Unique offset identifier */
+    uint16_t offset_id;        /**< Unique offset identifier */
 } Contact;
 
 typedef union {
@@ -48,9 +48,9 @@ typedef union {
 typedef struct
 {
     EntryState state;  // Entry occupation state
-    uint32_t id; // Contact ID
-    uint32_t sector; // SD Sector
-    uint32_t latest_msg_extent; // Latest Message Extent offset
+    uint16_t id; // Contact ID
+    uint16_t sector; // SD Sector
+    uint16_t latest_msg_extent; // Latest Message Extent offset
 } HashEntry;
 
 
@@ -58,10 +58,9 @@ typedef struct
 typedef struct 
 {
     HashEntry *htable; // In RAM hash table
-    Storage *storage; // Storage type being used (Heap or SD Card)
     FreeList *free_stack; // List of free list stack pointers
-    size_t capacity;
-    size_t size;
+    size_t num_elems; // amount of elements in table
+    size_t size; // total space in table 
 #if defined (HOST_BUILD)
     size_t collision_count; // for benchmarking hash functions
 #endif
@@ -74,11 +73,9 @@ typedef struct
   * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
   * @param  entries: In RAM storage of hash table entries
   * @param  size: number of elements in hash table
-  * @param  size: storage medium (Heap or SD Card) 
   */
 
-void hash_init( HashTable* table, FreeList *fstacks,  HashEntry* entries, size_t
-        size, Storage *storage);
+void hash_init( HashTable* table, FreeList *fstacks,  HashEntry* entries, size_t size);
 
 /**
   * @brief  Destroy a hash table and free all associated memory
@@ -93,7 +90,7 @@ void hash_destroy(HashTable *table);
   * @param  contact: Contact to insert
   * @retval true if the contact was inserted successfully, false otherwise
   */
-bool hash_insert(HashTable *table, uint32_t id);
+bool hash_insert(HashTable *table, uint16_t id);
 
 /**
   * @brief  Find a contact by its unique ID
@@ -101,10 +98,16 @@ bool hash_insert(HashTable *table, uint32_t id);
   * @param  id: Contact ID to search for
   * @retval Pointer to the matching contact, or NULL if not found
   */
-uint32_t hash_find(HashTable *table, uint32_t id);
+uint16_t hash_find_sector(HashTable *table, uint16_t id);
 
-// TEMP FIX, needs to be transferred to hash_find
-uint32_t hash_find_entry(HashTable *table, uint32_t id, HashEntry** out);
+/**
+  * @brief  Find a contact by its unique ID
+  * @param  table: Pointer to the hash table
+  * @param  id: Contact ID to search for
+  * @param  out: Output HashEntry pointer
+  * @retval True if entry found else false
+  */
+bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out);
 
 /**
   * @brief  Find a contacts message extent offset
@@ -112,15 +115,16 @@ uint32_t hash_find_entry(HashTable *table, uint32_t id, HashEntry** out);
   * @param  id: Contact ID to search for
   * @retval Pointer to the matching message extent, or NULL if not found
   */
-uint32_t hash_find_message(HashTable *table, uint32_t id);
+uint16_t hash_find_message(HashTable *table, uint16_t id);
 
 /**
   * @brief  Remove a contact from the hash table
   * @param  table: Pointer to the hash table
   * @param  id: Contact ID to remove
+  * @param removed: removed entry
   * @retval true if the contact was removed, false if it was not found
   */
-bool hash_remove(HashTable *table, uint32_t id);
+bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed);
 
 /**
   * @brief  Get the number of contacts currently stored in the hash table

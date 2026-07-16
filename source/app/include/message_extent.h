@@ -15,12 +15,13 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include "free_list_stack.h"
+#include "storage.h"
 
 #define EXTENT_SIZE_BYTES 4096
 #define SMS_MAX_MESSAGE_LENGTH 160
 
 #define MESSAGE_BYTES 164
-#define MESSAGE_BLOCK_HEADER_BYTES 8
+#define MESSAGE_BLOCK_HEADER_BYTES 6
 #define MESSAGE_BLOCK_BYTES 4096
 
 // Fit messages into a 4KB block of memory
@@ -50,10 +51,10 @@ typedef struct {
 } Message;
 
 
-// Message Struct (8B)
+// Message Struct (6B)
 typedef struct
 {
-    uint32_t prev; // Previous Extent (4B)
+    uint16_t prev; // Previous Extent (2B)
     uint16_t msg_count; // Number of messages in the block (2B)
     EXTENT_STATE state; // Extent State (1B)
     uint8_t padding; // 1B
@@ -71,34 +72,25 @@ typedef struct
 
 typedef union
 {
-    MessageBlock block;
-    uint8_t bytes[sizeof(MessageBlock)];
+    MessageBlock var;
+    uint8_t buffer[sizeof(MessageBlock)];
 } MessageBlockBuffer;
 
 
 // Static checks to ensure the size of the struct are correct
 STATIC_ASSERT(sizeof(Message) == MESSAGE_BYTES, "Unexpected MessageBlockHeader size");
-STATIC_ASSERT(sizeof(MessageBlockHeader) == MESSAGE_BLOCK_HEADER_BYTES, "Unexpected MessageBlockHeader size");
+STATIC_ASSERT(sizeof(MessageBlockHeader) == MESSAGE_BLOCK_HEADER_BYTES, "Unexpected \
+        MessageBlockHeader size");
 STATIC_ASSERT(sizeof(MessageBlock) == MESSAGE_BLOCK_BYTES, "Unexpected MessageBlockHeader size");
-
-
-// Storage Abstraction Struct
-typedef struct 
-{
-    void * context;  // Storage context
-    bool (*read_block)(void *context, uint32_t index, MessageBlock *out);
-    bool (*write_block)(void *context, uint32_t index, const MessageBlock *in);
-    uint32_t (*capacity)(void *context);
-} MessageStorage;
 
 typedef struct
 {
-    MessageStorage *storage;
+    Storage *storage;
     FreeList *free_stack; // Free List Stack
 
-    uint32_t bottom_extent; // furthest current extent from top of stack
-    uint32_t total_extents; // total number of extents allocated
-    uint32_t capacity; // number of used extents
+    uint16_t bottom_extent; // furthest current extent from top of stack
+    uint16_t total_extents; // total number of extents allocated
+    uint16_t num_extents; // number of used extents
 } MessageExtent;
 
 /**
@@ -109,22 +101,21 @@ typedef struct
  * @param blocks Storage array.
  * @param total_extents Number of extents.
  */
-bool message_extent_init( MessageExtent *self, MessageStorage *storage, FreeList *free_list, 
-        uint32_t total_extents);
+bool message_extent_init( MessageExtent *self, Storage *storage, FreeList *free_list, uint16_t total_extents);
 
 /**
  * @brief Allocate the first extent for a new conversation.
  *
  * @return Extent index or INVALID_EXTENT.
  */
-uint32_t message_extent_get(MessageExtent *self, uint32_t prev_extent);
+uint16_t message_extent_get(MessageExtent *self, uint16_t prev_extent);
 
 /**
  * @brief Delete an entire conversation.
  *
  * @param last_extent Last extent in the chain.
  */
-bool message_extent_delete( MessageExtent *self, uint32_t last_extent);
+bool message_extent_delete( MessageExtent *self, uint16_t last_extent);
 
 /**
  * @brief Append a message to a conversation.
@@ -136,7 +127,7 @@ bool message_extent_delete( MessageExtent *self, uint32_t last_extent);
  *
  * @retval true Success.
  */
-bool message_extent_append( MessageExtent *self, uint32_t *last_extent, const Message *message);
+bool message_extent_append( MessageExtent *self, uint16_t *last_extent, const Message *message);
 
 /**
  * @brief Read a message by logical index.
@@ -145,14 +136,14 @@ bool message_extent_append( MessageExtent *self, uint32_t *last_extent, const Me
  * @param index Logical message index.
  * @param out Output message.
  */
-// bool message_extent_get(MessageExtent *self, uint32_t first_extent, uint32_t index, Message
+// bool message_extent_get(MessageExtent *self, uint16_t first_extent, uint16_t index, Message
 //         *out);
 
 
 /**
  * @brief Count messages in a conversation.
  */
-uint32_t message_extent_count(MessageExtent *self, uint32_t last_extent);
+uint16_t message_extent_count(MessageExtent *self, uint16_t last_extent);
 
 /**
  * @brief Reset all extents.

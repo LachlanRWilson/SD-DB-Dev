@@ -1,72 +1,143 @@
-#include "test_message_extent.h"
+#include "test_db_extent.h"
 
 #include <stdio.h>
 #include <string.h>
 
+#include "message_extent.h"
+#include "free_list_stack.h"
+
 
 /**
- * @brief Create a test message.
- *
- * @param id Message identifier.
- *
- * @return Initialised message structure.
+ * @brief Verify a message is equal.
  */
-static Message create_message(uint16_t id)
+static bool message_equal(
+    const Message *a,
+    const Message *b)
 {
-    Message msg = {0};
-
-    msg.timestamp = id;
-    msg.direction = 1;
-
-    sprintf(msg.str, "Test message %u", id);
-
-    return msg;
+    return
+        a->timestamp == b->timestamp &&
+        a->direction == b->direction &&
+        strcmp(a->str, b->str) == 0;
 }
 
 
+
 /**
- * @brief Test allocation of a new message extent.
- *
- * Verifies that a new extent can be allocated and that
- * the extent header is correctly initialised.
- *
- * @param manager Message extent manager.
- *
- * @return true if successful.
+ * @brief Test allocating a new message extent.
  */
-bool test_extent_create(MessageExtent *manager)
+bool test_extent_allocate(MessageExtent *extent)
 {
-    printf("Running Extent Create Test...\r\n");
+    printf("Running Extent Allocation Test...\r\n");
+
+    uint16_t idx = message_extent_get( extent, UINT16_MAX);
 
 
-    uint32_t extent =
-        message_extent_get(manager, INVALID_EXTENT);
-
-
-    if(extent == INVALID_EXTENT)
+    if (idx == UINT16_MAX)
     {
-        printf("FAILED: Allocation\r\n");
+        printf("FAILED\r\n");
         return false;
     }
 
 
-    MessageBlock block = {0};
-
-
-    if(!manager->storage->read_block(
-        manager->storage->context,
-        extent,
-        &block))
+    if (extent->num_extents != 1)
     {
-        printf("FAILED: Read\r\n");
+        printf("FAILED\r\n");
         return false;
     }
 
 
-    if(block.header.state != EXTENT_EMPTY ||
-       block.header.msg_count != 0)
+    printf("PASSED\r\n");
+    return true;
+}
+
+
+
+/**
+ * @brief Test writing and reading a single message.
+ */
+bool test_single_message(MessageExtent *extent)
+{
+
+    // Get a message extent sector index
+    uint16_t idx = message_extent_get( extent, UINT16_MAX);
+
+
+    // Create a message
+    Message tx = {0};
+
+    tx.timestamp = 123;
+    tx.direction = true;
+
+    strcpy( tx.str, "Hello World");
+
+
+    // append a message to the extent 
+    if (!message_extent_append( extent, &idx, &tx))
     {
-        printf("FAILED: Header\r\n");
+        printf("FAILED WRITE\r\n");
+        return false;
+    }
+
+
+
+    MessageBlockBuffer block;
+
+
+    //  read message block
+    if (!extent->storage->read_block( extent->storage->context, idx, block.buffer))
+    {
+        printf("FAILED READ\r\n");
+        return false;
+    }
+
+
+
+    // check the message block is equal to the appended one
+    if (!message_equal( &tx, &block.var.messages[0]))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+
+
+
+/**
+ * @brief Test multiple messages in one extent.
+ */
+bool test_multiple_messages(MessageExtent *extent)
+{
+
+    // Get a message extent sector from allocator
+    uint16_t idx = message_extent_get( extent, UINT16_MAX);
+
+
+    Message msg = {0};
+
+
+    // Append 20 messages to given message extent
+    for(uint16_t i = 0; i < 20; i++)
+    {
+        msg.timestamp = i;
+
+        sprintf( msg.str, "Message %u", i);
+
+
+        // append message to message block
+        if(!message_extent_append( extent, &idx, &msg))
+        {
+            return false;
+        }
+    }
+
+    // get the count extent (should be for only one extent)
+    uint16_t count = message_extent_count( extent, idx);
+
+    // check the message block count
+    if(count != 20)
+    {
         return false;
     }
 
@@ -78,54 +149,147 @@ bool test_extent_create(MessageExtent *manager)
 
 
 
+
 /**
- * @brief Test appending messages to a single extent.
- *
- * Adds several messages and verifies the stored count.
- *
- * @param manager Message extent manager.
- *
- * @return true if messages are stored correctly.
+ * @brief Test allocation of a new extent when full.
  */
-bool test_extent_append(MessageExtent *manager)
+bool test_extent_chaining(MessageExtent *extent)
 {
-    printf("Running Extent Append Test...\r\n");
+    printf("Running Extent Chain Test...\r\n");
 
 
-    uint32_t extent =
-        message_extent_get(manager, INVALID_EXTENT);
+    uint16_t idx = message_extent_get( extent, UINT16_MAX);
+
+    Message msg = {0};
 
 
-    if(extent == INVALID_EXTENT)
+    for(uint32_t i = 0; i < MESSAGE_BLOCK_CAPACITY + 10; i++)
     {
-        return false;
-    }
+        msg.timestamp = i;
 
-
-    for(uint16_t i = 0; i < 5; i++)
-    {
-        Message msg =
-            create_message(i);
-
-
-        if(!message_extent_append(
-                manager,
-                &extent,
-                &msg))
+        if(!message_extent_append( extent, &idx, &msg))
         {
-            printf("FAILED append %d\r\n", i);
+            printf("FAILED APPEND\r\n");
             return false;
         }
     }
 
 
-    uint32_t count =
-        message_extent_count(manager, extent);
+
+    MessageBlockBuffer block;
 
 
-    if(count != 5)
+    extent->storage->read_block( extent->storage->context, idx, block.buffer);
+
+
+
+    if(block.var.header.prev == UINT16_MAX)
     {
-        printf("FAILED count %lu\r\n",
+        printf("FAILED NO CHAIN\r\n");
+        return false;
+    }
+
+
+    printf("PASSED\r\n");
+
+    return true;
+}
+
+
+
+
+/**
+ * @brief Test deleting a conversation.
+ */
+bool test_delete_conversation(MessageExtent *extent)
+{
+    printf("Running Delete Conversation Test...\r\n");
+
+
+    uint16_t idx =
+        message_extent_get(
+            extent,
+            UINT16_MAX);
+
+
+
+    Message msg = {0};
+
+
+    for(int i = 0; i < 10; i++)
+    {
+        msg.timestamp = i;
+
+        message_extent_append(
+            extent,
+            &idx,
+            &msg);
+    }
+
+
+
+    if(!message_extent_delete(
+            extent,
+            idx))
+    {
+        printf("FAILED\r\n");
+        return false;
+    }
+
+
+    printf("PASSED\r\n");
+
+    return true;
+}
+
+
+
+
+/**
+ * @brief Stress test large conversation.
+ */
+bool test_large_conversation(MessageExtent *extent)
+{
+    printf("Running Large Conversation Test...\r\n");
+
+
+    uint16_t idx =
+        message_extent_get(
+            extent,
+            UINT16_MAX);
+
+
+    Message msg = {0};
+
+
+
+    for(uint32_t i = 0; i < 1000; i++)
+    {
+        msg.timestamp = i;
+
+        if(!message_extent_append(
+                extent,
+                &idx,
+                &msg))
+        {
+            printf("FAILED\r\n");
+            return false;
+        }
+    }
+
+
+
+    uint16_t count =
+        message_extent_count(
+            extent,
+            idx);
+
+
+
+    if(count != 1000)
+    {
+        printf(
+            "FAILED COUNT %u\r\n",
             count);
 
         return false;
@@ -139,141 +303,26 @@ bool test_extent_append(MessageExtent *manager)
 
 
 
-/**
- * @brief Test creation of multiple extents.
- *
- * Fills one extent until full and verifies that
- * a second extent is allocated.
- *
- * @param manager Message extent manager.
- *
- * @return true if chaining works.
- */
-bool test_extent_multiple_blocks(MessageExtent *manager)
-{
-    printf("Running Multiple Extent Test...\r\n");
-
-
-    uint32_t extent =
-        message_extent_get(manager,
-                           INVALID_EXTENT);
-
-
-    uint32_t first = extent;
-
-
-    for(uint32_t i = 0;
-        i < MESSAGE_BLOCK_CAPACITY + 5;
-        i++)
-    {
-        Message msg =
-            create_message(i);
-
-
-        if(!message_extent_append(
-            manager,
-            &extent,
-            &msg))
-        {
-            printf("FAILED append\r\n");
-            return false;
-        }
-    }
-
-
-    if(extent == first)
-    {
-        printf("FAILED: no new extent\r\n");
-        return false;
-    }
-
-
-    uint32_t count =
-        message_extent_count(manager, extent);
-
-
-    if(count != MESSAGE_BLOCK_CAPACITY + 5)
-    {
-        printf("FAILED count %lu\r\n",
-               count);
-
-        return false;
-    }
-
-
-    printf("PASSED\r\n");
-
-    return true;
-}
-
-
 
 /**
- * @brief Test deleting a message extent chain.
- *
- * Allocates several extents, then deletes the chain
- * and verifies that the free list receives them back.
- *
- * @param manager Message extent manager.
- *
- * @return true if deletion succeeds.
+ * @brief Execute all message extent tests.
  */
-bool test_extent_delete(MessageExtent *manager)
-{
-    printf("Running Extent Delete Test...\r\n");
-
-
-    uint32_t extent =
-        message_extent_get(manager,
-                           INVALID_EXTENT);
-
-
-    uint32_t allocated =
-        manager->capacity;
-
-
-    if(!message_extent_delete(
-        manager,
-        extent))
-    {
-        printf("FAILED delete\r\n");
-        return false;
-    }
-
-
-    if(manager->capacity != allocated-1)
-    {
-        printf("FAILED capacity\r\n");
-        return false;
-    }
-
-
-    printf("PASSED\r\n");
-
-    return true;
-}
-
-
-
-/**
- * @brief Run all message extent tests.
- *
- * @param manager Message extent manager.
- *
- * @return true if all tests pass.
- */
-bool test_extent_run(MessageExtent *manager)
+bool test_db_extents(MessageExtent *extent)
 {
     bool pass = true;
 
 
-    pass &= test_extent_create(manager);
+    pass &= test_extent_allocate(extent);
 
-    pass &= test_extent_append(manager);
+    pass &= test_single_message(extent);
 
-    pass &= test_extent_multiple_blocks(manager);
+    pass &= test_multiple_messages(extent);
 
-    pass &= test_extent_delete(manager);
+    pass &= test_extent_chaining(extent);
+
+    pass &= test_delete_conversation(extent);
+
+    pass &= test_large_conversation(extent);
 
 
     return pass;

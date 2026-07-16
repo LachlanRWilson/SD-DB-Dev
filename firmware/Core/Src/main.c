@@ -27,7 +27,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "db_main.h"
+#include "db_extent_main.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -107,7 +107,8 @@ int main(void)
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
   //MX_FREERTOS_Init();
 
-  DB_Init();
+
+  DB_Extent_Init();
 
   /* Start scheduler */
   osKernelStart();

@@ -5,9 +5,9 @@
   * @brief  Primary Hash Function
   * @param  key: entry key
   * @param  capacity: Number of entries 
-  * @retval uint32_t: Hash Code
+  * @retval uint16_t: Hash Code
   */
-static inline uint32_t hash_primary(uint32_t key, uint32_t capacity)
+static inline uint16_t hash_primary(uint16_t key, uint16_t capacity)
 {
     return key % capacity;
 }
@@ -16,9 +16,9 @@ static inline uint32_t hash_primary(uint32_t key, uint32_t capacity)
   * @brief  Seconary Hash Function
   * @param  key: entry key
   * @param  capacity: Number of entries 
-  * @retval uint32_t: Hash Code
+  * @retval uint16_t: Hash Code
   */
-static inline uint32_t hash_secondary(uint32_t key, uint32_t capacity)
+static inline uint16_t hash_secondary(uint16_t key, uint16_t capacity)
 {
     // must never be 0
     return 1 + (key % (capacity - 1));
@@ -30,28 +30,14 @@ static inline uint32_t hash_secondary(uint32_t key, uint32_t capacity)
   * @param  key: entry key
   * @param attemptNum: Hashing attempt number
   * @param  capacity: Number of entries 
-  * @retval uint32_t: Hash Code
+  * @retval uint16_t: Hash Code
   */
-static inline uint32_t hash_double(uint32_t key, uint32_t attemptNum, uint32_t capacity)
+static inline uint16_t hash_double(uint16_t key, uint16_t attemptNum, uint16_t capacity)
 {
-    uint32_t h1 = hash_primary(key, capacity);
-    uint32_t h2 = hash_secondary(key, capacity);
+    uint16_t h1 = hash_primary(key, capacity);
+    uint16_t h2 = hash_secondary(key, capacity);
 
     return (h1 + attemptNum * h2) % capacity;
-}
-
-/**
-  * @brief  Create a hash table
-  * @param  buckets: Number of buckets (hash table capacity)
-  * @retval HashTable*: Pointer to the newly created hash table, or NULL on failure
-  */
-void hash_create( HashTable* table, FreeList *fstack,  HashEntry* entries, size_t
-        size)
-{
-    table->htable = entries;
-    table->free_stack = fstack;
-    table->capacity = size;
-    table->size = 0;
 }
 
 /**
@@ -60,16 +46,14 @@ void hash_create( HashTable* table, FreeList *fstack,  HashEntry* entries, size_
   * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
   * @param  entries: In RAM storage of hash table entries
   * @param  size: number of elements in hash table
-  * @param  size: storage medium (Heap or SD Card) 
   */
 void hash_init( HashTable* table, FreeList *fstack,  HashEntry* entries, size_t
-        size, Storage *storage)
+        size)
 {
     table->htable = entries;
     table->free_stack = fstack;
-    table->capacity = size;
-    table->storage = storage;
-    table->size = 0;
+    table->size = size;
+    table->num_elems = 0;
 }
 
 /**
@@ -89,17 +73,17 @@ void hash_destroy(HashTable *table)
   * @param  contact: Contact to insert
   * @retval true if the contact was inserted successfully, false otherwise
   */
-bool hash_insert(HashTable *table, uint32_t id)
+bool hash_insert(HashTable *table, uint16_t id)
 {
     // Pre calculate double hash
-    uint32_t h1 = hash_primary(id, table->capacity);
-    uint32_t h2 = hash_secondary(id, table->capacity);
+    uint16_t h1 = hash_primary(id, table->size);
+    uint16_t h2 = hash_secondary(id, table->size);
 
-    // Iterate until no collision (shouldn't be too many as table is limited to 70% table->capacity)
-    for (uint32_t i = 0; i < table->capacity; i++)
+    // Iterate until no collision (shouldn't be too many as table is limited to 70% table->size)
+    for (uint16_t i = 0; i < table->size; i++)
     {
         // Calculate hash code based on step
-        uint32_t index = (h1 + i * h2) % table->capacity;
+        uint16_t index = (h1 + i * h2) % table->size;
 
          HashEntry *entry = &table->htable[index];
 
@@ -109,7 +93,7 @@ bool hash_insert(HashTable *table, uint32_t id)
             entry->state = ENTRY_OCCUPIED;
             entry->id = id;
             entry->sector = free_list_allocate(table->free_stack);
-            table->size++;
+            table->num_elems++;
 
 // Collission Debugging
 #if defined (HOST_BUILD)
@@ -136,153 +120,124 @@ bool hash_insert(HashTable *table, uint32_t id)
   * @brief  Find a contact by its unique ID
   * @param  table: Pointer to the hash table
   * @param  id: Contact ID to search for
+  * @param  out: Output HashEntry pointer
+  * @retval True if entry found else false
+  */
+bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out) 
+{
+    if (table == NULL || table->htable == NULL || table->size == 0)
+    {
+        return false;
+    }
+
+    // Hash Calculations
+    uint16_t h1 = hash_primary(id, table->size);
+    uint16_t h2 = hash_secondary(id, table->size);
+
+    for (uint16_t i = 0; i < table->size; i++)
+    {
+        uint16_t index = (h1 + i * h2) % table->size;
+
+        // Get Entry from RAM
+        HashEntry *entry = &table->htable[index];
+
+        // If we hit an empty slot, key was never inserted
+        if (entry->state == ENTRY_EMPTY)
+        {
+            return false;
+        }
+
+        // If occupied and match found
+        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
+        {
+            // set the out HashEntry pointer to the HashEntry in RAM
+            *out = entry;
+            return true;
+        }
+
+        // ENTRY_DELETED -> continue probing
+    }
+
+    return false;
+}
+
+/**
+  * @brief  Find a contact by its unique ID
+  * @param  table: Pointer to the hash table
+  * @param  id: Contact ID to search for
   * @retval Pointer to the matching contact, or NULL if not found
   */
-uint32_t hash_find(HashTable *table, uint32_t id)
+uint16_t hash_find_sector(HashTable *table, uint16_t id)
 {
-    if (table == NULL || table->htable == NULL || table->capacity == 0)
+    if (table == NULL || table->htable == NULL || table->size == 0)
     {
-        return UINT32_MAX;
+        return UINT16_MAX;
     }
 
-    uint32_t h1 = hash_primary(id, table->capacity);
-    uint32_t h2 = hash_secondary(id, table->capacity);
-
-    for (uint32_t i = 0; i < table->capacity; i++)
-    {
-        uint32_t index = (h1 + i * h2) % table->capacity;
-
-        HashEntry *entry = &table->htable[index];
-
-        // If we hit an empty slot, key was never inserted
-        if (entry->state == ENTRY_EMPTY)
-        {
-            return UINT32_MAX;
-        }
-
-        // If occupied and match found
-        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
-        {
-            // NOTE:
-            // currently do NOT store Contact in RAM,
-            // only sector pointer.
-            //
-            // So this must be reconstructed or loaded from SD.
-            return entry->sector; // placeholder until SD read layer exists
-        }
-
-        // ENTRY_DELETED → continue probing
+    HashEntry *entry;
+    
+    // Get the entry, if not found through error
+    if (!hash_find_entry(table, id, &entry)) {
+        return UINT16_MAX;
     }
-
-    return UINT32_MAX;
+    
+    return entry->sector;
 }
 
-uint32_t hash_find_entry(HashTable *table, uint32_t id, HashEntry** out)
+/**
+  * @brief  Find a contacts latest message extent index
+  * @param  table: Pointer to the hash table
+  * @param  id: Contact ID to search for
+  * @retval Pointer to the matching contact, or NULL if not found
+  */
+uint16_t hash_find_message(HashTable *table, uint16_t id)
 {
-    if (table == NULL || table->htable == NULL || table->capacity == 0)
+    if (table == NULL || table->htable == NULL || table->size == 0)
     {
-        return UINT32_MAX;
+        return UINT16_MAX;
     }
 
-    uint32_t h1 = hash_primary(id, table->capacity);
-    uint32_t h2 = hash_secondary(id, table->capacity);
-
-    for (uint32_t i = 0; i < table->capacity; i++)
-    {
-        uint32_t index = (h1 + i * h2) % table->capacity;
-
-        HashEntry *entry = &table->htable[index];
-
-        // If we hit an empty slot, key was never inserted
-        if (entry->state == ENTRY_EMPTY)
-        {
-            return UINT32_MAX;
-        }
-
-        // If occupied and match found
-        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
-        {
-            // NOTE:
-            // currently do NOT store Contact in RAM,
-            // only sector pointer.
-            //
-            // So this must be reconstructed or loaded from SD.
-            *out = entry;
-            return entry->sector; // placeholder until SD read layer exists
-        }
-
-        // ENTRY_DELETED → continue probing
+    HashEntry *entry;
+    
+    // Get the entry, if not found through error
+    if (!hash_find_entry(table, id, &entry)) {
+        return UINT16_MAX;
     }
-
-    return UINT32_MAX;
+    
+    return entry->latest_msg_extent;
 }
-
-
-uint32_t hash_find_message(HashTable *table, uint32_t id)
-{
-    if (table == NULL || table->htable == NULL || table->capacity == 0)
-    {
-        return UINT32_MAX;
-    }
-
-    uint32_t h1 = hash_primary(id, table->capacity);
-    uint32_t h2 = hash_secondary(id, table->capacity);
-
-    for (uint32_t i = 0; i < table->capacity; i++)
-    {
-        uint32_t index = (h1 + i * h2) % table->capacity;
-
-        HashEntry *entry = &table->htable[index];
-
-        // If we hit an empty slot, key was never inserted
-        if (entry->state == ENTRY_EMPTY)
-        {
-            return UINT32_MAX;
-        }
-
-        // If occupied and match found
-        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
-        {
-            return entry->latest_msg_extent; // placeholder until SD read layer exists
-        }
-
-        // ENTRY_DELETED → continue probing
-    }
-
-    return UINT32_MAX;
-}
-
-
-
-
 
 /**
   * @brief  Remove a contact from the hash table
   * @param  table: Pointer to the hash table
   * @param  id: Contact ID to remove
+  * @param removed: removed entry
   * @retval true if the contact was removed, false if it was not found
   */
-bool hash_remove(HashTable *table, uint32_t id)
+bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed)
 {
-    // Pre calculate double hash
-    uint32_t h1 = hash_primary(id, table->capacity);
-    uint32_t h2 = hash_secondary(id, table->capacity);
+    HashEntry *entry = NULL;
+    
+    // Get the entry, if not found through error
+    if (!hash_find_entry(table, id, &entry)) {
+        return false;
+    }
 
-    // Iterate until no collision (shouldn't be too many as table is limited to 70% capacity)
-    for (uint32_t i = 0; i < table->capacity; i++)
+    // If same id then set to deleted
+    if (entry->state == ENTRY_OCCUPIED && entry->id == id)
     {
-        // Calculate hash code based on step
-        uint32_t index = (h1 + i * h2) % table->capacity;
+        // Set state to deleted
+        entry->state = ENTRY_DELETED;
 
-         HashEntry *entry = &table->htable[index];
+        // return memory address back to free stack to be recycled
+        free_list_free(table->free_stack, entry->sector);
 
-        // If same id then set to deleted
-        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
-        {
-            entry->state = ENTRY_DELETED;
-            free_list_free(table->free_stack, table->htable[index].sector);
-            return true;
-        }
+        // decrease number of elements
+        table->num_elems--;
+
+        // Store removed entry
+        *removed = entry;
+        return true;
     }
 
     return false; // table full (should never happen)
@@ -296,7 +251,7 @@ bool hash_remove(HashTable *table, uint32_t id)
   */
 size_t hash_size(const HashTable *table)
 {
-    return table->size;
+    return table->num_elems;
 
 }
 
@@ -308,12 +263,12 @@ size_t hash_size(const HashTable *table)
 void hash_clear(HashTable *table)
 {
     // Just set the values as empty. Written data will simple be overwritten
-    for (int i = 0; i < table->capacity; i++) {
+    for (int i = 0; i < table->size; i++) {
         table->htable[i].state = ENTRY_EMPTY; 
         // Clear the free list stack
         free_list_free(table->free_stack, table->htable[i].sector);
     }
-        table->size = 0;
+        table->num_elems = 0;
 
 }
 

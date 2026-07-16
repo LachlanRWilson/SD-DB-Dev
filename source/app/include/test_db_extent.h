@@ -1,20 +1,27 @@
-#ifndef TEST_MESSAGE_EXTENT_H
-#define TEST_MESSAGE_EXTENT_H
+#ifndef TEST_DB_EXTENTS_H
+#define TEST_DB_EXTENTS_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include <stdbool.h>
 
 #include "message_extent.h"
 
 
-bool test_extent_create(MessageExtent *manager);
+/**
+ * @brief Run all message extent hardware tests.
+ *
+ * @param extent Initialized message extent manager.
+ *
+ * @return true if all tests pass.
+ */
+bool test_db_extents(MessageExtent *extent);
 
-bool test_extent_append(MessageExtent *manager);
 
-bool test_extent_multiple_blocks(MessageExtent *manager);
-
-bool test_extent_delete(MessageExtent *manager);
-
-bool test_extent_run(MessageExtent *manager);
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif
