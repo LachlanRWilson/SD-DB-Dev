@@ -150,3 +150,14 @@ else ()
     # Message is cppcheck is not found
     message(STATUS "MISRA C static analysis error (cppcheck NOT FOUND)")
 endif()
+
+add_custom_target(tags
+    COMMAND ctags
+        --languages=C,C++
+        --exclude=build
+        --exclude=build-host
+        --exclude=external
+        -R
+        ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)

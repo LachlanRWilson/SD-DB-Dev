@@ -54,9 +54,11 @@ protected:
     MessageStorage storage;
 
     MessageBlock *blocks = nullptr;
+    uint16_t *pool = nullptr;
 
     void SetUp() override
     {
+         pool = new uint16_t[TEST_EXTENTS];
         blocks = new MessageBlock[TEST_EXTENTS];
         std::memset(blocks, 0, sizeof(MessageBlock) * TEST_EXTENTS);
 
@@ -68,10 +70,6 @@ protected:
         storage.capacity = heap_capacity;
         storage.context = &storage_ctx;
 
-        uint32_t pool[TEST_EXTENTS];
-        for (uint32_t i = 0; i < TEST_EXTENTS; i++)
-            pool[i] = i;
-
         free_list_init(&free_list, pool, TEST_EXTENTS);
 
         ASSERT_TRUE(message_extent_init(&extent, &storage, &free_list, TEST_EXTENTS));
@@ -80,6 +78,7 @@ protected:
     void TearDown() override
     {
         delete[] blocks;
+        delete[] pool;
         blocks = nullptr;
     }
 };
@@ -98,9 +97,9 @@ TEST_F(MessageExtentTest, Initialise)
 
 TEST_F(MessageExtentTest, AllocateFirstExtent)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
-    EXPECT_NE(idx, UINT32_MAX);
+    EXPECT_NE(idx, UINT16_MAX);
     EXPECT_EQ(extent.capacity, 1);
 }
 
@@ -108,11 +107,11 @@ TEST_F(MessageExtentTest, AllocateFirstExtent)
 
 TEST_F(MessageExtentTest, AllocateMultipleExtents)
 {
-    uint32_t a = message_extent_get(&extent, UINT32_MAX);
-    uint32_t b = message_extent_get(&extent, UINT32_MAX);
+    uint32_t a = message_extent_get(&extent, UINT16_MAX);
+    uint32_t b = message_extent_get(&extent, UINT16_MAX);
 
-    EXPECT_NE(a, UINT32_MAX);
-    EXPECT_NE(b, UINT32_MAX);
+    EXPECT_NE(a, UINT16_MAX);
+    EXPECT_NE(b, UINT16_MAX);
     EXPECT_NE(a, b);
 }
 
@@ -120,7 +119,7 @@ TEST_F(MessageExtentTest, AllocateMultipleExtents)
 
 TEST_F(MessageExtentTest, AppendSingleMessage)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
     msg.timestamp = 1;
@@ -139,7 +138,7 @@ TEST_F(MessageExtentTest, AppendSingleMessage)
 
 TEST_F(MessageExtentTest, AppendMessagesSingleExtent)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -159,7 +158,7 @@ TEST_F(MessageExtentTest, AppendMessagesSingleExtent)
 
 TEST_F(MessageExtentTest, AllocateNewExtentWhenFull)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -172,14 +171,14 @@ TEST_F(MessageExtentTest, AllocateNewExtentWhenFull)
     MessageBlock block;
     storage.read_block(&storage_ctx, idx, &block);
 
-    EXPECT_NE(block.header.prev, UINT32_MAX);
+    EXPECT_NE(block.header.prev, UINT16_MAX);
 }
 
 /* ------------------------------------------------------------ */
 
 TEST_F(MessageExtentTest, PreviousExtentLinks)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -192,14 +191,14 @@ TEST_F(MessageExtentTest, PreviousExtentLinks)
     MessageBlock block;
     storage.read_block(&storage_ctx, idx, &block);
 
-    EXPECT_NE(block.header.prev, UINT32_MAX);
+    EXPECT_NE(block.header.prev, UINT16_MAX);
 }
 
 /* ------------------------------------------------------------ */
 
 TEST_F(MessageExtentTest, ReadNewestMessage)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
     msg.timestamp = 999;
@@ -216,7 +215,7 @@ TEST_F(MessageExtentTest, ReadNewestMessage)
 
 TEST_F(MessageExtentTest, ReadAcrossExtents)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -233,7 +232,7 @@ TEST_F(MessageExtentTest, ReadAcrossExtents)
 
 TEST_F(MessageExtentTest, DeleteConversation)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -249,14 +248,14 @@ TEST_F(MessageExtentTest, DeleteConversation)
 
 TEST_F(MessageExtentTest, DeleteEmptyConversation)
 {
-    EXPECT_TRUE(message_extent_delete(&extent, UINT32_MAX));
+    EXPECT_TRUE(message_extent_delete(&extent, UINT16_MAX));
 }
 
 /* ------------------------------------------------------------ */
 
 TEST_F(MessageExtentTest, MessageCount)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -272,16 +271,16 @@ TEST_F(MessageExtentTest, MessageCount)
 
 TEST_F(MessageExtentTest, OutOfExtents)
 {
-    uint32_t last = UINT32_MAX;
+    uint32_t last = UINT16_MAX;
 
     for (uint32_t i = 0; i < TEST_EXTENTS; i++)
     {
-        last = message_extent_get(&extent, UINT32_MAX);
+        last = message_extent_get(&extent, UINT16_MAX);
     }
 
-    uint32_t fail = message_extent_get(&extent, UINT32_MAX);
+    uint32_t fail = message_extent_get(&extent, UINT16_MAX);
 
-    EXPECT_EQ(fail, UINT32_MAX);
+    EXPECT_EQ(fail, UINT16_MAX);
 }
 
 /* ------------------------------------------------------------ */
@@ -298,9 +297,11 @@ TEST_F(MessageExtentTest, Reset)
 
 TEST_F(MessageExtentTest, LargeConversation)
 {
-    uint32_t idx = message_extent_get(&extent, UINT32_MAX);
+    uint32_t idx = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
+
+
 
     for (int i = 0; i < 200; i++)
     {
@@ -315,8 +316,8 @@ TEST_F(MessageExtentTest, LargeConversation)
 
 TEST_F(MessageExtentTest, MultipleConversations)
 {
-    uint32_t a = message_extent_get(&extent, UINT32_MAX);
-    uint32_t b = message_extent_get(&extent, UINT32_MAX);
+    uint32_t a = message_extent_get(&extent, UINT16_MAX);
+    uint32_t b = message_extent_get(&extent, UINT16_MAX);
 
     Message msg = {};
 
@@ -325,7 +326,7 @@ TEST_F(MessageExtentTest, MultipleConversations)
 
     msg.timestamp = 2;
     message_extent_append(&extent, &b, &msg);
-
+    
     MessageBlock ba, bb;
     storage.read_block(&storage_ctx, a, &ba);
     storage.read_block(&storage_ctx, b, &bb);

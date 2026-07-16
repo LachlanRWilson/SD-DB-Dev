@@ -29,7 +29,7 @@ protected:
 
 /**
  * @brief Verifies that sequential allocation returns valid sectors
- * until exhaustion, and then correctly returns UINT32_MAX when full.
+ * until exhaustion, and then correctly returns UINT16_MAX when full.
  */
 TEST_F(FreeListTest, AllocateSequentially)
 {
@@ -39,10 +39,10 @@ TEST_F(FreeListTest, AllocateSequentially)
         uint16_t sector = free_list_allocate(allocator);
         // Every value should come out in decending order
         EXPECT_EQ(sector, test--);
-        EXPECT_NE(sector, UINT32_MAX);
+        EXPECT_NE(sector, UINT16_MAX);
     }
 
-    EXPECT_EQ(free_list_allocate(allocator), UINT32_MAX);
+    EXPECT_EQ(free_list_allocate(allocator), UINT16_MAX);
 }
 
 /**
@@ -90,7 +90,7 @@ TEST_F(FreeListTest, FullCycleAllocateFreeAllocate)
         sectors[i] = free_list_allocate(allocator);
     }
 
-    EXPECT_EQ(free_list_allocate(allocator), UINT32_MAX);
+    EXPECT_EQ(free_list_allocate(allocator), UINT16_MAX);
 
     free_list_free(allocator, sectors[5]);
 
@@ -132,6 +132,6 @@ TEST_F(FreeListTest, ResetRestoresAllSectors)
 
     for (int i = 0; i < 10; i++)
     {
-        EXPECT_NE(free_list_allocate(allocator), UINT32_MAX);
+        EXPECT_NE(free_list_allocate(allocator), UINT16_MAX);
     }
 }

@@ -48,7 +48,7 @@ typedef struct
 {
     EntryState state;  // Entry occupation state
     uint32_t id; // Contact ID
-    uint16_t sector; // SD Sector 
+    uint32_t sector; // SD Sector
     uint32_t latest_msg_extent; // Latest Message Extent offset
 } HashEntry;
 

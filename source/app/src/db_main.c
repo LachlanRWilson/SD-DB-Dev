@@ -23,6 +23,11 @@ uint16_t hash_fls_mem[HASH_TABLE_SIZE];
 #define HASH_TABLE_START_SECTOR 0
 #define DATABASE_TASK_PRIORITY  osPriorityNormal
 
+// SD Card Indexes
+#define HASH_TABLE_INDEX 0
+#define FLS_INDEX HASH_TABLE_INDEX + sizeof(HashEntry) * (HASH_TABLE_SIZE)
+#define CONTACT_STORAGE HASH_TABLE_INDEX + FLS_INDEX + sizeof(uint16_t) * HASH_TABLE_SIZE
+
 void dbTask(void* arg)
 {
     // Zero Entries
@@ -34,7 +39,7 @@ void dbTask(void* arg)
 
     // Storage Context
     SDStorageContext sd_ctx;
-    SDStorage_Init(&sd_ctx, HASH_TABLE_START_SECTOR, sizeof(Contact));
+    SDStorage_Init(&sd_ctx, HASH_TABLE_INDEX, sizeof(Contact));
 
     // Adding context to struct 
     sd_storage.context = (void*) &sd_ctx;
@@ -71,3 +76,4 @@ void DB_Init(void)
     osThreadId_t thread_id = osThreadNew(dbTask, NULL, &task_attr);
 
 }
+

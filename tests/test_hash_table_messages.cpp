@@ -5,7 +5,13 @@ extern "C" {
 #include "hash_table.h"
 #include "message_extent.h"
 #include "free_list_stack.h"
+#include "heap_storage.h"
 }
+
+#define NUM_FLS 2
+#define CONTACT_FLS 0
+#define MESSAGE_FLS 1
+
 
 /* ============================================================
  * Heap-backed storage for MessageBlock (simulated SD/flash)
@@ -41,6 +47,8 @@ static uint32_t heap_capacity(void *ctx)
     return h->count;
 }
 
+extern Storage heap_storage;
+
 /* ============================================================
  * Test fixture
  * ============================================================ */
@@ -51,14 +59,18 @@ protected:
     static constexpr uint32_t TEST_EXTENTS = 2 * HASH_TABLE_SIZE;
 
     HashTable table;
-    FreeList contacts_fls; // Contact Free List Stack (FLS)
+    FreeList table_flss[2];
 
     MessageExtent extent;
     MessageStorage storage;
 
     HeapStorage storage_ctx;
     MessageBlock *blocks = nullptr;
-    FreeList messages_fls;
+
+    /* ---------------- Free list ---------------- */
+    uint16_t contact_mem[HASH_TABLE_SIZE]; // Free List stack for contacts
+    uint16_t messages_mem[TEST_EXTENTS]; // free list stack for messages
+
 
     void SetUp() override
     {
@@ -74,22 +86,19 @@ protected:
         storage.capacity = heap_capacity;
         storage.context = &storage_ctx;
 
-        /* ---------------- Free list ---------------- */
-        uint32_t contact_mem[HASH_TABLE_SIZE]; // Free List stack for contacts
-        uint32_t messages_mem[TEST_EXTENTS]; // free list stack for messages
 
         // Message Memory (2/3 of total)
-        free_list_init(&messages_fls, messages_mem, TEST_EXTENTS);
+        free_list_init(&table_flss[MESSAGE_FLS], messages_mem, TEST_EXTENTS);
 
         // Contact Memory (1/3 of total)
-        free_list_init(&contacts_fls, contact_mem, TEST_EXTENTS);
+        free_list_init(&table_flss[CONTACT_FLS], contact_mem, HASH_TABLE_SIZE);
 
         /* ---------------- Message extent system ---------------- */
-        ASSERT_TRUE(message_extent_init(&extent, &storage, &messages_fls, TEST_EXTENTS));
+        ASSERT_TRUE(message_extent_init(&extent, &storage, &table_flss[MESSAGE_FLS], TEST_EXTENTS));
 
         /* ---------------- Hash table ---------------- */
         HashEntry *entries = hash_create_software();
-        hash_create(&table, &contacts_fls, entries, HASH_TABLE_SIZE);
+        hash_init(&table, table_flss, entries, HASH_TABLE_SIZE, &heap_storage);
     }
 
     void TearDown() override

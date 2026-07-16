@@ -275,6 +275,7 @@ void hash_clear(HashTable *table)
 
 }
 
+
 /**
   * @brief  Print the contents of the hash table for debugging
   * @param  table: Pointer to the hash table

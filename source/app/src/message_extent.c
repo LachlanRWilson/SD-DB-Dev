@@ -2,7 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define INVALID_EXTENT UINT32_MAX
+#define INVALID_EXTENT UINT16_MAX
 
 /**
  * Initialise the message extent manager.

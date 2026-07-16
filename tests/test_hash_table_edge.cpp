@@ -1,223 +1,392 @@
 #include <gtest/gtest.h>
 #include <climits>
+#include <cstring>
 
 extern "C" {
+
 #include "hash_table.h"
 #include "free_list_stack.h"
+#include "heap_storage.h"
+
 }
 
-/**
- * @brief Duplicate ID handling test
- *
- * Ensures inserting the same ID twice does not increase table size.
- * Expected behaviour: duplicate insert should not create a second entry.
- */
-TEST(HashInsertEdge, DuplicateID)
-{
-    HashTable table;
-    HashEntry *entries = hash_create_software();
-    FreeList freelist;
-
-    ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
-
-    hash_create(&table, &freelist, entries, HASH_TABLE_SIZE);
-
-    uint32_t id = 42;
-
-    EXPECT_TRUE(hash_insert(&table, id));
-    size_t before = hash_size(&table);
-
-    EXPECT_TRUE(hash_insert(&table, id));
-
-    EXPECT_EQ(hash_size(&table), before);
-
-    hash_destroy_software(&table, nullptr);
-}
 
 /**
- * @brief Collision handling test (forced collisions)
+ * @brief Edge-case fixture for HashTable tests.
  *
- * Uses a small table size so multiple keys collide.
- * Ensures all inserted values remain retrievable.
+ * Provides:
+ * - Heap-backed storage
+ * - Hash entry memory
+ * - Free list allocator
+ *
+ * Each test receives an isolated database environment.
  */
-TEST(HashInsertEdge, CollisionHandling)
+class HashTableEdgeTest : public ::testing::Test
 {
+protected:
+
     HashTable table;
-    HashEntry *entries = hash_create_software();
+
+    HashEntry *entries = nullptr;
+
     FreeList freelist;
 
-    ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
 
-    // Small table forces collisions
-    hash_create(&table, &freelist, entries, 5);
+    HeapStorageContext storage_ctx;
 
-    uint32_t ids[] = {10, 15, 20, 25};
+    Storage storage;
 
-    for (uint32_t id : ids)
+    uint8_t *storage_memory = nullptr;
+
+
+    /**
+     * @brief Initialise common test resources.
+     */
+    void SetUp() override
     {
-        EXPECT_TRUE(hash_insert(&table, id));
+
+        entries =
+            new HashEntry[HASH_TABLE_SIZE];
+
+
+        ASSERT_NE(
+            entries,
+            nullptr);
+
+
+        memset(
+            entries,
+            0,
+            sizeof(HashEntry) * HASH_TABLE_SIZE);
+
+
+
+        storage_memory =
+            new uint8_t[
+                HASH_TABLE_SIZE * sizeof(Contact)
+            ];
+
+
+        ASSERT_NE(
+            storage_memory,
+            nullptr);
+
+
+
+        memset(
+            storage_memory,
+            0,
+            HASH_TABLE_SIZE * sizeof(Contact));
+
+
+
+        ASSERT_TRUE(
+            HeapStorage_Init(
+                &storage_ctx,
+                storage_memory,
+                sizeof(Contact),
+                HASH_TABLE_SIZE));
+
+
+
+        storage = heap_storage;
+
+        storage.context = &storage_ctx;
+
+
+
+        uint16_t *pool =
+            new uint16_t[HASH_TABLE_SIZE];
+
+
+        for(uint16_t i = 0;
+            i < HASH_TABLE_SIZE;
+            i++)
+        {
+            pool[i] = i;
+        }
+
+
+        ASSERT_TRUE(
+            free_list_init(
+                &freelist,
+                pool,
+                HASH_TABLE_SIZE));
+
+
+
+        hash_init(
+            &table,
+            &freelist,
+            entries,
+            HASH_TABLE_SIZE,
+            &storage);
     }
 
-    for (uint32_t id : ids)
+
+
+    /**
+     * @brief Release test resources.
+     */
+    void TearDown() override
     {
-        EXPECT_NE(hash_find(&table, id), UINT32_MAX);
+
+        hash_clear(
+            &table);
+
+
+        delete[] entries;
+
+        delete[] storage_memory;
+
+
+        delete[] freelist.free_stack;
     }
 
-    hash_destroy_software(&table, nullptr);
-}
+};
+
+
 
 /**
- * @brief Lookup non-existent key
- *
- * Ensures searching for missing ID returns UINT32_MAX.
+ * @brief Verify duplicate IDs do not create entries.
  */
-TEST(HashFindEdge, NotFound)
+TEST_F(HashTableEdgeTest, DuplicateID)
 {
-    HashTable table;
-    HashEntry *entries = hash_create_software();
-    FreeList freelist;
 
-    ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
+    EXPECT_TRUE(
+        hash_insert(
+            &table,
+            42));
 
-    hash_create(&table, &freelist, entries, 10);
 
-    EXPECT_EQ(hash_find(&table, 99999), UINT32_MAX);
+    size_t before =
+        hash_size(
+            &table);
 
-    hash_destroy_software(&table, nullptr);
+
+    EXPECT_TRUE(
+        hash_insert(
+            &table,
+            42));
+
+
+    EXPECT_EQ(
+        hash_size(&table),
+        before);
 }
 
-/**
- * @brief Remove non-existent key
- *
- * Ensures removing missing ID returns false.
- */
-TEST(HashRemoveEdge, NotFound)
-{
-    HashTable table;
-    HashEntry *entries = hash_create_software();
-    FreeList freelist;
 
-    ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
-
-    hash_create(&table, &freelist, entries, 10);
-
-    EXPECT_FALSE(hash_remove(&table, 12345));
-
-    hash_destroy_software(&table, nullptr);
-}
 
 /**
- * @brief Zero bucket safety test
+ * @brief Verify collision resolution.
  *
- * This MUST fail if your implementation does not guard against capacity = 0.
- * Expected safe behaviour: either reject or never crash.
+ * Inserts IDs that map to the same bucket.
  */
-TEST(HashCreateEdge, ZeroBuckets)
+TEST_F(HashTableEdgeTest, CollisionHandling)
 {
-    HashTable table;
-    HashEntry *entries = hash_create_software();
-    FreeList freelist;
 
-    ASSERT_TRUE(free_list_init_software(&freelist, 10));
-
-    hash_create(&table, &freelist, entries, 0);
-
-    // These assertions will fail if implementation is unsafe
-    EXPECT_EQ(hash_size(&table), 0u);
-    EXPECT_EQ(table.capacity, 0u);
-}
-
-/**
- * @brief Clearing empty table
- *
- * Ensures hash_clear does not crash on empty table.
- */
-TEST(HashClearEdge, EmptyTable)
-{
-    HashTable table;
-    HashEntry *entries = hash_create_software();
-    FreeList freelist;
-
-    ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
-
-    hash_create(&table, &freelist, entries, 10);
-
-    hash_clear(&table);
-
-    EXPECT_EQ(hash_size(&table), 0u);
-
-    hash_destroy_software(&table, nullptr);
-}
-
-/**
- * @brief Stress test large insertion
- *
- * Inserts many elements and ensures all are retrievable.
- */
-TEST(HashInsertEdge, StressTest)
-{
-    HashTable table;
-    HashEntry *entries = hash_create_software();
-    FreeList freelist;
-
-    ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
-
-    hash_create(&table, &freelist, entries, 2000);
-
-    const int N = 1000;
-
-    for (uint32_t i = 0; i < N; i++)
+    uint32_t ids[] =
     {
-        EXPECT_TRUE(hash_insert(&table, i));
+        10,
+        10 + HASH_TABLE_SIZE,
+        10 + (2 * HASH_TABLE_SIZE),
+        10 + (3 * HASH_TABLE_SIZE)
+    };
+
+
+    for(uint32_t id : ids)
+    {
+        EXPECT_TRUE(
+            hash_insert(
+                &table,
+                id));
     }
 
-    EXPECT_EQ(hash_size(&table), (size_t)N);
 
-    for (uint32_t i = 0; i < N; i++)
+    for(uint32_t id : ids)
     {
-        EXPECT_NE(hash_find(&table, i), UINT32_MAX);
+        EXPECT_NE(
+            hash_find(
+                &table,
+                id),
+            UINT32_MAX);
     }
 
-    hash_destroy_software(&table, nullptr);
+
+    EXPECT_GT(
+        table.collision_count,
+        0u);
 }
 
+
+
 /**
- * @brief Safe destroy on empty table
+ * @brief Verify missing key lookup.
  */
-TEST(HashDestroyEdge, EmptyTable)
+TEST_F(HashTableEdgeTest, LookupNotFound)
 {
-    HashTable table;
-    HashEntry *entries = hash_create_software();
-    FreeList freelist;
 
-    ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
+    EXPECT_EQ(
+        hash_find(
+            &table,
+            99999),
+        UINT32_MAX);
+}
 
-    hash_create(&table, &freelist, entries, 10);
 
-    hash_destroy(&table);
+
+/**
+ * @brief Verify removing missing key fails.
+ */
+TEST_F(HashTableEdgeTest, RemoveNotFound)
+{
+
+    EXPECT_FALSE(
+        hash_remove(
+            &table,
+            12345));
+}
+
+
+
+/**
+ * @brief Verify zero capacity handling.
+ *
+ * Ensures the hash table does not crash when
+ * created with zero buckets.
+ */
+TEST_F(HashTableEdgeTest, ZeroBuckets)
+{
+
+    HashTable zero_table;
+
+
+    hash_init(
+        &zero_table,
+        &freelist,
+        entries,
+        0,
+        &storage);
+
+
+
+    EXPECT_EQ(
+        hash_size(
+            &zero_table),
+        0u);
+
+
+    EXPECT_EQ(
+        zero_table.capacity,
+        0u);
+}
+
+
+
+/**
+ * @brief Verify clearing an empty table.
+ */
+TEST_F(HashTableEdgeTest, ClearEmptyTable)
+{
+
+    hash_clear(
+        &table);
+
+
+    EXPECT_EQ(
+        hash_size(
+            &table),
+        0u);
+}
+
+
+
+/**
+ * @brief Stress test insertions.
+ */
+TEST_F(HashTableEdgeTest, StressTest)
+{
+
+    constexpr uint32_t N = 1000;
+
+
+    for(uint32_t i = 0;
+        i < N;
+        i++)
+    {
+        EXPECT_TRUE(
+            hash_insert(
+                &table,
+                i));
+    }
+
+
+    EXPECT_EQ(
+        hash_size(
+            &table),
+        N);
+
+
+
+    for(uint32_t i = 0;
+        i < N;
+        i++)
+    {
+        EXPECT_NE(
+            hash_find(
+                &table,
+                i),
+            UINT32_MAX);
+    }
+}
+
+
+
+/**
+ * @brief Verify destroying empty table.
+ */
+TEST_F(HashTableEdgeTest, DestroyEmptyTable)
+{
+
+    HashTable temp;
+
+
+    hash_init(
+        &temp,
+        &freelist,
+        entries,
+        10,
+        &storage);
+
+
+    hash_destroy(
+        &temp);
+
 
     SUCCEED();
 }
 
+
+
 /**
- * @brief Safe destroy on populated table
+ * @brief Verify destroying populated table.
  */
-TEST(HashDestroyEdge, PopulatedTable)
+TEST_F(HashTableEdgeTest, DestroyPopulatedTable)
 {
-    HashTable table;
-    HashEntry *entries = hash_create_software();
-    FreeList freelist;
 
-    ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
-
-    hash_create(&table, &freelist, entries, 100);
-
-    for (uint32_t i = 0; i < 50; i++)
+    for(uint32_t i = 0;
+        i < 50;
+        i++)
     {
-        hash_insert(&table, i);
+        hash_insert(
+            &table,
+            i);
     }
 
-    hash_destroy(&table);
+
+    hash_destroy(
+        &table);
+
 
     SUCCEED();
 }

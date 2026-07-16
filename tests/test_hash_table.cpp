@@ -1,241 +1,400 @@
 #include <gtest/gtest.h>
 #include <climits>
+#include <cstring>
 
 extern "C" {
+
 #include "hash_table.h"
+#include "heap_storage.h"
+
 }
 
+
 /**
- * @brief Test fixture for HashTable unit tests
+ * @brief Test fixture for HashTable unit tests.
  *
- * Provides a fresh hash table, freelist allocator, and backing storage
- * for each test case. Ensures deterministic behaviour across all tests.
+ * Provides:
+ * - Hash table
+ * - Free list allocator
+ * - Heap-backed storage
+ *
+ * This mirrors the STM32 storage architecture while using
+ * RAM instead of an SD card.
  */
 class HashTableTest : public ::testing::Test
 {
 protected:
-    HashTable table;        /**< Hash table instance under test */
-    HashEntry *entries;     /**< Backing storage for hash entries */
-    FreeList freelist;      /**< Free list allocator for sector management */
+
+    static constexpr uint32_t TEST_BLOCKS = HASH_TABLE_SIZE;
+
+
+    HashTable table;            /**< Hash table instance */
+
+    HashEntry *entries = nullptr; /**< Hash table entries */
+
+    FreeList freelist;           /**< Sector allocator */
+
+
+    HeapStorageContext storage_ctx; /**< Heap storage context */
+
+    Storage storage;               /**< Storage interface */
+
+
+    uint8_t *storage_memory = nullptr;
+
 
     /**
-     * @brief Initialise test environment before each test
+     * @brief Initialise test environment.
      *
-     * Allocates software-backed memory, initialises the free list allocator,
-     * and configures the hash table for deterministic testing.
+     * Creates RAM-backed storage, initialises the free list,
+     * and creates the hash table.
      */
     void SetUp() override
     {
-        entries = hash_create_software();
+
+        /*
+         * Allocate hash table memory
+         */
+        entries = new HashEntry[HASH_TABLE_SIZE];
+
+
         ASSERT_NE(entries, nullptr);
 
-        ASSERT_TRUE(free_list_init_software(&freelist, HASH_TABLE_SIZE));
 
-        hash_create(&table, &freelist, entries, HASH_TABLE_SIZE);
+        memset(
+            entries,
+            0,
+            sizeof(HashEntry) * HASH_TABLE_SIZE);
+
+
+
+        /*
+         * Allocate heap storage
+         */
+        storage_memory =
+            new uint8_t[
+                TEST_BLOCKS * sizeof(Contact)
+            ];
+
+
+        ASSERT_NE(storage_memory, nullptr);
+
+
+        memset( storage_memory, 0, TEST_BLOCKS * sizeof(Contact));
+
+
+
+        /*
+         * Initialise heap storage backend
+         */
+        ASSERT_TRUE( HeapStorage_Init( &storage_ctx, storage_memory, sizeof(Contact), TEST_BLOCKS));
+
+
+
+        storage = heap_storage;
+
+        storage.context = &storage_ctx;
+
+
+
+        /*
+         * Initialise free list
+         */
+        uint16_t *pool = new uint16_t[HASH_TABLE_SIZE];
+
+
+        for(uint16_t i = 0; i < HASH_TABLE_SIZE; i++)
+        {
+            pool[i] = i;
+        }
+
+
+        ASSERT_TRUE( free_list_init( &freelist, pool, HASH_TABLE_SIZE));
+
+
+
+        /*
+         * Initialise hash table
+         */
+        hash_init( &table, &freelist, entries, HASH_TABLE_SIZE, &storage);
     }
 
+
+
     /**
-     * @brief Clean up after each test
-     *
-     * Clears the hash table and releases any allocated test resources.
+     * @brief Cleanup test resources.
      */
     void TearDown() override
     {
+
         hash_clear(&table);
 
-        hash_destroy_software(&table, nullptr);
+
+        delete[] entries;
+
+        entries = nullptr;
+
+
+        delete[] storage_memory;
+
+        storage_memory = nullptr;
+
+
+        delete[] freelist.free_stack;
     }
+
 };
 
+
+
 /**
- * @brief Verify that basic insertion works correctly
- *
- * Inserts two unique keys and ensures the size is updated accordingly.
+ * @brief Verify basic insertion.
  */
 TEST_F(HashTableTest, InsertBasic)
 {
     EXPECT_TRUE(hash_insert(&table, 100));
+
     EXPECT_TRUE(hash_insert(&table, 200));
 
-    EXPECT_EQ(hash_size(&table), 2u);
+
+    EXPECT_EQ(
+        hash_size(&table),
+        2u);
 }
 
+
+
 /**
- * @brief Verify that duplicate inserts do not increase table size
- *
- * Ensures idempotent behaviour when inserting an existing key.
+ * @brief Verify duplicate insertion.
  */
 TEST_F(HashTableTest, DuplicateInsert)
 {
-    hash_insert(&table, 55);
+    EXPECT_TRUE(
+        hash_insert(
+            &table,
+            55));
 
-    size_t before = hash_size(&table);
 
-    EXPECT_TRUE(hash_insert(&table, 55));
+    size_t before =
+        hash_size(&table);
 
-    EXPECT_EQ(hash_size(&table), before);
+
+    EXPECT_TRUE(
+        hash_insert(
+            &table,
+            55));
+
+
+    EXPECT_EQ(
+        hash_size(&table),
+        before);
 }
 
+
+
 /**
- * @brief Verify that existing entries can be found
- *
- * Confirms that inserted keys can be retrieved and mapped to a sector.
+ * @brief Verify lookup of existing entries.
  */
 TEST_F(HashTableTest, FindExisting)
 {
-    hash_insert(&table, 1234);
+    EXPECT_TRUE(
+        hash_insert(
+            &table,
+            1234));
 
-    uint32_t sector = hash_find(&table, 1234);
 
-    EXPECT_NE(sector, UINT32_MAX);
+    uint32_t sector =
+        hash_find(
+            &table,
+            1234);
+
+
+    EXPECT_NE(
+        sector,
+        UINT32_MAX);
 }
 
+
+
 /**
- * @brief Verify that missing entries return UINT32_MAX
- *
- * Ensures correct failure behaviour when searching for non-existent keys.
+ * @brief Verify lookup failure.
  */
 TEST_F(HashTableTest, FindMissing)
 {
-    EXPECT_EQ(hash_find(&table, 99999), UINT32_MAX);
+    EXPECT_EQ(
+        hash_find(
+            &table,
+            99999),
+        UINT32_MAX);
 }
 
+
+
 /**
- * @brief Verify that removal of entries works correctly
- *
- * Ensures removed entries are no longer accessible via hash_find().
+ * @brief Verify removal.
  */
 TEST_F(HashTableTest, RemoveEntry)
 {
-    hash_insert(&table, 777);
+    hash_insert(
+        &table,
+        777);
 
-    EXPECT_TRUE(hash_remove(&table, 777));
 
-    EXPECT_EQ(hash_find(&table, 777), UINT32_MAX);
+    EXPECT_TRUE(
+        hash_remove(
+            &table,
+            777));
+
+
+    EXPECT_EQ(
+        hash_find(
+            &table,
+            777),
+        UINT32_MAX);
 }
 
+
+
 /**
- * @brief Verify that removing a non-existent entry fails safely
- *
- * Ensures hash_remove() does not incorrectly modify table state.
+ * @brief Verify failed removal.
  */
 TEST_F(HashTableTest, RemoveMissing)
 {
-    EXPECT_FALSE(hash_remove(&table, 404));
+    EXPECT_FALSE(
+        hash_remove(
+            &table,
+            404));
 }
 
+
+
 /**
- * @brief Verify that size tracking is accurate
- *
- * Inserts multiple entries and checks that size reflects correct count.
+ * @brief Verify size tracking.
  */
 TEST_F(HashTableTest, SizeTracking)
 {
-    for (uint32_t i = 0; i < 50; i++)
+    for(uint32_t i = 0; i < 50; i++)
     {
-        hash_insert(&table, i);
+        EXPECT_TRUE(
+            hash_insert(
+                &table,
+                i));
     }
 
-    EXPECT_EQ(hash_size(&table), 50u);
+
+    EXPECT_EQ(
+        hash_size(&table),
+        50u);
 }
 
+
+
 /**
- * @brief Verify that clearing the table resets its state
- *
- * Ensures all entries are removed and size is reset to zero.
+ * @brief Verify table reset.
  */
 TEST_F(HashTableTest, ClearResetsTable)
 {
-    hash_insert(&table, 1);
-    hash_insert(&table, 2);
-    hash_insert(&table, 3);
+    hash_insert(&table,1);
+    hash_insert(&table,2);
+    hash_insert(&table,3);
+
 
     hash_clear(&table);
 
-    EXPECT_EQ(hash_size(&table), 0u);
+
+    EXPECT_EQ(
+        hash_size(&table),
+        0u);
 }
 
+
+
 /**
- * @brief Verify deterministic collision handling using forced hash overlap
+ * @brief Verify storage allocation.
  *
- * Inserts two keys that map to the same primary hash index and ensures
- * both entries are stored and retrievable.
+ * Confirms inserted IDs are assigned unique storage blocks.
+ */
+TEST_F(HashTableTest, StorageAllocation)
+{
+    hash_insert(&table,10);
+
+    hash_insert(&table,20);
+
+
+    uint32_t sector1 =
+        hash_find(
+            &table,
+            10);
+
+
+    uint32_t sector2 =
+        hash_find(
+            &table,
+            20);
+
+
+    EXPECT_NE(
+        sector1,
+        sector2);
+}
+
+
+
+/**
+ * @brief Verify collision handling.
  */
 TEST_F(HashTableTest, CollisionHandling)
 {
-    uint32_t base = 10;
+    uint32_t id1 = 10;
 
-    uint32_t id1 = base;
-    uint32_t id2 = base + HASH_TABLE_SIZE;
+    uint32_t id2 =
+        10 + HASH_TABLE_SIZE;
 
-    EXPECT_TRUE(hash_insert(&table, id1));
-    EXPECT_TRUE(hash_insert(&table, id2));
 
-    EXPECT_NE(hash_find(&table, id1), UINT32_MAX);
-    EXPECT_NE(hash_find(&table, id2), UINT32_MAX);
+    EXPECT_TRUE(
+        hash_insert(
+            &table,
+            id1));
 
-    EXPECT_GT(table.collision_count, 0u);
+
+    EXPECT_TRUE(
+        hash_insert(
+            &table,
+            id2));
+
+
+    EXPECT_NE(
+        hash_find(&table,id1),
+        UINT32_MAX);
+
+
+    EXPECT_NE(
+        hash_find(&table,id2),
+        UINT32_MAX);
+
+
+    EXPECT_GT(
+        table.collision_count,
+        0u);
 }
 
-/**
- * @brief Verify multiple collision resolution using double hashing
- *
- * This test forces a probing sequence by pre-filling slots that will be
- * visited during insertion, ensuring multiple collisions occur.
- */
-TEST_F(HashTableTest, MultiCollisionResolution)
-{
-    // Choose a small, controlled set of IDs
-    // These are designed to land in predictable clustered positions
-    uint32_t base = 10;
 
-    uint32_t id1 = base;
-    uint32_t id2 = base + HASH_TABLE_SIZE;   // same h1 as id1
-    uint32_t id3 = base + 2 * HASH_TABLE_SIZE;
-
-    // First insert goes directly to h1 slot
-    EXPECT_TRUE(hash_insert(&table, id1));
-
-    // Second insert must collide at h1 and resolve via probing
-    EXPECT_TRUE(hash_insert(&table, id2));
-
-    // Third insert increases pressure further on same probe sequence
-    EXPECT_TRUE(hash_insert(&table, id3));
-
-    // All must be retrievable
-    EXPECT_NE(hash_find(&table, id1), UINT32_MAX);
-    EXPECT_NE(hash_find(&table, id2), UINT32_MAX);
-    EXPECT_NE(hash_find(&table, id3), UINT32_MAX);
-
-    EXPECT_GT(table.collision_count, 0u);
-}
 
 /**
- * @brief Stress test for hash table insertion under moderate load
- *
- * Inserts multiple sequential keys to verify stability under load.
- */
-TEST_F(HashTableTest, SmallFillStress)
-{
-    for (uint32_t i = 1; i <= 200; i++)
-    {
-        EXPECT_TRUE(hash_insert(&table, i));
-    }
-
-    EXPECT_EQ(hash_size(&table), 200u);
-}
-
-/**
- * @brief Stress test for hash table insertion under moderate load
- *
- * Inserts multiple sequential keys to verify stability under load.
+ * @brief Verify large insertion workload.
  */
 TEST_F(HashTableTest, FullFillStress)
 {
-    for (uint32_t i = 1; i <= 10000; i++)
+    for(uint32_t i = 1; i <= 10000; i++)
     {
-        EXPECT_TRUE(hash_insert(&table, i));
+        EXPECT_TRUE(
+            hash_insert(
+                &table,
+                i));
     }
 
-    EXPECT_EQ(hash_size(&table), 10000u);
+
+    EXPECT_EQ(
+        hash_size(&table),
+        10000u);
 }
