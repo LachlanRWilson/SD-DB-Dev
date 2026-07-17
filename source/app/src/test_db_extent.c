@@ -27,26 +27,23 @@ static bool message_equal(
  */
 bool test_extent_allocate(MessageExtent *extent)
 {
-    printf("Running Extent Allocation Test...\r\n");
 
+    // Allocate message extent (will init a block on the sd card as well)
     uint16_t idx = message_extent_get( extent, UINT16_MAX);
 
 
     if (idx == UINT16_MAX)
     {
-        printf("FAILED\r\n");
         return false;
     }
 
 
     if (extent->num_extents != 1)
     {
-        printf("FAILED\r\n");
         return false;
     }
 
 
-    printf("PASSED\r\n");
     return true;
 }
 
@@ -74,7 +71,6 @@ bool test_single_message(MessageExtent *extent)
     // append a message to the extent 
     if (!message_extent_append( extent, &idx, &tx))
     {
-        printf("FAILED WRITE\r\n");
         return false;
     }
 
@@ -86,7 +82,6 @@ bool test_single_message(MessageExtent *extent)
     //  read message block
     if (!extent->storage->read_block( extent->storage->context, idx, block.buffer))
     {
-        printf("FAILED READ\r\n");
         return false;
     }
 
@@ -141,9 +136,6 @@ bool test_multiple_messages(MessageExtent *extent)
         return false;
     }
 
-
-    printf("PASSED\r\n");
-
     return true;
 }
 
@@ -155,8 +147,6 @@ bool test_multiple_messages(MessageExtent *extent)
  */
 bool test_extent_chaining(MessageExtent *extent)
 {
-    printf("Running Extent Chain Test...\r\n");
-
 
     uint16_t idx = message_extent_get( extent, UINT16_MAX);
 
@@ -169,7 +159,6 @@ bool test_extent_chaining(MessageExtent *extent)
 
         if(!message_extent_append( extent, &idx, &msg))
         {
-            printf("FAILED APPEND\r\n");
             return false;
         }
     }
@@ -181,16 +170,11 @@ bool test_extent_chaining(MessageExtent *extent)
 
     extent->storage->read_block( extent->storage->context, idx, block.buffer);
 
-
-
     if(block.var.header.prev == UINT16_MAX)
     {
-        printf("FAILED NO CHAIN\r\n");
         return false;
     }
 
-
-    printf("PASSED\r\n");
 
     return true;
 }
@@ -203,41 +187,37 @@ bool test_extent_chaining(MessageExtent *extent)
  */
 bool test_delete_conversation(MessageExtent *extent)
 {
-    printf("Running Delete Conversation Test...\r\n");
 
-
-    uint16_t idx =
-        message_extent_get(
-            extent,
-            UINT16_MAX);
-
-
+    uint16_t idx = message_extent_get( extent, UINT16_MAX);
 
     Message msg = {0};
 
 
+    // create 10 messages
     for(int i = 0; i < 10; i++)
     {
         msg.timestamp = i;
 
-        message_extent_append(
-            extent,
-            &idx,
-            &msg);
+        message_extent_append( extent, &idx, &msg);
     }
 
-
-
-    if(!message_extent_delete(
-            extent,
-            idx))
+    // Need to check the message has been tombstoned
+    if(!message_extent_delete( extent, idx))
     {
-        printf("FAILED\r\n");
         return false;
     }
 
+    // NOTE: Tombstone does not need to be checked as if it is of the FLS then it is free to be
+    // overwritten (same affect as tombstoning)
+    
+    uint16_t recycled_idx = message_extent_get(extent, UINT16_MAX); 
 
-    printf("PASSED\r\n");
+    // check the extent sector has been pushed back onto the FLS correctly
+    if (recycled_idx != idx) 
+    {
+        return false;
+    }
+
 
     return true;
 }

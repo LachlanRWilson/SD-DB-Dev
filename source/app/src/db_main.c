@@ -46,9 +46,9 @@ void dbTask(void* arg)
 
 
     // Create Hash Table
-    hash_init(&table, &hash_fls, entries, HASH_TABLE_SIZE, &sd_storage);
+    hash_init(&table, &hash_fls, entries, HASH_TABLE_SIZE);
 
-    if (!test_db_run(&table))
+    if (!test_db_run(&table, &sd_storage))
     {
         // slow flash for fail
         for (;;)

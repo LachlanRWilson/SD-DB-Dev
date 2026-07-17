@@ -28,6 +28,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "db_extent_main.h"
+#include "db_main.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -108,7 +109,8 @@ int main(void)
   //MX_FREERTOS_Init();
 
 
-  DB_Extent_Init();
+  //DB_Extent_Init();
+  DB_Init();
 
   /* Start scheduler */
   osKernelStart();

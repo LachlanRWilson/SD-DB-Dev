@@ -18,6 +18,8 @@ add_library(app_logic
     app/src/sd_storage.c
     app/src/db_extent_main.c
     app/src/test_db_extent.c
+    app/src/db_main.c
+    app/src/test_db_main.c
 )
 
 else ()

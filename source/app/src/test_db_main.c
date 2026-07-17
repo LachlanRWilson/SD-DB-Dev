@@ -14,7 +14,7 @@
  * @return true if the contacts are identical.
  * @return false otherwise.
  */
-static bool contact_equal(const ContactBuffer *a, const ContactBuffer *b)
+bool contact_equal(const ContactBuffer *a, const ContactBuffer *b)
 {
     return
         a->contact.offset_id == b->contact.offset_id &&
@@ -43,9 +43,8 @@ static bool contact_equal(const ContactBuffer *a, const ContactBuffer *b)
  * @return true if all contacts are successfully verified.
  * @return false if any write, read, or comparison fails.
  */
-bool test_multiple_contacts(HashTable *table)
+bool test_multiple_contacts(HashTable *table, Storage *storage)
 {
-    printf("Running Multiple Contact Test...\r\n");
 
     const uint32_t ids[] = {1, 25, 1234, 9000, 12000};
 
@@ -56,7 +55,7 @@ bool test_multiple_contacts(HashTable *table)
     {
         hash_insert(table, ids[i]);
 
-        uint32_t sector = hash_find(table, ids[i]);
+        uint32_t sector = hash_find_sector(table, ids[i]);
 
         memset(&tx[i], 0, sizeof(ContactBuffer));
 
@@ -68,31 +67,29 @@ bool test_multiple_contacts(HashTable *table)
         tx[i].contact.name_len = strlen(tx[i].contact.name);
         tx[i].contact.phone_len = strlen(tx[i].contact.phone);
 
-        table->storage->write_block(
-            table->storage->context,
+        storage->write_block(
+            storage->context,
             sector,
             tx[i].buffer);
     }
 
     for (int i = 0; i < 5; i++)
     {
-        uint32_t sector = hash_find(table, ids[i]);
+        uint32_t sector = hash_find_sector(table, ids[i]);
 
         memset(&rx, 0, sizeof(ContactBuffer));
 
-        table->storage->read_block(
-            table->storage->context,
+        storage->read_block(
+            storage->context,
             sector,
             rx.buffer);
 
         if (!contact_equal(&tx[i], &rx))
         {
-            printf("FAILED at contact %d\r\n", i);
             return false;
         }
     }
 
-    printf("PASSED\r\n");
     return true;
 }
 /**
@@ -110,15 +107,14 @@ bool test_multiple_contacts(HashTable *table)
  * @return true if the updated contact is read back correctly.
  * @return false otherwise.
  */
-bool test_update_contact(HashTable *table)
+bool test_update_contact(HashTable *table, Storage *storage)
 {
-    printf("Running Update Contact Test...\r\n");
 
     const uint32_t id = 500;
 
     hash_insert(table, id);
 
-    uint32_t sector = hash_find(table, id);
+    uint32_t sector = hash_find_sector(table, id);
 
     ContactBuffer tx = {0};
     ContactBuffer rx = {0};
@@ -131,9 +127,7 @@ bool test_update_contact(HashTable *table)
     tx.contact.name_len = strlen(tx.contact.name);
     tx.contact.phone_len = strlen(tx.contact.phone);
 
-    table->storage->write_block(table->storage->context,
-                                sector,
-                                tx.buffer);
+    storage->write_block(storage->context, sector, tx.buffer);
 
     strcpy(tx.contact.name, "Bob");
     strcpy(tx.contact.phone, "999999");
@@ -141,21 +135,15 @@ bool test_update_contact(HashTable *table)
     tx.contact.name_len = strlen(tx.contact.name);
     tx.contact.phone_len = strlen(tx.contact.phone);
 
-    table->storage->write_block(table->storage->context,
-                                sector,
-                                tx.buffer);
+    storage->write_block(storage->context, sector, tx.buffer);
 
-    table->storage->read_block(table->storage->context,
-                               sector,
-                               rx.buffer);
+    storage->read_block(storage->context, sector, rx.buffer);
 
     if (!contact_equal(&tx, &rx))
     {
-        printf("FAILED\r\n");
         return false;
     }
 
-    printf("PASSED\r\n");
     return true;
 }
 
@@ -174,15 +162,14 @@ bool test_update_contact(HashTable *table)
  * @return true if the contact is correctly recovered.
  * @return false otherwise.
  */
-bool test_max_length(HashTable *table)
+bool test_max_length(HashTable *table, Storage *storage)
 {
-    printf("Running Max Length Test...\r\n");
 
     uint32_t id = 700;
 
     hash_insert(table, id);
 
-    uint32_t sector = hash_find(table, id);
+    uint32_t sector = hash_find_sector(table, id);
 
     ContactBuffer tx = {0};
     ContactBuffer rx = {0};
@@ -198,21 +185,19 @@ bool test_max_length(HashTable *table)
     tx.contact.name_len = strlen(tx.contact.name);
     tx.contact.phone_len = strlen(tx.contact.phone);
 
-    table->storage->write_block(table->storage->context,
+    storage->write_block(storage->context,
                                 sector,
                                 tx.buffer);
 
-    table->storage->read_block(table->storage->context,
+    storage->read_block(storage->context,
                                sector,
                                rx.buffer);
 
     if (!contact_equal(&tx, &rx))
     {
-        printf("FAILED\r\n");
         return false;
     }
 
-    printf("PASSED\r\n");
     return true;
 }
 
@@ -231,9 +216,8 @@ bool test_max_length(HashTable *table)
  * @return true if every contact is recovered correctly.
  * @return false if any verification fails.
  */
-bool test_many_contacts(HashTable *table)
+bool test_many_contacts(HashTable *table, Storage *storage)
 {
-    printf("Running Many Contacts Test...\r\n");
 
     ContactBuffer tx = {0};
     ContactBuffer rx = {0};
@@ -242,7 +226,7 @@ bool test_many_contacts(HashTable *table)
     {
         hash_insert(table, id);
 
-        uint32_t sector = hash_find(table, id);
+        uint32_t sector = hash_find_sector(table, id);
 
         tx.contact.offset_id = id;
 
@@ -252,27 +236,21 @@ bool test_many_contacts(HashTable *table)
         tx.contact.name_len = strlen(tx.contact.name);
         tx.contact.phone_len = strlen(tx.contact.phone);
 
-        table->storage->write_block(table->storage->context,
-                                    sector,
-                                    tx.buffer);
+        storage->write_block(storage->context, sector, tx.buffer);
     }
 
     for (uint32_t id = 0; id < 100; id++)
     {
-        uint32_t sector = hash_find(table, id);
+        uint32_t sector = hash_find_sector(table, id);
 
-        table->storage->read_block(table->storage->context,
-                                   sector,
-                                   rx.buffer);
+        storage->read_block(storage->context, sector, rx.buffer);
 
         if (rx.contact.offset_id != id)
         {
-            printf("FAILED at %lu\r\n", (unsigned long)id);
             return false;
         }
     }
 
-    printf("PASSED\r\n");
     return true;
 }
 
@@ -289,19 +267,16 @@ bool test_many_contacts(HashTable *table)
  *         contact does not exist.
  * @return false if an unexpected sector is returned.
  */
-bool test_invalid_lookup(HashTable *table)
+bool test_invalid_lookup(HashTable *table, Storage *storage)
 {
-    printf("Running Invalid Lookup Test...\r\n");
 
-    uint32_t sector = hash_find(table, 0xFFFFFFFF);
+    uint32_t sector = hash_find_sector(table, 0xFFFF);
 
-    if (sector == UINT32_MAX)
+    if (sector == UINT16_MAX)
     {
-        printf("PASSED\r\n");
         return true;
     }
 
-    printf("FAILED\r\n");
     return false;
 }
 
@@ -315,15 +290,15 @@ bool test_invalid_lookup(HashTable *table)
  * @return true if every test passed.
  * @return false otherwise.
  */
-bool test_db_run(HashTable *table)
+bool test_db_run(HashTable *table, Storage *storage)
 {
     bool pass = true;
 
-    pass &= test_multiple_contacts(table);
-    pass &= test_update_contact(table);
-    pass &= test_max_length(table);
-    pass &= test_many_contacts(table);
-    pass &= test_invalid_lookup(table);
+    pass &= test_multiple_contacts(table, storage);
+    pass &= test_update_contact(table, storage);
+    pass &= test_max_length(table, storage);
+    pass &= test_many_contacts(table, storage);
+    pass &= test_invalid_lookup(table, storage);
 
     return pass;
 }

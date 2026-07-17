@@ -16,20 +16,6 @@
  * @return true if every test passes.
  * @return false if one or more tests fail.
  */
-bool test_db_run(HashTable *table);
-
-/**
- * @brief Compare two contact buffers for equality.
- *
- * Compares all fields of two ContactBuffer structures, including
- * the contact ID, string lengths, name and phone number.
- *
- * @param a Pointer to the first contact buffer.
- * @param b Pointer to the second contact buffer.
- *
- * @return true if both contacts are identical.
- * @return false if any field differs.
- */
-static bool contact_equal(const ContactBuffer *a, const ContactBuffer *b);
+bool test_db_run(HashTable *table, Storage *storage);
 
 #endif /* TEST_DB_H */
