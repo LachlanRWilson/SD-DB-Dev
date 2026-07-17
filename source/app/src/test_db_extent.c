@@ -259,18 +259,11 @@ bool test_large_conversation(MessageExtent *extent)
 
 
 
-    uint16_t count =
-        message_extent_count(
-            extent,
-            idx);
-
-
+    uint16_t count = message_extent_count( extent, idx);
 
     if(count != 1000)
     {
-        printf(
-            "FAILED COUNT %u\r\n",
-            count);
+        printf( "FAILED COUNT %u\r\n", count);
 
         return false;
     }
@@ -279,6 +272,25 @@ bool test_large_conversation(MessageExtent *extent)
     printf("PASSED\r\n");
 
     return true;
+}
+
+/**
+ * @brief Perform a read only to check message persistance
+ */
+bool test_large_conversation_read(MessageExtent *extent)
+{
+    // Gotten from large chat index allocation
+    uint16_t idx = 28538;
+
+    uint16_t count = message_extent_count( extent, idx);
+
+    if(count != 1000)
+    {
+        return false;
+    }
+
+    return true;
+
 }
 
 
@@ -302,7 +314,7 @@ bool test_db_extents(MessageExtent *extent)
 
     pass &= test_delete_conversation(extent);
 
-    pass &= test_large_conversation(extent);
+    pass &= test_large_conversation_read(extent);
 
 
     return pass;

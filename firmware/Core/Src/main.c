@@ -109,8 +109,8 @@ int main(void)
   //MX_FREERTOS_Init();
 
 
-  //DB_Extent_Init();
-  DB_Init();
+  DB_Extent_Init();
+  //DB_Init();
 
   /* Start scheduler */
   osKernelStart();

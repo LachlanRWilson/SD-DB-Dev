@@ -71,8 +71,7 @@ bool SDStorage_ReadBlock( void *context, uint32_t index, uint8_t *out)
 
 
     // read to raw array
-    if (HAL_SD_ReadBlocks( ctx->hsd, raw, sector, readSize,
-                HAL_MAX_DELAY) != HAL_OK)
+    if (HAL_SD_ReadBlocks( ctx->hsd, raw, sector, readSize, HAL_MAX_DELAY) != HAL_OK)
     {
         return false;
     }
