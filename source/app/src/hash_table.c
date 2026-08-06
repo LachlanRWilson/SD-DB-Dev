@@ -71,9 +71,9 @@ void hash_destroy(HashTable *table)
   * @brief  Insert a contact into the hash table
   * @param  table: Pointer to the hash table
   * @param  contact: Contact to insert
-  * @retval true if the contact was inserted successfully, false otherwise
+  * @retval if insertion successful return sector index, else UINT16_MAX
   */
-bool hash_insert(HashTable *table, uint16_t id)
+uint16_t hash_insert(HashTable *table, uint16_t id)
 {
     // Pre calculate double hash
     uint16_t h1 = hash_primary(id, table->size);
@@ -99,7 +99,7 @@ bool hash_insert(HashTable *table, uint16_t id)
 #if defined (HOST_BUILD)
             table->collision_count = i;
 #endif
-            return true;
+            return entry->sector;
         }
 
         // If same id then updating
@@ -109,11 +109,11 @@ bool hash_insert(HashTable *table, uint16_t id)
 #if defined (HOST_BUILD)
             table->collision_count = i;
 #endif
-            return true;
+            return entry->sector;
         }
     }
 
-    return false; // table full (should never happen)
+    return UINT16_MAX; // table full (should never happen)
 }
 
 /**

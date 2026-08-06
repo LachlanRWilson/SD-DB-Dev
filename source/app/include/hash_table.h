@@ -7,6 +7,12 @@
 extern "C" {
 #endif
 
+#if defined(__cplusplus)
+    #define STATIC_ASSERT static_assert
+#else
+    #define STATIC_ASSERT _Static_assert
+#endif
+
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -17,25 +23,36 @@ extern "C" {
 #define MAX_PHONE_LEN 15
 
 
+// Struct Sizes
+#define HASH_ENTRY_BYTES 8
+#define CONTACT_BYTES 84
+
+
 // Prime number that allows a hash table of 10000 entries to have a load factor of 70%
 #define HASH_TABLE_SIZE 14293
 
-// Entry State  (Pack enum to 1 byte)
-typedef enum
-{ 
-    ENTRY_EMPTY = 0,
-    ENTRY_OCCUPIED,
-    ENTRY_DELETED
-} EntryState;
+#define CONTACT_SECTOR_BYTES 512
+#define CONTACT_HEADER_BYTES 1
+#define CONTACT_BYTES 84
 
-// Will make a copy of contact typedef struct current in repo
+// Get the number of contacts that can be stored in the ContactSector
+#define CONTACT_SECTOR_CAPACITY \
+    ((CONTACT_SECTOR_BYTES - sizeof(ContactSectorHeader)) / sizeof(Contact))
+
+// calculate the padding of the sector
+#define CONTACT_SECTOR_PADDING \
+    (CONTACT_SECTOR_BYTES - sizeof(ContactSectorHeader) - CONTACT_SECTOR_CAPACITY * sizeof(Contact))
+
+ 
+// Contact Struct (84B)
 typedef struct
 {
-    uint8_t name_len;          /**< Length of name string */
-    char name[MAX_NAME_LEN];   /**< Contact name */
-    uint8_t phone_len;         /**< Length of phone number */
-    char phone[MAX_PHONE_LEN]; /**< Phone number */
-    uint16_t offset_id;        /**< Unique offset identifier */
+    uint8_t name_len;          /**< Length of name string (1B)*/
+    char name[MAX_NAME_LEN];   /**< Contact name (64B)*/
+    uint8_t phone_len;         /**< Length of phone number (1B) */
+    char phone[MAX_PHONE_LEN]; /**< Phone number (15B)*/
+    uint8_t padding; // (1B)
+    uint16_t offset_id;        /**< Unique offset identifier (2B)*/
 } Contact;
 
 typedef union {
@@ -43,15 +60,45 @@ typedef union {
    uint8_t buffer[sizeof(Contact)];
 } ContactBuffer;
 
+// Contact Block Header (8B) <- TBD
+typedef struct 
+{
+    uint8_t used_bitmap;
+} ContactSectorHeader;
 
-// Hash Entry that points to SD Card sector
+// Contact Sector needs to be 512 bytes since smallest read and write size is 512B
+typedef struct 
+{
+    ContactBuffer contacts[CONTACT_SECTOR_CAPACITY];
+    ContactSectorHeader header;
+    uint8_t padding[CONTACT_SECTOR_PADDING];
+} ContactSector;
+
+
+// Entry State  (Pack enum to 1 byte)
+typedef uint8_t ENTRY_STATE;
+enum
+{ 
+    ENTRY_EMPTY = 0,
+    ENTRY_OCCUPIED,
+    ENTRY_DELETED
+};
+
+// Hash Entry that points to SD Card sector (8B)
 typedef struct
 {
-    EntryState state;  // Entry occupation state
-    uint16_t id; // Contact ID
-    uint16_t sector; // SD Sector
-    uint16_t latest_msg_extent; // Latest Message Extent offset
+    uint16_t id; // Contact ID (2B)
+    uint16_t sector; // SD Sector (2B)
+    uint16_t latest_msg_extent; // Latest Message Extent offset (2B)
+    ENTRY_STATE state;  // Entry occupation state (1B) (CAN BE REMOVED)
+    uint8_t padding; // (1B)
 } HashEntry;
+
+// Static checks to ensure the size of the structs are correct
+STATIC_ASSERT(sizeof(Contact) == CONTACT_BYTES, "Unexpected Contact size");
+STATIC_ASSERT(sizeof(HashEntry) == HASH_ENTRY_BYTES, "Unexpected HashEntry size");
+STATIC_ASSERT(sizeof(ContactSectorHeader) == CONTACT_HEADER_BYTES, "Unexpected ContactSector size");
+STATIC_ASSERT(sizeof(ContactSector) == CONTACT_SECTOR_BYTES, "Unexpected ContactSector size");
 
 
 // Information Struct about hash table
@@ -88,9 +135,9 @@ void hash_destroy(HashTable *table);
   * @brief  Insert a contact into the hash table
   * @param  table: Pointer to the hash table
   * @param  contact: Contact to insert
-  * @retval true if the contact was inserted successfully, false otherwise
+  * @retval if insertion successful return sector index, else UINT16_MAX
   */
-bool hash_insert(HashTable *table, uint16_t id);
+uint16_t hash_insert(HashTable *table, uint16_t id);
 
 /**
   * @brief  Find a contact by its unique ID

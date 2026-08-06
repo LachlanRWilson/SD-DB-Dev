@@ -34,13 +34,13 @@ typedef struct
     MessageExtent messages;
 
     /** Storage backend (SD card or heap). */
-    Storage *storage;
+    Storage contact_storage;
 
     /** Contact allocator. */
     FreeList contact_allocator;
 
     /** Message extent allocator. */
-    FreeList extent_allocator;
+    FreeList message_allocator;
 
 } Database;
 
@@ -61,9 +61,48 @@ typedef struct
  * @retval true Initialisation successful.
  * @retval false Initialisation failed.
  */
-bool database_init(Database *db, Storage *storage, HashEntry *contact_entries, uint32_t
-        *contact_stack, uint32_t contact_capacity, uint32_t *extent_stack, uint32_t
-        extent_capacity);
+bool database_init(Database *db, Storage storage, HashEntry *entries, uint16_t *contact_fls_mem,
+        uint16_t *message_fls_mem);
+
+/**
+ * @brief Create a new contact.
+ *
+ * @param db Database.
+ * @param contact Contact information.
+ *
+ * @return Assigned contact ID, or INVALID_ID.
+ */
+bool database_contact_create(Database *db, ContactBuffer *contact);
+
+/**
+ * @brief Find a contact.
+ */
+bool database_contact_get(Database *db, uint16_t id, ContactBuffer *out);
+
+/**
+ * @brief Update an existing contact.
+ */
+bool database_contact_update(Database *db, uint16_t id, ContactBuffer *contact);
+
+/**
+ * @brief Read latest message block from contact message
+ */
+bool database_message_read_latest(Database *db, uint16_t id, MessageBlock messageBlock);
+
+/**
+ * @brief Append a message to a contact.
+ */
+bool database_message_append(Database *db, uint16_t contact_id, const Message *message);
+
+/**
+ * @brief Count messages belonging to a contact.
+ */
+uint16_t database_message_count(Database *db, uint16_t contact_id);
+
+/**
+ * @brief Delete all messages belonging to a contact.
+ */
+bool database_message_delete(Database *db, uint16_t contact_id);
 
 /**
  * @brief Reset the database to an empty state.
@@ -74,6 +113,11 @@ bool database_init(Database *db, Storage *storage, HashEntry *contact_entries, u
  * @param[in,out] db Database instance.
  */
 void database_clear(Database *db);
+
+/**
+ * @brief Flush pending changes to storage.
+ */
+bool database_sync(Database *db);
 
 #ifdef __cplusplus
 }
