@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "sd_storage.h"
 
@@ -17,7 +18,6 @@
 bool contact_equal(const ContactBuffer *a, const ContactBuffer *b)
 {
     return
-        a->contact.offset_id == b->contact.offset_id &&
         a->contact.name_len == b->contact.name_len &&
         a->contact.phone_len == b->contact.phone_len &&
         strcmp(a->contact.name, b->contact.name) == 0 &&
@@ -59,7 +59,6 @@ bool test_multiple_contacts(HashTable *table, Storage *storage)
 
         memset(&tx[i], 0, sizeof(ContactBuffer));
 
-        tx[i].contact.offset_id = ids[i];
 
         sprintf(tx[i].contact.name, "Person%d", i);
         sprintf(tx[i].contact.phone, "040000000%d", i);
@@ -119,7 +118,6 @@ bool test_update_contact(HashTable *table, Storage *storage)
     ContactBuffer tx = {0};
     ContactBuffer rx = {0};
 
-    tx.contact.offset_id = id;
 
     strcpy(tx.contact.name, "Alice");
     strcpy(tx.contact.phone, "111111");
@@ -174,7 +172,6 @@ bool test_max_length(HashTable *table, Storage *storage)
     ContactBuffer tx = {0};
     ContactBuffer rx = {0};
 
-    tx.contact.offset_id = id;
 
     memset(tx.contact.name, 'A', sizeof(tx.contact.name)-1);
     tx.contact.name[sizeof(tx.contact.name)-1] = '\0';
@@ -228,7 +225,6 @@ bool test_many_contacts(HashTable *table, Storage *storage)
 
         uint32_t sector = hash_find_sector(table, id);
 
-        tx.contact.offset_id = id;
 
         sprintf(tx.contact.name, "Name%lu", (unsigned long)id);
         sprintf(tx.contact.phone, "04%08lu", (unsigned long)id);
@@ -245,10 +241,6 @@ bool test_many_contacts(HashTable *table, Storage *storage)
 
         storage->read_block(storage->context, sector, rx.buffer);
 
-        if (rx.contact.offset_id != id)
-        {
-            return false;
-        }
     }
 
     return true;

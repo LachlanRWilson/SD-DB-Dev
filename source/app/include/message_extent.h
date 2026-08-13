@@ -56,7 +56,7 @@ typedef struct
 {
     uint16_t prev; // Previous Extent (2B)
     uint16_t msg_count; // Number of messages in the block (2B)
-    EXTENT_STATE state; // Extent State (1B)
+    EXTENT_STATE state; // Extent State (1B) (This can be removed)
     uint8_t padding; // 1B
 
 } MessageBlockHeader;
@@ -65,9 +65,9 @@ typedef struct
 // Message Extent Block (4KB)
 typedef struct
 {
-    MessageBlockHeader header; // Header
+    MessageBlockHeader header; // Header (6B)
     Message messages[MESSAGE_BLOCK_CAPACITY]; // Array of chats
-    uint8_t padding[MESSAGE_BLOCK_PADDING]; // Padding
+    uint8_t padding[MESSAGE_BLOCK_PADDING];
 } MessageBlock;
 
 typedef union
@@ -77,7 +77,8 @@ typedef union
 } MessageBlockBuffer;
 
 
-// Static checks to ensure the size of the struct are correct
+// Static checks to ensure the size of the struct are correct if they are changed
+STATIC_ASSERT(MESSAGE_BLOCK_PADDING > 0, "0 or negative padding (remove padding from struct)");
 STATIC_ASSERT(sizeof(Message) == MESSAGE_BYTES, "Unexpected MessageBlockHeader size");
 STATIC_ASSERT(sizeof(MessageBlockHeader) == MESSAGE_BLOCK_HEADER_BYTES, "Unexpected \
         MessageBlockHeader size");

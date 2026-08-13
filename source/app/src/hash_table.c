@@ -41,16 +41,42 @@ static inline uint16_t hash_double(uint16_t key, uint16_t attemptNum, uint16_t c
 }
 
 /**
+  * @brief  Phone Number Hash Function (FNV-1a)
+  * @param  phone: phone number
+  * @retval uint16_t: Hash Code
+  */
+uint16_t hash_phone(const char *phone)
+{
+    uint32_t hash = 2166136261u;
+
+    // Iterate over numbers in phone number until null character is reached
+    while (*phone)
+    {
+        if (*phone >= '0' && *phone <= '9')
+        {
+            hash ^= (uint8_t)*phone;
+            hash *= 16777619u;
+        }
+
+        phone++;
+    }
+
+    return (uint16_t)hash ^ (hash >> 16);
+}
+
+/**
   * @brief  Create a hash table
   * @param  table: Hash Table struct being initialised
+  * @param storage: storage struct for Heap or SD Card storage
   * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
   * @param  entries: In RAM storage of hash table entries
   * @param  size: number of elements in hash table
   */
-void hash_init( HashTable* table, FreeList *fstack,  HashEntry* entries, size_t
+void hash_init(HashTable* table, Storage* storage, FreeList *fstack,  HashEntry* entries, size_t
         size)
 {
     table->htable = entries;
+    table->storage = storage;
     table->free_stack = fstack;
     table->size = size;
     table->num_elems = 0;
@@ -117,6 +143,145 @@ uint16_t hash_insert(HashTable *table, uint16_t id)
 }
 
 /**
+ * @brief Insert a contact into the hash table.
+ *
+ * @param table Pointer to the hash table.
+ * @param contact Contact to insert.
+ * @retval Sector index if insertion successful, otherwise UINT16_MAX.
+ */
+uint16_t hash_insert_contact(HashTable *table, uint16_t id, ContactBuffer *contact)
+{
+    if (table == NULL ||
+        table->storage == NULL ||
+        table->free_stack == NULL ||
+        contact == NULL)
+    {
+        return UINT16_MAX;
+    }
+
+    // Pre-calculate double hash
+    uint16_t h1 = hash_primary(id, table->size);
+    uint16_t h2 = hash_secondary(id, table->size);
+
+    // Iterate until no collision
+    for (uint16_t i = 0; i < table->size; i++)
+    {
+        // Calculate hash index based on probe step
+        uint16_t index = (h1 + i * h2) % table->size;
+
+        HashEntry *entry = &table->htable[index];
+
+        // Empty or tombstoned entry
+        if (entry->state == ENTRY_EMPTY ||
+            entry->state == ENTRY_DELETED)
+        {
+            uint16_t sector = free_list_allocate(table->free_stack);
+
+            if (sector == UINT16_MAX)
+            {
+                return UINT16_MAX;
+            }
+
+            entry->state = ENTRY_OCCUPIED;
+            entry->id = id;
+            entry->sector = sector;
+
+            table->num_elems++;
+
+#if defined(HOST_BUILD)
+            table->collision_count = i;
+#endif
+
+            // Store contact
+            if (!table->storage->write_block( table->storage->context, sector,
+            contact->buffer))
+            {
+                // Storage failed, undo hash table allocation
+                entry->state = ENTRY_EMPTY;
+                entry->id = 0;
+                entry->sector = UINT16_MAX;
+
+                free_list_free(table->free_stack, sector);
+                table->num_elems--;
+
+                return UINT16_MAX;
+            }
+
+            return sector;
+        }
+
+        // Contact already exists
+        if (entry->state == ENTRY_OCCUPIED &&
+            entry->id == id)
+        {
+#if defined(HOST_BUILD)
+            table->collision_count = i;
+#endif
+
+            return entry->id;
+        }
+    }
+
+    // Table full
+    return UINT16_MAX;
+}
+
+
+/**
+  * @brief  Insert a contact into the hash table using phone number of PK
+  * @param  table: Pointer to the hash table
+  * @param  contact: Contact to insert
+  * @retval if insertion successful return sector index, else UINT16_MAX
+  */
+uint16_t hash_insert_phone(HashTable *table, char *phone)
+{
+    uint16_t hash = hash_phone(phone);
+
+    // Iterate until an empty/deleted slot is found
+    // (table should be limited to ~70% occupancy)
+    for (uint16_t i = 0; i < table->size; i++)
+    {
+        // Linear probing
+        uint16_t index = (hash + i) % table->size;
+
+        HashEntry *entry = &table->htable[index];
+
+        // Check empty or tombstoned entry
+        if (entry->state == ENTRY_EMPTY ||
+            entry->state == ENTRY_DELETED)
+        {
+            entry->state = ENTRY_OCCUPIED;
+            //entry->hash = hash;
+            entry->sector = free_list_allocate(table->free_stack);
+
+            table->num_elems++;
+
+#if defined(HOST_BUILD)
+            table->collision_count = i;
+#endif
+
+            return entry->sector;
+        }
+
+        // Same hash — potentially the same phone number
+        if (entry->state == ENTRY_OCCUPIED) //&&
+            //entry->hash == hash)
+        {
+            /*
+             * Hash collision or existing phone number.
+             *
+             * You should compare the actual phone number here
+             * before treating this as an existing entry.
+             */
+        }
+    }
+
+    // Hash table is full
+    return UINT16_MAX;
+}
+
+
+/**
   * @brief  Find a contact by its unique ID
   * @param  table: Pointer to the hash table
   * @param  id: Contact ID to search for
@@ -152,6 +317,62 @@ bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out)
         {
             // set the out HashEntry pointer to the HashEntry in RAM
             *out = entry;
+            return true;
+        }
+
+        // ENTRY_DELETED -> continue probing
+    }
+
+    return false;
+}
+
+/**
+ * @brief Find a contact by its unique ID.
+ *
+ * @param table Pointer to the hash table.
+ * @param id Contact ID to search for.
+ * @param out Pointer to output Contact.
+ * @retval true if contact found, otherwise false.
+ */
+bool hash_find_contact(HashTable *table, uint16_t id, ContactBuffer *out)
+{
+    if (table == NULL ||
+        table->htable == NULL ||
+        table->storage == NULL ||
+        out == NULL ||
+        table->size == 0)
+    {
+        return false;
+    }
+
+    // Hash calculations
+    uint16_t h1 = hash_primary(id, table->size);
+    uint16_t h2 = hash_secondary(id, table->size);
+
+    for (uint16_t i = 0; i < table->size; i++)
+    {
+        uint16_t index = (h1 + i * h2) % table->size;
+
+        // Get entry from RAM
+        HashEntry *entry = &table->htable[index];
+
+        // If we hit an empty slot, key was never inserted
+        if (entry->state == ENTRY_EMPTY)
+        {
+            return false;
+        }
+
+        // If occupied and ID matches
+        if (entry->state == ENTRY_OCCUPIED &&
+            entry->id == id)
+        {
+            // Read contact from storage
+            if (!table->storage->read_block( table->storage->context,
+            entry->sector, out->buffer))
+            {
+                return false;
+            }
+
             return true;
         }
 
@@ -242,6 +463,68 @@ bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed)
 
     return false; // table full (should never happen)
 
+}
+
+/**
+ * @brief Remove a contact from the hash table.
+ *
+ * @param table Pointer to the hash table.
+ * @param id Contact ID to remove.
+ * @retval true if the contact was removed, otherwise false.
+ */
+bool hash_remove_contact(HashTable *table, uint16_t id, ContactBuffer *out)
+{
+    if (table == NULL ||
+        table->htable == NULL ||
+        table->free_stack == NULL ||
+        table->size == 0)
+    {
+        return false;
+    }
+
+    // Hash calculations
+    uint16_t h1 = hash_primary(id, table->size);
+    uint16_t h2 = hash_secondary(id, table->size);
+
+    for (uint16_t i = 0; i < table->size; i++)
+    {
+        uint16_t index = (h1 + i * h2) % table->size;
+
+        HashEntry *entry = &table->htable[index];
+
+        // If we hit an empty slot, key was never inserted
+        if (entry->state == ENTRY_EMPTY)
+        {
+            return false;
+        }
+
+        // If occupied and ID matches
+        if (entry->state == ENTRY_OCCUPIED &&
+            entry->id == id)
+        {
+            // Read contact from storage
+            if (!table->storage->read_block( table->storage->context,
+            entry->sector, out->buffer))
+            {
+                return false;
+            }
+
+            // Return sector to free list
+            free_list_free(table->free_stack, entry->sector);
+
+            // Mark hash entry as deleted
+            entry->state = ENTRY_DELETED;
+
+            // Decrease element count
+            table->num_elems--;
+
+            return true;
+        }
+
+        // ENTRY_DELETED -> continue probing
+    }
+
+    return false;
 }
 
 /**

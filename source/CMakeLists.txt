@@ -20,6 +20,7 @@ add_library(app_logic
     app/src/test_db_extent.c
     app/src/db_main.c
     app/src/test_db_main.c
+    app/src/contact.c
 )
 
 else ()
@@ -29,7 +30,7 @@ add_library(app_logic
     app/src/hash_table.c
     app/src/message_extent.c
     app/src/heap_storage.c
-    app/src/database.c
+    #app/src/database.c
 )
 endif()
 # Make the include directory PUBLIC so other files such as tests/test_my_logic.cpp and firmware/Core/Src/main.c 

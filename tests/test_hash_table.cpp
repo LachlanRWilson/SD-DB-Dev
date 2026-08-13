@@ -1,316 +1,597 @@
 #include <gtest/gtest.h>
 #include <cstring>
+#include <cstdint>
 
-extern "C" {
+extern "C"
+{
 #include "hash_table.h"
+#include "contact.h"
+#include "storage.h"
+#include "free_list_stack.h"
+#include "heap_storage.h"
 }
 
-/**
- * @brief Test fixture for HashTable.
- *
- * Creates a fresh hash table and free-list allocator for every test.
- * Each test is completely independent.
- */
+ContactBuffer create_contact(const std::string& name, const std::string& phone);
+
 class HashTableTest : public ::testing::Test
 {
 protected:
-    HashTable table;
+    // Hash Table Struct
+    HashTable htable; 
 
+    // Hash entries pointer
     HashEntry *entries = nullptr;
-    FreeList freelist;
 
-    uint16_t *pool = nullptr;
+    // Storage Struct (heap storage)
+    Storage *storage = &heap_storage;
+
+    HeapStorageContext *storage_ctx = nullptr;
+
+    // Contact allocator
+    FreeList *contact_allocator = nullptr;
+
+    // Free List Stack
+    uint16_t *fls_mem_pool = nullptr;
+
+    uint8_t *contact_mem_pool = nullptr;
+
 
     void SetUp() override
     {
+        // allocate heap memory for hash htable
         entries = new HashEntry[HASH_TABLE_SIZE];
 
+        // Check the entries is not still a null pointer
         ASSERT_NE(entries, nullptr);
 
-        std::memset(entries, 0, sizeof(HashEntry) * HASH_TABLE_SIZE);
+        // Free List Stack memory pool
+        fls_mem_pool = new uint16_t[HASH_TABLE_SIZE];
 
-        pool = new uint16_t[HASH_TABLE_SIZE];
+        // Contact Memory Pool (SD Card Mock) Create in size of contact sectors
+        contact_mem_pool = new uint8_t[sizeof(ContactSector) * (HASH_TABLE_SIZE /
+            CONTACT_SECTOR_CAPACITY)]; 
 
-        ASSERT_NE(pool, nullptr);
+        // Initialise heap storage (SD Cark Mock)
+        ASSERT_TRUE(HeapStorage_Init( storage_ctx, contact_mem_pool, sizeof(ContactSector),
+                    HASH_TABLE_SIZE / CONTACT_SECTOR_CAPACITY));
 
-        ASSERT_TRUE( free_list_init( &freelist, pool, HASH_TABLE_SIZE));
+        // Intialise free_list_init
+        ASSERT_TRUE(free_list_init(contact_allocator, fls_mem_pool, HASH_TABLE_SIZE));
 
-        hash_init( &table, &freelist, entries, HASH_TABLE_SIZE);
+
+        // Initialise Hash Table
+        hash_init(&htable, storage, contact_allocator, entries, HASH_TABLE_SIZE);
+
+
+
     }
 
     void TearDown() override
     {
-        hash_clear(&table);
+        // delete hash htable allocated memory
+        hash_clear(&htable);
 
+        // Reclaim heap memeory
         delete[] entries;
-        delete[] freelist.free_stack;
+        delete[] fls_mem_pool;
+        delete[] contact_mem_pool;
+        entries = nullptr;
+        fls_mem_pool = nullptr;
+        contact_mem_pool = nullptr;
+
     }
+
 };
 
 /**
- * @brief Verify a newly initialised table is empty.
+ * @brief Verify a contact can be inserted.
  */
-TEST_F(HashTableTest, Initialise)
+TEST_F(HashTableTest, InsertContact)
 {
-    EXPECT_EQ(hash_size(&table), 0u);
-    EXPECT_EQ(table.size, HASH_TABLE_SIZE);
+    const uint16_t id = 100;
+
+    ContactBuffer contact =
+        create_contact(
+            "Alice",
+            "0412345678"
+        );
+
+    uint16_t sector = hash_insert_contact( &htable, id, &contact);
+
+    ASSERT_NE(sector, UINT16_MAX);
 }
 
+
 /**
- * @brief Verify inserting a single contact succeeds.
+ * @brief Verify an inserted contact can be found.
  */
-TEST_F(HashTableTest, InsertSingle)
+TEST_F(HashTableTest, FindContact)
 {
-    EXPECT_TRUE(hash_insert(&table, 100));
+    // Create contact id
+    const uint16_t id = 100;
 
-    EXPECT_EQ(hash_size(&table), 1u);
+    // create contact
+    ContactBuffer contact = create_contact( "Alice", "0412345678");
 
-    EXPECT_NE(hash_find_sector(&table, 100), UINT16_MAX);
+    ASSERT_NE( hash_insert_contact( &htable, id, &contact), UINT16_MAX);
+
+    ContactBuffer result{};
+
+    ASSERT_TRUE( hash_find_contact( &htable, id, &result));
+
+    EXPECT_EQ( result.contact.name_len, contact.contact.name_len);
+
+    EXPECT_EQ( result.contact.phone_len, contact.contact.phone_len);
+
+    EXPECT_STREQ( result.contact.name, contact.contact.name);
+
+    EXPECT_STREQ( result.contact.phone, contact.contact.phone);
 }
 
+
 /**
- * @brief Verify duplicate insertion does not create another entry.
+ * @brief Verify finding a contact that does not exist fails.
+ */
+TEST_F(HashTableTest, FindMissingContact)
+{
+    ContactBuffer result{};
+
+    EXPECT_FALSE(
+        hash_find_contact(
+            &htable,
+            123,
+            &result
+        )
+    );
+}
+
+
+/**
+ * @brief Verify an inserted contact can be removed.
+ */
+TEST_F(HashTableTest, RemoveContact)
+{
+    const uint16_t id = 100;
+
+    ContactBuffer contact =
+        create_contact(
+            "Alice",
+            "0412345678"
+        );
+
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            id,
+            &contact
+        ),
+        UINT16_MAX
+    );
+
+    ContactBuffer removed{};
+
+    ASSERT_TRUE(
+        hash_remove_contact(
+            &htable,
+            id,
+            &removed
+        )
+    );
+
+    EXPECT_STREQ(
+        removed.contact.name,
+        "Alice"
+    );
+
+    EXPECT_STREQ(
+        removed.contact.phone,
+        "0412345678"
+    );
+
+    // Contact should no longer be findable
+    ContactBuffer result{};
+
+    EXPECT_FALSE(
+        hash_find_contact(
+            &htable,
+            id,
+            &result
+        )
+    );
+}
+
+
+/**
+ * @brief Verify removing a contact that does not exist fails.
+ */
+TEST_F(HashTableTest, RemoveMissingContact)
+{
+    ContactBuffer removed{};
+
+    EXPECT_FALSE(
+        hash_remove_contact(
+            &htable,
+            123,
+            &removed
+        )
+    );
+}
+
+
+/**
+ * @brief Verify multiple contacts can be inserted and found independently.
+ */
+TEST_F(HashTableTest, MultipleContacts)
+{
+    const uint16_t alice_id = 1;
+    const uint16_t bob_id = 2;
+    const uint16_t charlie_id = 3;
+
+    ContactBuffer alice =
+        create_contact(
+            "Alice",
+            "0411111111"
+        );
+
+    ContactBuffer bob =
+        create_contact(
+            "Bob",
+            "0422222222"
+        );
+
+    ContactBuffer charlie =
+        create_contact(
+            "Charlie",
+            "0433333333"
+        );
+
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            alice_id,
+            &alice
+        ),
+        UINT16_MAX
+    );
+
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            bob_id,
+            &bob
+        ),
+        UINT16_MAX
+    );
+
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            charlie_id,
+            &charlie
+        ),
+        UINT16_MAX
+    );
+
+    ContactBuffer result{};
+
+    ASSERT_TRUE(
+        hash_find_contact(
+            &htable,
+            alice_id,
+            &result
+        )
+    );
+
+    EXPECT_STREQ(
+        result.contact.name,
+        "Alice"
+    );
+
+    EXPECT_STREQ(
+        result.contact.phone,
+        "0411111111"
+    );
+
+    ASSERT_TRUE(
+        hash_find_contact(
+            &htable,
+            bob_id,
+            &result
+        )
+    );
+
+    EXPECT_STREQ(
+        result.contact.name,
+        "Bob"
+    );
+
+    EXPECT_STREQ(
+        result.contact.phone,
+        "0422222222"
+    );
+
+    ASSERT_TRUE(
+        hash_find_contact(
+            &htable,
+            charlie_id,
+            &result
+        )
+    );
+
+    EXPECT_STREQ(
+        result.contact.name,
+        "Charlie"
+    );
+
+    EXPECT_STREQ(
+        result.contact.phone,
+        "0433333333"
+    );
+}
+
+
+/**
+ * @brief Verify inserting the same ID twice does not create
+ *        a second contact.
  */
 TEST_F(HashTableTest, DuplicateInsert)
 {
-    EXPECT_TRUE(hash_insert(&table, 55));
+    const uint16_t id = 100;
 
-    size_t before = hash_size(&table);
+    ContactBuffer contact =
+        create_contact(
+            "Alice",
+            "0412345678"
+        );
 
-    EXPECT_TRUE(hash_insert(&table, 55));
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            id,
+            &contact
+        ),
+        UINT16_MAX
+    );
 
-    EXPECT_EQ(hash_size(&table), before);
-}
+    ContactBuffer duplicate =
+        create_contact(
+            "Alice Duplicate",
+            "0499999999"
+        );
 
-/**
- * @brief Verify many sequential insertions.
- */
-TEST_F(HashTableTest, InsertMany)
-{
-    for (uint16_t i = 0; i < 1000; i++)
-    {
-        EXPECT_TRUE(hash_insert(&table, i));
-    }
+    EXPECT_EQ(
+        hash_insert_contact(
+            &htable,
+            id,
+            &duplicate
+        ),
+        UINT16_MAX
+    );
 
-    EXPECT_EQ(hash_size(&table), 1000u);
-}
-
-/**
- * @brief Verify lookup of an existing contact.
- */
-TEST_F(HashTableTest, FindExisting)
-{
-    hash_insert(&table, 123);
-
-    EXPECT_NE(hash_find_sector(&table, 123), UINT16_MAX);
-}
-
-/**
- * @brief Verify lookup of a missing contact.
- */
-TEST_F(HashTableTest, FindMissing)
-{
-    EXPECT_EQ(hash_find_sector(&table, 123), UINT16_MAX);
-}
-
-/**
- * @brief Verify retrieval of a hash table entry.
- */
-TEST_F(HashTableTest, FindEntry)
-{
-    hash_insert(&table, 500);
-
-    HashEntry *entry = nullptr;
-
-    EXPECT_TRUE(
-        hash_find_entry(
-            &table,
-            500,
-            &entry));
-
-    ASSERT_NE(entry, nullptr);
-
-    EXPECT_EQ(entry->id, 500);
-}
-
-/**
- * @brief Verify lookup of a missing entry returns nullptr.
- */
-TEST_F(HashTableTest, FindEntryMissing)
-{
-    HashEntry *entry = nullptr;
-
-    EXPECT_FALSE(
-        hash_find_entry(
-            &table,
-            999,
-            &entry));
-
-    EXPECT_EQ(entry, nullptr);
-}
-
-/**
- * @brief Verify the message extent associated with a contact.
- */
-TEST_F(HashTableTest, FindMessageExtent)
-{
-    hash_insert(&table, 77);
-
-    HashEntry *entry = nullptr;
+    // Original contact should still be present
+    ContactBuffer result{};
 
     ASSERT_TRUE(
-        hash_find_entry(
-            &table,
-            77,
-            &entry));
+        hash_find_contact(
+            &htable,
+            id,
+            &result
+        )
+    );
 
-    entry->latest_msg_extent = 42;
+    EXPECT_STREQ(
+        result.contact.name,
+        "Alice"
+    );
 
-    EXPECT_EQ(
-        hash_find_message(
-            &table,
-            77),
-        42);
+    EXPECT_STREQ(
+        result.contact.phone,
+        "0412345678"
+    );
 }
 
-/**
- * @brief Verify requesting the message extent of a missing
- * contact returns UINT16_MAX.
- */
-TEST_F(HashTableTest, FindMessageExtentMissing)
-{
-    EXPECT_EQ(
-        hash_find_message(
-            &table,
-            555),
-        UINT16_MAX);
-}
 
 /**
- * @brief Verify removing an existing contact.
- */
-TEST_F(HashTableTest, RemoveExisting)
-{
-    hash_insert(&table, 20);
-
-    HashEntry *removed = nullptr;
-
-    EXPECT_TRUE(
-        hash_remove(
-            &table,
-            20,
-            &removed));
-
-    ASSERT_NE(removed, nullptr);
-
-    EXPECT_EQ(removed->id, 20);
-
-    EXPECT_EQ(hash_find_sector(&table, 20), UINT16_MAX);
-
-    EXPECT_EQ(hash_size(&table), 0u);
-}
-
-/**
- * @brief Verify removing a non-existent contact fails.
- */
-TEST_F(HashTableTest, RemoveMissing)
-{
-    HashEntry *removed = nullptr;
-
-    EXPECT_FALSE( hash_remove( &table, 200, &removed));
-
-    EXPECT_EQ(removed, nullptr);
-}
-
-/**
- * @brief Verify clearing the hash table removes all entries.
- */
-TEST_F(HashTableTest, ClearTable)
-{
-    for (uint16_t i = 0; i < 100; i++)
-    {
-        hash_insert(&table, i);
-    }
-
-    hash_clear(&table);
-
-    EXPECT_EQ(hash_size(&table), 0u);
-
-    for (uint16_t i = 0; i < 100; i++)
-    {
-        EXPECT_EQ(hash_find_sector(&table, i), UINT16_MAX);
-    }
-}
-
-/**
- * @brief Verify collision resolution using two keys that hash
- * to the same primary bucket.
+ * @brief Verify contacts with colliding IDs can both be
+ *        inserted and found.
  */
 TEST_F(HashTableTest, CollisionHandling)
 {
-    uint16_t id1 = 10;
-    uint16_t id2 = static_cast<uint16_t>(10 + HASH_TABLE_SIZE);
+    const uint16_t id1 = 10;
 
-    EXPECT_TRUE(hash_insert(&table, id1));
-    EXPECT_TRUE(hash_insert(&table, id2));
+    const uint16_t id2 =
+        static_cast<uint16_t>(
+            id1 + HASH_TABLE_SIZE
+        );
 
-    EXPECT_NE(hash_find_sector(&table, id1), UINT16_MAX);
-    EXPECT_NE(hash_find_sector(&table, id2), UINT16_MAX);
+    ContactBuffer contact1 =
+        create_contact(
+            "Alice",
+            "0411111111"
+        );
 
-#ifdef HOST_BUILD
-    EXPECT_GT(table.collision_count, 0u);
-#endif
+    ContactBuffer contact2 =
+        create_contact(
+            "Bob",
+            "0422222222"
+        );
+
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            id1,
+            &contact1
+        ),
+        UINT16_MAX
+    );
+
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            id2,
+            &contact2
+        ),
+        UINT16_MAX
+    );
+
+    ContactBuffer result{};
+
+    ASSERT_TRUE(
+        hash_find_contact(
+            &htable,
+            id1,
+            &result
+        )
+    );
+
+    EXPECT_STREQ(
+        result.contact.name,
+        "Alice"
+    );
+
+    EXPECT_STREQ(
+        result.contact.phone,
+        "0411111111"
+    );
+
+    ASSERT_TRUE(
+        hash_find_contact(
+            &htable,
+            id2,
+            &result
+        )
+    );
+
+    EXPECT_STREQ(
+        result.contact.name,
+        "Bob"
+    );
+
+    EXPECT_STREQ(
+        result.contact.phone,
+        "0422222222"
+    );
+}
+
+
+/**
+ * @brief Verify removing one contact from a collision chain
+ *        does not prevent the other contact from being found.
+ */
+TEST_F(HashTableTest, RemoveCollisionChain)
+{
+    const uint16_t id1 = 10;
+
+    const uint16_t id2 =
+        static_cast<uint16_t>(
+            id1 + HASH_TABLE_SIZE
+        );
+
+    ContactBuffer contact1 =
+        create_contact(
+            "Alice",
+            "0411111111"
+        );
+
+    ContactBuffer contact2 =
+        create_contact(
+            "Bob",
+            "0422222222"
+        );
+
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            id1,
+            &contact1
+        ),
+        UINT16_MAX
+    );
+
+    ASSERT_NE(
+        hash_insert_contact(
+            &htable,
+            id2,
+            &contact2
+        ),
+        UINT16_MAX
+    );
+
+    // Remove first contact in collision chain
+    ContactBuffer removed{};
+
+    ASSERT_TRUE(
+        hash_remove_contact(
+            &htable,
+            id1,
+            &removed
+        )
+    );
+
+    EXPECT_STREQ(
+        removed.contact.name,
+        "Alice"
+    );
+
+    EXPECT_STREQ(
+        removed.contact.phone,
+        "0411111111"
+    );
+
+    // Second contact must still be findable
+    ContactBuffer result{};
+
+    ASSERT_TRUE(
+        hash_find_contact(
+            &htable,
+            id2,
+            &result
+        )
+    );
+
+    EXPECT_STREQ(
+        result.contact.name,
+        "Bob"
+    );
+
+    EXPECT_STREQ(
+        result.contact.phone,
+        "0422222222"
+    );
+
+    // First contact must no longer be findable
+    EXPECT_FALSE(
+        hash_find_contact(
+            &htable,
+            id1,
+            &result
+        )
+    );
 }
 
 /**
- * @brief Verify the hash table supports a large number of entries.
- */
-TEST_F(HashTableTest, LargeInsertion)
+  * @brief  Create a Contact
+  * @param  table: Hash Table struct being initialised
+  * @param  storage: 
+  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
+  * @param  entries: In RAM storage of hash table entries
+  * @param  size: number of elements in hash table
+  */
+ContactBuffer create_contact(const std::string& name, const std::string& phone)
 {
-    for (uint16_t i = 0; i < 10000; i++)
-    {
-        EXPECT_TRUE(hash_insert(&table, i));
+    ContactBuffer contact{};
+
+    // Check phone and name len
+    if (name.length() > MAX_NAME_LEN || phone.length() > MAX_PHONE_LEN) {
+        return contact;
     }
 
-    EXPECT_EQ(hash_size(&table), 10000u);
-}
+    contact.contact.name_len = static_cast<uint8_t>(name.length());
 
-/**
- * @brief Verify modifying one contact's message extent does not
- * affect another contact.
- */
-TEST_F(HashTableTest, IndependentMessageExtents)
-{
-    hash_insert(&table, 1);
-    hash_insert(&table, 2);
+    memcpy(contact.contact.name, name.c_str(), contact.contact.name_len);
 
-    HashEntry *a = nullptr;
-    HashEntry *b = nullptr;
+    contact.contact.phone_len = static_cast<uint8_t>(phone.length());
+    memcpy(contact.contact.phone, phone.c_str(), contact.contact.phone_len);
 
-    ASSERT_TRUE(hash_find_entry(&table, 1, &a));
-    ASSERT_TRUE(hash_find_entry(&table, 2, &b));
-
-    a->latest_msg_extent = 100;
-    b->latest_msg_extent = 200;
-
-    EXPECT_EQ(hash_find_message(&table, 1), 100);
-    EXPECT_EQ(hash_find_message(&table, 2), 200);
-}
-
-/**
- * @brief Verify every inserted contact is allocated a unique sector.
- */
-TEST_F(HashTableTest, UniqueSectorAllocation)
-{
-    hash_insert(&table, 10);
-    hash_insert(&table, 20);
-    hash_insert(&table, 30);
-
-    uint16_t s1 = hash_find_sector(&table, 10);
-    uint16_t s2 = hash_find_sector(&table, 20);
-    uint16_t s3 = hash_find_sector(&table, 30);
-
-    EXPECT_NE(s1, s2);
-    EXPECT_NE(s1, s3);
-    EXPECT_NE(s2, s3);
+    return contact;
 }

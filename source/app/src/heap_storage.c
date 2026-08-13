@@ -29,27 +29,18 @@ bool HeapStorage_Init( HeapStorageContext *context, uint8_t *memory, uint32_t bl
 /**
  * @brief Read a block from heap storage.
  */
-bool HeapStorage_ReadBlock(
-    void *context,
-    uint32_t index,
-    uint8_t *out)
+bool HeapStorage_ReadBlock( void *context, uint32_t index, uint8_t *out)
 {
-    HeapStorageContext *ctx =
-        (HeapStorageContext *)context;
+    HeapStorageContext *ctx = (HeapStorageContext *)context;
 
 
-    if(ctx == NULL ||
-       out == NULL ||
-       index >= ctx->capacity_blocks)
+    if(ctx == NULL || out == NULL || index >= ctx->capacity_blocks)
     {
         return false;
     }
 
 
-    memcpy(
-        out,
-        &ctx->memory[index * ctx->block_size],
-        ctx->block_size);
+    memcpy( out, &ctx->memory[index * ctx->block_size], ctx->block_size);
 
 
     return true;
@@ -59,27 +50,18 @@ bool HeapStorage_ReadBlock(
 /**
  * @brief Write a block to heap storage.
  */
-bool HeapStorage_WriteBlock(
-    void *context,
-    uint32_t index,
-    uint8_t *in)
+bool HeapStorage_WriteBlock( void *context, uint32_t index, uint8_t *in)
 {
-    HeapStorageContext *ctx =
-        (HeapStorageContext *)context;
+    HeapStorageContext *ctx = (HeapStorageContext *)context;
 
 
-    if(ctx == NULL ||
-       in == NULL ||
-       index >= ctx->capacity_blocks)
+    if(ctx == NULL || in == NULL || index >= ctx->capacity_blocks)
     {
         return false;
     }
 
 
-    memcpy(
-        &ctx->memory[index * ctx->block_size],
-        in,
-        ctx->block_size);
+    memcpy( &ctx->memory[index * ctx->block_size], in, ctx->block_size);
 
 
     return true;
@@ -91,8 +73,7 @@ bool HeapStorage_WriteBlock(
  */
 uint32_t HeapStorage_Capacity(void *context)
 {
-    HeapStorageContext *ctx =
-        (HeapStorageContext *)context;
+    HeapStorageContext *ctx = (HeapStorageContext *)context;
 
 
     if(ctx == NULL)

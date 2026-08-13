@@ -18,61 +18,16 @@ extern "C" {
 #include <stdint.h>
 #include "free_list_stack.h"
 #include "storage.h"
+#include "contact.h"
 
-#define MAX_NAME_LEN 64
-#define MAX_PHONE_LEN 15
 
 
 // Struct Sizes
 #define HASH_ENTRY_BYTES 8
-#define CONTACT_BYTES 84
 
 
 // Prime number that allows a hash table of 10000 entries to have a load factor of 70%
 #define HASH_TABLE_SIZE 14293
-
-#define CONTACT_SECTOR_BYTES 512
-#define CONTACT_HEADER_BYTES 1
-#define CONTACT_BYTES 84
-
-// Get the number of contacts that can be stored in the ContactSector
-#define CONTACT_SECTOR_CAPACITY \
-    ((CONTACT_SECTOR_BYTES - sizeof(ContactSectorHeader)) / sizeof(Contact))
-
-// calculate the padding of the sector
-#define CONTACT_SECTOR_PADDING \
-    (CONTACT_SECTOR_BYTES - sizeof(ContactSectorHeader) - CONTACT_SECTOR_CAPACITY * sizeof(Contact))
-
- 
-// Contact Struct (84B)
-typedef struct
-{
-    uint8_t name_len;          /**< Length of name string (1B)*/
-    char name[MAX_NAME_LEN];   /**< Contact name (64B)*/
-    uint8_t phone_len;         /**< Length of phone number (1B) */
-    char phone[MAX_PHONE_LEN]; /**< Phone number (15B)*/
-    uint8_t padding; // (1B)
-    uint16_t offset_id;        /**< Unique offset identifier (2B)*/
-} Contact;
-
-typedef union {
-   Contact contact;
-   uint8_t buffer[sizeof(Contact)];
-} ContactBuffer;
-
-// Contact Block Header (8B) <- TBD
-typedef struct 
-{
-    uint8_t used_bitmap;
-} ContactSectorHeader;
-
-// Contact Sector needs to be 512 bytes since smallest read and write size is 512B
-typedef struct 
-{
-    ContactBuffer contacts[CONTACT_SECTOR_CAPACITY];
-    ContactSectorHeader header;
-    uint8_t padding[CONTACT_SECTOR_PADDING];
-} ContactSector;
 
 
 // Entry State  (Pack enum to 1 byte)
@@ -90,12 +45,11 @@ typedef struct
     uint16_t id; // Contact ID (2B)
     uint16_t sector; // SD Sector (2B)
     uint16_t latest_msg_extent; // Latest Message Extent offset (2B)
-    ENTRY_STATE state;  // Entry occupation state (1B) (CAN BE REMOVED)
+    ENTRY_STATE state;  // Entry occupation state (1B)
     uint8_t padding; // (1B)
 } HashEntry;
 
 // Static checks to ensure the size of the structs are correct
-STATIC_ASSERT(sizeof(Contact) == CONTACT_BYTES, "Unexpected Contact size");
 STATIC_ASSERT(sizeof(HashEntry) == HASH_ENTRY_BYTES, "Unexpected HashEntry size");
 STATIC_ASSERT(sizeof(ContactSectorHeader) == CONTACT_HEADER_BYTES, "Unexpected ContactSector size");
 STATIC_ASSERT(sizeof(ContactSector) == CONTACT_SECTOR_BYTES, "Unexpected ContactSector size");
@@ -105,6 +59,7 @@ STATIC_ASSERT(sizeof(ContactSector) == CONTACT_SECTOR_BYTES, "Unexpected Contact
 typedef struct 
 {
     HashEntry *htable; // In RAM hash table
+    Storage *storage;
     FreeList *free_stack; // List of free list stack pointers
     size_t num_elems; // amount of elements in table
     size_t size; // total space in table 
@@ -117,12 +72,13 @@ typedef struct
 /**
   * @brief  Create a hash table
   * @param  table: Hash Table struct being initialised
+  * @param storage: 
   * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
   * @param  entries: In RAM storage of hash table entries
   * @param  size: number of elements in hash table
   */
 
-void hash_init( HashTable* table, FreeList *fstacks,  HashEntry* entries, size_t size);
+void hash_init( HashTable* table, Storage* storage, FreeList *fstacks,  HashEntry* entries, size_t size);
 
 /**
   * @brief  Destroy a hash table and free all associated memory
@@ -132,12 +88,29 @@ void hash_init( HashTable* table, FreeList *fstacks,  HashEntry* entries, size_t
 void hash_destroy(HashTable *table);
 
 /**
-  * @brief  Insert a contact into the hash table
+  * @brief  Create a new contact in the hash table in RAM
   * @param  table: Pointer to the hash table
   * @param  contact: Contact to insert
   * @retval if insertion successful return sector index, else UINT16_MAX
   */
 uint16_t hash_insert(HashTable *table, uint16_t id);
+
+/**
+ * @brief Insert a new contact into the hash table and on SD
+ *
+ * @param table Pointer to the hash table.
+ * @param contact Contact to insert.
+ * @retval Sector index if insertion successful, otherwise UINT16_MAX.
+ */
+uint16_t hash_insert_contact(HashTable *table, uint16_t id, ContactBuffer *contact);
+
+/**
+  * @brief  Insert a contact into the hash table using phone number of PK
+  * @param  table: Pointer to the hash table
+  * @param  contact: Contact to insert
+  * @retval if insertion successful return sector index, else UINT16_MAX
+  */
+uint16_t hash_insert_phone(HashTable *table, char *phone);
 
 /**
   * @brief  Find a contact by its unique ID
@@ -157,6 +130,17 @@ uint16_t hash_find_sector(HashTable *table, uint16_t id);
 bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out);
 
 /**
+ * @brief Find a contact by its unique ID. This will pull the contact from the SD Card in one
+ * go
+ *
+ * @param table Pointer to the hash table.
+ * @param id Contact ID to search for.
+ * @param out Pointer to output Contact.
+ * @retval true if contact found, otherwise false.
+ */
+bool hash_find_contact(HashTable *table, uint16_t id, ContactBuffer *out);
+
+/**
   * @brief  Find a contacts message extent offset
   * @param  table: Pointer to the hash table
   * @param  id: Contact ID to search for
@@ -172,6 +156,15 @@ uint16_t hash_find_message(HashTable *table, uint16_t id);
   * @retval true if the contact was removed, false if it was not found
   */
 bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed);
+
+/**
+ * @brief Remove a contact from the hash table.
+ *
+ * @param table Pointer to the hash table.
+ * @param id Contact ID to remove.
+ * @retval true if the contact was removed, otherwise false.
+ */
+bool hash_remove_contact(HashTable *table, uint16_t id, ContactBuffer *out);
 
 /**
   * @brief  Get the number of contacts currently stored in the hash table
