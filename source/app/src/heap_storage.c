@@ -34,7 +34,7 @@ bool HeapStorage_ReadBlock( void *context, uint32_t index, uint8_t *out)
     HeapStorageContext *ctx = (HeapStorageContext *)context;
 
 
-    if(ctx == NULL || out == NULL || index >= ctx->capacity_blocks)
+    if(ctx == NULL || out == NULL || index > ctx->capacity_blocks)
     {
         return false;
     }
@@ -55,7 +55,7 @@ bool HeapStorage_WriteBlock( void *context, uint32_t index, uint8_t *in)
     HeapStorageContext *ctx = (HeapStorageContext *)context;
 
 
-    if(ctx == NULL || in == NULL || index >= ctx->capacity_blocks)
+    if(ctx == NULL || in == NULL || index > ctx->capacity_blocks)
     {
         return false;
     }

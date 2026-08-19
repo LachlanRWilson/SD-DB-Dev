@@ -1,5 +1,6 @@
 #include "hash_table.h"
 #include <stdlib.h>
+#include <string.h>
 
 /**
   * @brief  Primary Hash Function
@@ -142,6 +143,213 @@ uint16_t hash_insert(HashTable *table, uint16_t id)
     return UINT16_MAX; // table full (should never happen)
 }
 
+
+/**
+ * @brief Read the contact sector that the contact in stored in on the sd card
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param out Contact Sector Buffer with the desired contact position
+ * @retval True if successful read else false.
+ */
+bool read_contact_sector(HashTable *table, uint16_t index, ContactSectorBuffer *out) 
+{
+    // Read ContactSector
+    if (!table->storage->read_block( table->storage->context, index / CONTACT_SECTOR_CAPACITY,
+    out->buffer)) 
+    {
+        return false;
+    }
+
+    return true;
+
+}
+
+/**
+ * @brief Write the contact sector that the contact in stored in on the sd card
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool write_contact_sector(HashTable *table, uint16_t index, ContactSectorBuffer *in) 
+{
+    // Write contact sector
+    if (!table->storage->write_block( table->storage->context, index / CONTACT_SECTOR_CAPACITY,
+    in->buffer))
+    {
+        return false;
+    }
+
+    return true;
+    
+}
+
+
+/**
+ * @brief Write the contact to the sd card in the appropriate contact sector
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool write_contact(HashTable *table, uint16_t index, ContactBuffer *in)
+{
+    ContactSectorBuffer cSector;
+    uint8_t contactPosInSector;
+    
+    // Read contact sector
+    if (!read_contact_sector(table, index, &cSector))
+    {
+        return false;
+    }
+
+    // Get the position in the contact sector
+    contactPosInSector = index % CONTACT_SECTOR_CAPACITY;
+        
+    // Set contact bit 
+    cSector.sector.header.used_bitmap |= (1 << contactPosInSector);
+
+    // Write contact to sector
+    memcpy(cSector.sector.contacts[contactPosInSector].buffer, in->buffer, sizeof(Contact));
+
+    // Write contact sector to SD card
+    if (!write_contact_sector(table, index, &cSector))
+    {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief Read the contact to the sd card from the appropriate contact sector
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool read_contact(HashTable *table, uint16_t index, ContactBuffer *out)
+{
+    ContactSectorBuffer cSector;
+    uint8_t contactPosInSector;
+    
+    // Read contact sector
+    if (!read_contact_sector(table, index, &cSector))
+    {
+        return false;
+    }
+
+    // Get the position in the contact sector
+    contactPosInSector = index % CONTACT_SECTOR_CAPACITY;
+        
+    // Check contact use bit
+   if (!(cSector.sector.header.used_bitmap & (1 << contactPosInSector)))
+   {
+       return false;
+   }
+
+   // Write contact buffer in sector to output buffer
+   memcpy(out->buffer, cSector.sector.contacts[contactPosInSector].buffer, sizeof(Contact));
+   return true;
+}
+
+/**
+ * @brief Remove the contact to the sd card from the appropriate contact sector
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool remove_contact(HashTable *table, uint16_t index, ContactBuffer *out)
+{
+    ContactSectorBuffer cSector;
+    uint8_t contactPosInSector;
+    
+    // Read contact sector
+    if (!read_contact_sector(table, index, &cSector))
+    {
+        return false;
+    }
+
+    // Get the position in the contact sector
+    contactPosInSector = index % CONTACT_SECTOR_CAPACITY;
+        
+    // Check contact use bit
+   if (!(cSector.sector.header.used_bitmap & (1 << contactPosInSector)))
+   {
+       return false;
+   }
+
+   // Write contact buffer in sector to output buffer
+   memcpy(out->buffer, cSector.sector.contacts[contactPosInSector].buffer, sizeof(Contact));
+
+   // Unset used bit
+    cSector.sector.header.used_bitmap &= ~(1 << contactPosInSector);
+
+   // Write updated sector back to SD card
+    if (!write_contact_sector(table, index, &cSector))
+    {
+        return false;
+    }
+
+   return true;
+
+}
+
+/**
+ * @brief Perform a double hash search on the hash table
+ *
+ * @param table Pointer to the hash table.
+ * @param h1 primary hash.
+ * @param h2 secondary hash.
+ * @param entry entry found in hash table or NULL
+ * @retval True if hash entry found else false
+ */
+uint16_t find_hash(HashTable *table, uint16_t id, uint16_t h1, uint16_t h2, HashEntry** entry)
+{
+    // Iterate until no collision
+    for (uint16_t i = 0; i <= table->size; i++)
+    {
+        
+        // Table full
+        if (i == table->size) {
+            return UINT16_MAX;
+        }
+
+        // Calculate hash index based on probe step
+        uint16_t index = (h1 + i * h2) % table->size;
+
+        *entry = &table->htable[index];
+
+        // Empty or tombstoned entry
+        if ((*entry)->state == ENTRY_EMPTY)
+        {
+
+#if defined(HOST_BUILD)
+            table->collision_count = i;
+#endif
+            return true;
+        }
+
+        // Contact already exists and the same id
+        if ((*entry)->state == ENTRY_OCCUPIED && (*entry)->id == id)
+        {
+#if defined(HOST_BUILD)
+            table->collision_count = i;
+#endif
+            return true;
+        }
+    }
+
+    return false;
+
+}
+
+
 /**
  * @brief Insert a contact into the hash table.
  *
@@ -151,10 +359,11 @@ uint16_t hash_insert(HashTable *table, uint16_t id)
  */
 uint16_t hash_insert_contact(HashTable *table, uint16_t id, ContactBuffer *contact)
 {
-    if (table == NULL ||
-        table->storage == NULL ||
-        table->free_stack == NULL ||
-        contact == NULL)
+    // HashEntry pointer that contact will be inserted into
+    HashEntry *entry;
+
+    // Catch null pointers
+    if (table == NULL || table->storage == NULL || table->free_stack == NULL || contact == NULL)
     {
         return UINT16_MAX;
     }
@@ -163,68 +372,87 @@ uint16_t hash_insert_contact(HashTable *table, uint16_t id, ContactBuffer *conta
     uint16_t h1 = hash_primary(id, table->size);
     uint16_t h2 = hash_secondary(id, table->size);
 
-    // Iterate until no collision
-    for (uint16_t i = 0; i < table->size; i++)
+    // If has cannot be found throw error
+    if (!find_hash(table, id, h1, h2, &entry) || entry == NULL)
     {
-        // Calculate hash index based on probe step
-        uint16_t index = (h1 + i * h2) % table->size;
-
-        HashEntry *entry = &table->htable[index];
-
-        // Empty or tombstoned entry
-        if (entry->state == ENTRY_EMPTY ||
-            entry->state == ENTRY_DELETED)
-        {
-            uint16_t sector = free_list_allocate(table->free_stack);
-
-            if (sector == UINT16_MAX)
-            {
-                return UINT16_MAX;
-            }
-
-            entry->state = ENTRY_OCCUPIED;
-            entry->id = id;
-            entry->sector = sector;
-
-            table->num_elems++;
-
-#if defined(HOST_BUILD)
-            table->collision_count = i;
-#endif
-
-            // Store contact
-            if (!table->storage->write_block( table->storage->context, sector,
-            contact->buffer))
-            {
-                // Storage failed, undo hash table allocation
-                entry->state = ENTRY_EMPTY;
-                entry->id = 0;
-                entry->sector = UINT16_MAX;
-
-                free_list_free(table->free_stack, sector);
-                table->num_elems--;
-
-                return UINT16_MAX;
-            }
-
-            return sector;
-        }
-
-        // Contact already exists
-        if (entry->state == ENTRY_OCCUPIED &&
-            entry->id == id)
-        {
-#if defined(HOST_BUILD)
-            table->collision_count = i;
-#endif
-
-            return entry->id;
-        }
+        return UINT16_MAX;
     }
 
-    // Table full
-    return UINT16_MAX;
+    // Variable for new sector
+    uint16_t sector; 
+
+    // Check to see if this is a new contact
+    if (entry->state == ENTRY_EMPTY || entry->state == ENTRY_DELETED) {
+        sector = free_list_allocate(table->free_stack);
+
+        // If invalid sector throw error (stack empty)
+        if (sector == UINT16_MAX)
+        {
+            return UINT16_MAX;
+        }    
+
+        // allocate sector to new contact
+        entry->sector = sector;
+        entry->state = ENTRY_OCCUPIED;
+        entry->id = id;
+        entry->sector = sector;
+        table->num_elems++;
+    }
+
+    // Update Contact in ContactSector
+    if (!write_contact(table, entry->sector, contact))
+    {
+        // Storage failed, undo hash table allocation
+        entry->state = ENTRY_EMPTY;
+        entry->id = 0;
+        entry->sector = UINT16_MAX;
+
+        free_list_free(table->free_stack, sector);
+        table->num_elems--;
+
+        return UINT16_MAX;
+    }
+
+    return sector;
 }
+
+/**
+ * @brief Find a contact by its unique ID on the SD Card.
+ *
+ * @param table Pointer to the hash table.
+ * @param id Contact ID to search for.
+ * @param out Pointer to output Contact.
+ * @retval true if contact found, otherwise false.
+ */
+bool hash_find_contact(HashTable *table, uint16_t id, ContactBuffer *out)
+{
+    // HashEntry that will be pulled from the table
+    HashEntry* entry;
+
+    if (table == NULL || table->htable == NULL || table->storage == NULL || out == NULL ||
+            table->size == 0)
+    {
+        return false;
+    }
+
+    // Hash calculations
+    uint16_t h1 = hash_primary(id, table->size);
+    uint16_t h2 = hash_secondary(id, table->size);
+    
+    // if hash cannot be found in table
+    if (!find_hash(table, id, h1, h2, &entry) && entry == NULL) {
+        return false;
+    }
+
+    // read contact from sd card
+    if(!read_contact(table, entry->sector, out))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 
 
 /**
@@ -326,61 +554,6 @@ bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out)
     return false;
 }
 
-/**
- * @brief Find a contact by its unique ID.
- *
- * @param table Pointer to the hash table.
- * @param id Contact ID to search for.
- * @param out Pointer to output Contact.
- * @retval true if contact found, otherwise false.
- */
-bool hash_find_contact(HashTable *table, uint16_t id, ContactBuffer *out)
-{
-    if (table == NULL ||
-        table->htable == NULL ||
-        table->storage == NULL ||
-        out == NULL ||
-        table->size == 0)
-    {
-        return false;
-    }
-
-    // Hash calculations
-    uint16_t h1 = hash_primary(id, table->size);
-    uint16_t h2 = hash_secondary(id, table->size);
-
-    for (uint16_t i = 0; i < table->size; i++)
-    {
-        uint16_t index = (h1 + i * h2) % table->size;
-
-        // Get entry from RAM
-        HashEntry *entry = &table->htable[index];
-
-        // If we hit an empty slot, key was never inserted
-        if (entry->state == ENTRY_EMPTY)
-        {
-            return false;
-        }
-
-        // If occupied and ID matches
-        if (entry->state == ENTRY_OCCUPIED &&
-            entry->id == id)
-        {
-            // Read contact from storage
-            if (!table->storage->read_block( table->storage->context,
-            entry->sector, out->buffer))
-            {
-                return false;
-            }
-
-            return true;
-        }
-
-        // ENTRY_DELETED -> continue probing
-    }
-
-    return false;
-}
 
 /**
   * @brief  Find a contact by its unique ID
@@ -474,10 +647,11 @@ bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed)
  */
 bool hash_remove_contact(HashTable *table, uint16_t id, ContactBuffer *out)
 {
-    if (table == NULL ||
-        table->htable == NULL ||
-        table->free_stack == NULL ||
-        table->size == 0)
+    // HashEntry that will be pulled from the table
+    HashEntry* entry;
+
+    if (table == NULL || table->htable == NULL || table->storage == NULL || out == NULL ||
+            table->size == 0)
     {
         return false;
     }
@@ -485,46 +659,35 @@ bool hash_remove_contact(HashTable *table, uint16_t id, ContactBuffer *out)
     // Hash calculations
     uint16_t h1 = hash_primary(id, table->size);
     uint16_t h2 = hash_secondary(id, table->size);
-
-    for (uint16_t i = 0; i < table->size; i++)
-    {
-        uint16_t index = (h1 + i * h2) % table->size;
-
-        HashEntry *entry = &table->htable[index];
-
-        // If we hit an empty slot, key was never inserted
-        if (entry->state == ENTRY_EMPTY)
-        {
-            return false;
-        }
-
-        // If occupied and ID matches
-        if (entry->state == ENTRY_OCCUPIED &&
-            entry->id == id)
-        {
-            // Read contact from storage
-            if (!table->storage->read_block( table->storage->context,
-            entry->sector, out->buffer))
-            {
-                return false;
-            }
-
-            // Return sector to free list
-            free_list_free(table->free_stack, entry->sector);
-
-            // Mark hash entry as deleted
-            entry->state = ENTRY_DELETED;
-
-            // Decrease element count
-            table->num_elems--;
-
-            return true;
-        }
-
-        // ENTRY_DELETED -> continue probing
+    
+    // if hash cannot be found in table
+    if (!find_hash(table, id, h1, h2, &entry) && entry == NULL) {
+        return false;
     }
 
-    return false;
+    if (entry->state != ENTRY_OCCUPIED || entry->id != id)
+    {
+        return false;
+    }
+    
+    // remove contact from SD card
+    if(!remove_contact(table, entry->sector, out))
+    {
+        return false;
+    }
+
+    /* NOTE: IF FAILURE HERE SD CARD AND RAM OUT OF SYNC */
+
+    // Set state to deleted
+    entry->state = ENTRY_DELETED;
+
+    // return memory address back to free stack to be recycled
+    free_list_free(table->free_stack, entry->sector);
+
+    // decrease number of elements
+    table->num_elems--;
+
+    return true;
 }
 
 /**

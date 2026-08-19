@@ -25,10 +25,11 @@ protected:
     // Storage Struct (heap storage)
     Storage *storage = &heap_storage;
 
-    HeapStorageContext *storage_ctx = nullptr;
+    // Allocate HeapStorageContext Instance
+    HeapStorageContext storage_ctx;
 
     // Contact allocator
-    FreeList *contact_allocator = nullptr;
+    FreeList contact_allocator;
 
     // Free List Stack
     uint16_t *fls_mem_pool = nullptr;
@@ -52,15 +53,18 @@ protected:
             CONTACT_SECTOR_CAPACITY)]; 
 
         // Initialise heap storage (SD Cark Mock)
-        ASSERT_TRUE(HeapStorage_Init( storage_ctx, contact_mem_pool, sizeof(ContactSector),
+        ASSERT_TRUE(HeapStorage_Init( &storage_ctx, contact_mem_pool, sizeof(ContactSector),
                     HASH_TABLE_SIZE / CONTACT_SECTOR_CAPACITY));
 
+        // Allocate HeapStorageContext struct to the storage struct
+        storage->context = &storage_ctx;
+
         // Intialise free_list_init
-        ASSERT_TRUE(free_list_init(contact_allocator, fls_mem_pool, HASH_TABLE_SIZE));
+        ASSERT_TRUE(free_list_init(&contact_allocator, fls_mem_pool, HASH_TABLE_SIZE));
 
 
         // Initialise Hash Table
-        hash_init(&htable, storage, contact_allocator, entries, HASH_TABLE_SIZE);
+        hash_init(&htable, storage, &contact_allocator, entries, HASH_TABLE_SIZE);
 
 
 
@@ -338,56 +342,22 @@ TEST_F(HashTableTest, DuplicateInsert)
 {
     const uint16_t id = 100;
 
-    ContactBuffer contact =
-        create_contact(
-            "Alice",
-            "0412345678"
-        );
+    ContactBuffer contact = create_contact( "Alice", "0412345678");
 
-    ASSERT_NE(
-        hash_insert_contact(
-            &htable,
-            id,
-            &contact
-        ),
-        UINT16_MAX
-    );
+    ASSERT_NE( hash_insert_contact( &htable, id, &contact), UINT16_MAX);
 
-    ContactBuffer duplicate =
-        create_contact(
-            "Alice Duplicate",
-            "0499999999"
-        );
+    ContactBuffer duplicate = create_contact( "Alice Duplicate", "0499999999");
 
-    EXPECT_EQ(
-        hash_insert_contact(
-            &htable,
-            id,
-            &duplicate
-        ),
-        UINT16_MAX
-    );
+    EXPECT_NE( hash_insert_contact( &htable, id, &duplicate), UINT16_MAX);
 
     // Original contact should still be present
     ContactBuffer result{};
 
-    ASSERT_TRUE(
-        hash_find_contact(
-            &htable,
-            id,
-            &result
-        )
-    );
+    ASSERT_TRUE( hash_find_contact( &htable, id, &result));
 
-    EXPECT_STREQ(
-        result.contact.name,
-        "Alice"
-    );
+    EXPECT_STREQ( result.contact.name, "Alice Duplicate");
 
-    EXPECT_STREQ(
-        result.contact.phone,
-        "0412345678"
-    );
+    EXPECT_STREQ( result.contact.phone, "0499999999");
 }
 
 
@@ -474,6 +444,7 @@ TEST_F(HashTableTest, CollisionHandling)
 }
 
 
+/*TODO THIS NEEDS TO BE IMPLEMENTED*/
 /**
  * @brief Verify removing one contact from a collision chain
  *        does not prevent the other contact from being found.

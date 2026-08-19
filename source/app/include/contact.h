@@ -57,6 +57,11 @@ typedef struct
     uint8_t padding[CONTACT_SECTOR_PADDING];
 } ContactSector;
 
+typedef union {
+    ContactSector sector;
+    uint8_t buffer[sizeof(ContactSector)];
+} ContactSectorBuffer;
+
 STATIC_ASSERT(sizeof(Contact) == CONTACT_BYTES, "Unexpected Contact size");
 
 #ifdef __cplusplus
