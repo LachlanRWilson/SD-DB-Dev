@@ -11,6 +11,9 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
+// Storage sector size
+#define SECTOR_SIZE 512
+
 typedef struct 
 {
     void * context;  // Storage context

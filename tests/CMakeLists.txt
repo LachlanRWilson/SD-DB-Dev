@@ -35,7 +35,9 @@ add_executable(test_my_logic
     test_hash_table.cpp
     #test_hash_table_edge.cpp
     test_free_list_stack.cpp
-    #test_message_extent.cpp
+    test_message_extent.cpp
+    test_journal.cpp
+    test_journal_edge.cpp
     #test_hash_table_messages.cpp
 )
 

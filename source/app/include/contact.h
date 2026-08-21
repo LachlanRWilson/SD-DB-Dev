@@ -3,6 +3,7 @@
 
 #include "stdint.h"
 #include "stdbool.h"
+#include "storage.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,7 +15,7 @@ extern "C" {
     #define STATIC_ASSERT _Static_assert
 #endif
 
-#define CONTACT_SECTOR_BYTES 512
+#define CONTACT_SECTOR_BYTES SECTOR_SIZE
 #define CONTACT_HEADER_BYTES 1
 #define CONTACT_BYTES 81
 

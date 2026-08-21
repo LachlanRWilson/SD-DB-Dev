@@ -17,20 +17,19 @@ extern "C" {
 #include "free_list_stack.h"
 #include "storage.h"
 
-#define EXTENT_SIZE_BYTES 4096
 #define SMS_MAX_MESSAGE_LENGTH 160
 
 #define MESSAGE_BYTES 164
 #define MESSAGE_BLOCK_HEADER_BYTES 6
-#define MESSAGE_BLOCK_BYTES 4096
+#define MESSAGE_BLOCK_BYTES SECTOR_SIZE
 
 // Fit messages into a 4KB block of memory
 #define MESSAGE_BLOCK_CAPACITY \
-    ((EXTENT_SIZE_BYTES - sizeof(MessageBlockHeader)) / sizeof(Message))
+    ((MESSAGE_BLOCK_BYTES - sizeof(MessageBlockHeader)) / sizeof(Message))
 
 // Ensure padding is accounted for
 #define MESSAGE_BLOCK_PADDING \
-    EXTENT_SIZE_BYTES - sizeof(MessageBlockHeader) - sizeof(Message) * MESSAGE_BLOCK_CAPACITY
+    MESSAGE_BLOCK_BYTES - sizeof(MessageBlockHeader) - sizeof(Message) * MESSAGE_BLOCK_CAPACITY
 
 // Ensure enum is 1 byte
 typedef uint8_t EXTENT_STATE;

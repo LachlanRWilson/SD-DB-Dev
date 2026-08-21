@@ -58,9 +58,9 @@ STATIC_ASSERT(sizeof(ContactSector) == CONTACT_SECTOR_BYTES, "Unexpected Contact
 // Information Struct about hash table
 typedef struct 
 {
-    HashEntry *htable; // In RAM hash table
-    Storage *storage;
-    FreeList *free_stack; // List of free list stack pointers
+    HashEntry *htable; // In RAM hash table (allocated in RAM D1)
+    Storage *storage; // Pointer to storage struct (allocated in database struct)
+    FreeList *free_stack; // Pointer to FLS struct (allocates in database struct)
     size_t num_elems; // amount of elements in table
     size_t size; // total space in table 
 #if defined (HOST_BUILD)
