@@ -194,13 +194,17 @@ def calculate_statistics(hash_values, bucket_values):
         "load_factor": load_factor,
     }
 
-def test_70_percent_load( num_simulations=100, hash_table_size=14293, load_factor=0.70):
+def test_70_percent_load(
+    num_simulations=100,
+    hash_table_size=14293,
+    load_factor=0.70
+):
     """
-    Run multiple hash-table simulations at a specified load factor
-    and plot the distribution of collision counts.
+    Run multiple hash-table simulations at a specified load factor.
 
     Returns:
-        results: List containing the collision count from each simulation.
+        collision_results: List containing the collision count
+                           from each simulation.
     """
 
     num_entries = int(hash_table_size * load_factor)
@@ -241,33 +245,7 @@ def test_70_percent_load( num_simulations=100, hash_table_size=14293, load_facto
 
         collision_results.append(collisions)
 
-    # --------------------------------------------------------
-    # Plot results
-    # --------------------------------------------------------
-
-    plt.figure(figsize=(8, 6))
-
-    plt.violinplot(
-        collision_results,
-        showmeans=True,
-        showmedians=True,
-        showextrema=True
-    )
-
-    plt.ylabel("Number of Collisions")
-    plt.title(
-        f"FNV-1a Collision Distribution at "
-        f"{load_factor * 100:.0f}% Load "
-        f"({num_simulations} Simulations)"
-    )
-
-    plt.tight_layout()
-    plt.show()
-
-    # --------------------------------------------------------
     # Print results
-    # --------------------------------------------------------
-
     print()
     print("=" * 60)
     print("70% LOAD TEST")
@@ -278,9 +256,22 @@ def test_70_percent_load( num_simulations=100, hash_table_size=14293, load_facto
     print(f"Entries:               {num_entries}")
     print(f"Simulations:           {num_simulations}")
     print()
-    print(f"Mean collisions:       {statistics.mean(collision_results):.2f}")
-    print(f"Minimum collisions:    {min(collision_results)}")
-    print(f"Maximum collisions:    {max(collision_results)}")
+
+    print(
+        f"Mean collisions:       "
+        f"{statistics.mean(collision_results):.2f}"
+    )
+
+    print(
+        f"Minimum collisions:    "
+        f"{min(collision_results)}"
+    )
+
+    print(
+        f"Maximum collisions:    "
+        f"{max(collision_results)}"
+    )
+
     print(
         f"Std deviation:         "
         f"{statistics.stdev(collision_results):.2f}"
@@ -289,15 +280,23 @@ def test_70_percent_load( num_simulations=100, hash_table_size=14293, load_facto
     return collision_results
 
 
-# ============================================================
-# Main experiment
-# ============================================================
-
 def main():
-    test_70_percent_load();
 
+    # ------------------------------------------------------------
+    # Seed BEFORE running any experiments
+    # ------------------------------------------------------------
 
     random.seed(RANDOM_SEED)
+
+    # ------------------------------------------------------------
+    # Run 70% load simulation
+    # ------------------------------------------------------------
+
+    collision_results = test_70_percent_load()
+
+    # ------------------------------------------------------------
+    # Generate phone numbers
+    # ------------------------------------------------------------
 
     print("Generating phone numbers...")
 
@@ -306,6 +305,10 @@ def main():
         for _ in range(NUM_SAMPLES)
     ]
 
+    # ------------------------------------------------------------
+    # Hash phone numbers
+    # ------------------------------------------------------------
+
     print("Hashing phone numbers...")
 
     hash_values = [
@@ -313,15 +316,18 @@ def main():
         for phone in phone_numbers
     ]
 
-    # Convert hash into an actual hash-table bucket
+    # ------------------------------------------------------------
+    # Convert hashes to hash-table buckets
+    # ------------------------------------------------------------
+
     bucket_values = [
         hash_value % HASH_TABLE_SIZE
         for hash_value in hash_values
     ]
 
-    # --------------------------------------------------------
-    # Statistics
-    # --------------------------------------------------------
+    # ------------------------------------------------------------
+    # Calculate statistics
+    # ------------------------------------------------------------
 
     stats = calculate_statistics(
         hash_values,
@@ -339,8 +345,14 @@ def main():
 
     print()
     print("16-bit hash:")
-    print(f"  Unique hash values:       {stats['unique_hashes']:,}")
-    print(f"  Hash collisions:          {stats['hash_collisions']:,}")
+    print(
+        f"  Unique hash values:       "
+        f"{stats['unique_hashes']:,}"
+    )
+    print(
+        f"  Hash collisions:          "
+        f"{stats['hash_collisions']:,}"
+    )
     print(
         f"  Hash collision rate:      "
         f"{stats['hash_collision_rate'] * 100:.3f}%"
@@ -348,96 +360,147 @@ def main():
 
     print()
     print("Hash table:")
-    print(f"  Occupied buckets:         {stats['unique_buckets']:,}")
-    print(f"  Empty buckets:             {stats['empty_buckets']:,}")
-    print(f"  Bucket collisions:         {stats['bucket_collisions']:,}")
+    print(
+        f"  Occupied buckets:         "
+        f"{stats['unique_buckets']:,}"
+    )
+    print(
+        f"  Empty buckets:             "
+        f"{stats['empty_buckets']:,}"
+    )
+    print(
+        f"  Bucket collisions:         "
+        f"{stats['bucket_collisions']:,}"
+    )
     print(
         f"  Bucket collision rate:     "
         f"{stats['bucket_collision_rate'] * 100:.3f}%"
     )
 
-    print()
-    print(f"Maximum bucket depth:        {stats['max_bucket_depth']}")
+    print(
+        f"\nMaximum bucket depth:        "
+        f"{stats['max_bucket_depth']}"
+    )
+
     print(
         f"Average occupied bucket:     "
         f"{stats['average_occupied_bucket_depth']:.3f}"
     )
 
-    # ========================================================
-    # Distribution of 16-bit hash values
-    # ========================================================
-
-    plt.figure(figsize=(12, 6))
-
-    plt.hist(
-        hash_values,
-        bins=256
-    )
-
-    plt.xlabel("16-bit Hash Value")
-    plt.ylabel("Number of Phone Numbers")
-    plt.title("Distribution of FNV-1a 16-bit Hash Values")
-
-    plt.tight_layout()
-    plt.show()
-
-    # ========================================================
-    # Distribution across actual hash table buckets
-    # ========================================================
+    # ------------------------------------------------------------
+    # Calculate distributions
+    # ------------------------------------------------------------
 
     bucket_frequency = [
         bucket_values.count(bucket)
         for bucket in range(HASH_TABLE_SIZE)
     ]
 
-    plt.figure(figsize=(14, 6))
-
-    plt.bar(
-        range(HASH_TABLE_SIZE),
-        bucket_frequency,
-        width=1.0
-    )
-
-    plt.xlabel("Hash Table Bucket")
-    plt.ylabel("Number of Entries")
-    plt.title(
-        f"Hash Table Bucket Distribution "
-        f"(N = {NUM_SAMPLES:,}, "
-        f"Table Size = {HASH_TABLE_SIZE:,})"
-    )
-
-    plt.tight_layout()
-    plt.show()
-
-    # ========================================================
-    # Bucket occupancy distribution
-    # ========================================================
-
     occupancy_distribution = Counter(bucket_frequency)
 
     occupancies = sorted(occupancy_distribution.keys())
+
     number_of_buckets = [
         occupancy_distribution[x]
         for x in occupancies
     ]
 
-    plt.figure(figsize=(10, 6))
+    # ------------------------------------------------------------
+    # SINGLE FIGURE
+    # ------------------------------------------------------------
 
-    plt.bar(
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(16, 10)
+    )
+
+    # ============================================================
+    # 1. Collision distribution
+    # ============================================================
+
+    axes[0, 0].violinplot(
+        collision_results,
+        showmeans=True,
+        showmedians=True,
+        showextrema=True
+    )
+
+    axes[0, 0].set_ylabel("Number of Collisions")
+
+    axes[0, 0].set_title(
+        f"FNV-1a Collision Distribution "
+        f"at 70% Load ({len(collision_results)} Simulations)"
+    )
+
+    # ============================================================
+    # 2. 16-bit hash distribution
+    # ============================================================
+
+    axes[0, 1].hist(
+        hash_values,
+        bins=256
+    )
+
+    axes[0, 1].set_xlabel("16-bit Hash Value")
+    axes[0, 1].set_ylabel("Number of Phone Numbers")
+
+    axes[0, 1].set_title(
+        "Distribution of FNV-1a 16-bit Hash Values"
+    )
+
+    # ============================================================
+    # 3. Hash-table bucket distribution
+    # ============================================================
+
+    axes[1, 0].bar(
+        range(HASH_TABLE_SIZE),
+        bucket_frequency,
+        width=1.0
+    )
+
+    axes[1, 0].set_xlabel("Hash Table Bucket")
+    axes[1, 0].set_ylabel("Number of Entries")
+
+    axes[1, 0].set_title(
+        f"Hash Table Bucket Distribution "
+        f"(N = {NUM_SAMPLES:,}, "
+        f"Table Size = {HASH_TABLE_SIZE:,})"
+    )
+
+    # ============================================================
+    # 4. Bucket occupancy distribution
+    # ============================================================
+
+    axes[1, 1].bar(
         occupancies,
         number_of_buckets
     )
 
-    plt.xlabel("Number of Entries in Bucket")
-    plt.ylabel("Number of Buckets")
-    plt.title("Hash Table Bucket Occupancy Distribution")
+    axes[1, 1].set_xlabel("Number of Entries in Bucket")
+    axes[1, 1].set_ylabel("Number of Buckets")
+
+    axes[1, 1].set_title(
+        "Hash Table Bucket Occupancy Distribution"
+    )
+
+    # ------------------------------------------------------------
+    # Improve layout
+    # ------------------------------------------------------------
+
+    fig.suptitle(
+        "Hash Function and Hash Table Distribution Analysis",
+        fontsize=16
+    )
 
     plt.tight_layout()
+    plt.subplots_adjust(top=0.92)
+
     plt.show()
 
-    # ========================================================
-    # Print worst buckets
-    # ========================================================
+    # ============================================================
+    # Worst buckets
+    # ============================================================
 
     bucket_counts = Counter(bucket_values)
 
@@ -455,8 +518,6 @@ def main():
         print(
             f"{bucket:>10} {count:>10}"
         )
-
-
 
 
 if __name__ == "__main__":
