@@ -12,13 +12,19 @@ extern "C" {
 #endif
 
 #include "storage.h"
+#include "superheader.h"
 
-// Journal magic number to check header corruption
-#define JRNL_HEADER_SECTOR 1
+// Journal Sector is after usage bitmap
+#define JRNL_HEADER_SECTOR USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_SIZE + 1
+#define JRNL_CONTENT_SECTOR JRNL_HEADER_SECTOR + 1
+#define JRNL_USAGE_SECTOR JRNL_HEADER_SECTOR + 2
+
+#define JRNL_SECTOR_SIZE 3
+
 #define JRNL_HEADER_DATA_SIZE 8
-#define JRNL_CONTENT_SECTOR 2
+// Journal magic number to check header corruption
 #define JRNL_MAGIC 0x4A524E4Cu
-#define JOURNAL_PADDING SECTOR_SIZE - sizeof(JournalHeaderData)  - sizeof(uint32_t) * 2
+#define JOURNAL_PADDING SECTOR_SIZE - sizeof(JournalHeaderData)  - sizeof(uint32_t) * 3
 
 
 typedef uint8_t JRNL_STATE;
@@ -68,6 +74,7 @@ typedef struct {
     JournalHeaderDataB data;
     uint32_t header_crc; // Journal header data CRC-32 (4B)
     uint32_t content_crc; // Journal Content CRC-32 (4B)
+    uint32_t usage_bitmap_crc; // Journal Usage Bitmap CRC-32 (4B)
     uint8_t padding[JOURNAL_PADDING];
 } JournalHeader;
 
@@ -82,6 +89,7 @@ typedef struct {
     Storage *storage; // Storage struct pointer
     JournalHeaderBuffer header; // Journal Header (allocated memory to read sd card mem into)
     uint8_t content[SECTOR_SIZE]; // Journal Sector (allocated memory to read sd card mem into) 
+    uint8_t usage_bitmap_sector[SECTOR_SIZE]; // Journal Bitmap
 } Journal;
 
 // Static check JournalHeader size
@@ -100,7 +108,10 @@ STATIC_ASSERT(sizeof(JournalHeader) == SECTOR_SIZE, "Unexpected JournalHeader si
  */
 bool journal_init(Journal *journal, Storage *storage);
 
-bool journal_add(Journal *journal, JournalHeaderDataB jData, uint8_t *content);
+bool journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t sectorInd);
+
+bool journal_add(Journal *journal, JournalHeaderDataB jData, uint8_t *content, uint8_t
+        *usage_bitmap);
 
 bool journal_free(Journal *journal);
 
@@ -126,7 +137,8 @@ bool journal_header_init(Journal* journal);
  * @retval true journal write successful
  * @retval false journal write fail 
  */
-bool journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *content);
+bool journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *content, uint8_t
+        *usage_bitmap);
 
 bool journal_rollback(Journal *journal);
 
@@ -148,7 +160,17 @@ bool journal_header_read(Journal *journal, JournalHeaderBuffer *out);
  * @retval true journal read successful
  * @retval false journal read fail 
  */
-bool journal_content_read(Journal *journal, uint8_t *content);
+bool journal_content_read(Journal *journal);
+
+/**
+ * @brief Read journal bitmap from SD Card
+ *
+ * @param journal journal struct pointer (allocated in database struct)
+ *
+ * @retval true journal read successful
+ * @retval false journal read fail 
+ */
+bool journal_usage_read(Journal *journal);
 
 /**
  * @brief Check if the journal status

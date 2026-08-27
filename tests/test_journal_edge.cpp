@@ -1,3 +1,4 @@
+```cpp
 #include <gtest/gtest.h>
 #include <cstring>
 #include <cstdint>
@@ -8,6 +9,7 @@ extern "C"
 #include "crc.h"
 #include "storage.h"
 }
+
 
 /**
  * @brief Storage mock used to inject read/write failures.
@@ -95,6 +97,7 @@ static uint32_t journal_test_capacity(void *context)
     return storage->sector_count;
 }
 
+
 class JournalEdgeTest : public ::testing::Test
 {
 protected:
@@ -108,30 +111,32 @@ protected:
 
     static constexpr uint16_t STORAGE_SECTOR_COUNT = 4;
 
-void SetUp() override
-{
-    storage_mem =
-        new uint8_t[SECTOR_SIZE * STORAGE_SECTOR_COUNT];
+    void SetUp() override
+    {
+        storage_mem =
+            new uint8_t[SECTOR_SIZE * STORAGE_SECTOR_COUNT];
 
-    ASSERT_NE(storage_mem, nullptr);
+        ASSERT_NE(storage_mem, nullptr);
 
-    memset(
-        storage_mem,
-        0,
-        SECTOR_SIZE * STORAGE_SECTOR_COUNT
-    );
+        memset(
+            storage_mem,
+            0,
+            SECTOR_SIZE * STORAGE_SECTOR_COUNT
+        );
 
-    storage_ctx.memory = storage_mem;
-    storage_ctx.sector_count = STORAGE_SECTOR_COUNT;
+        storage_ctx.memory = storage_mem;
+        storage_ctx.sector_count = STORAGE_SECTOR_COUNT;
 
-    storage.read_block = journal_test_read_block;
-    storage.write_block = journal_test_write_block;
-    storage.capacity = journal_test_capacity;
-    storage.context = &storage_ctx;
+        storage.read_block = journal_test_read_block;
+        storage.write_block = journal_test_write_block;
+        storage.capacity = journal_test_capacity;
+        storage.context = &storage_ctx;
 
-    memset(&journal, 0, sizeof(Journal));
-    journal.storage = &storage;
-}
+        memset(&journal, 0, sizeof(Journal));
+
+        journal.storage = &storage;
+    }
+
     void TearDown() override
     {
         delete[] storage_mem;
@@ -142,8 +147,12 @@ void SetUp() override
     /**
      * @brief Create a valid journal header.
      */
-    JournalHeaderBuffer create_header(uint8_t state, uint8_t type = 0,
-                                      uint16_t sector = 0)
+    JournalHeaderBuffer create_header(
+        uint8_t state,
+        uint8_t type = JRNL_CONTACT,
+        uint16_t sector = 0,
+        const uint8_t *content = nullptr,
+        const uint8_t *usage_bitmap = nullptr)
     {
         JournalHeaderBuffer header{};
 
@@ -157,6 +166,24 @@ void SetUp() override
                 header.var.data.buffer,
                 sizeof(JournalHeaderData)
             );
+
+        if (content != nullptr)
+        {
+            header.var.content_crc =
+                crc32_calculate(
+                    content,
+                    SECTOR_SIZE
+                );
+        }
+
+        if (usage_bitmap != nullptr)
+        {
+            header.var.usage_bitmap_crc =
+                crc32_calculate(
+                    usage_bitmap,
+                    SECTOR_SIZE
+                );
+        }
 
         return header;
     }
@@ -200,10 +227,11 @@ void SetUp() override
     {
         ASSERT_NE(content, nullptr);
 
-        for (uint32_t i = 0; i < SECTOR_SIZE; i++)
-        {
-            content[i] = value;
-        }
+        memset(
+            content,
+            value,
+            SECTOR_SIZE
+        );
     }
 };
 
@@ -219,7 +247,9 @@ TEST_F(JournalEdgeTest, HeaderInitWriteFailure)
 {
     storage_ctx.fail_write = true;
 
-    EXPECT_FALSE(journal_header_init(&journal));
+    EXPECT_FALSE(
+        journal_header_init(&journal)
+    );
 }
 
 
@@ -252,7 +282,12 @@ TEST_F(JournalEdgeTest, InitHeaderReadFailure)
 {
     storage_ctx.fail_read = true;
 
-    EXPECT_FALSE(journal_init(&journal, &storage));
+    EXPECT_FALSE(
+        journal_init(
+            &journal,
+            &storage
+        )
+    );
 }
 
 
@@ -264,7 +299,12 @@ TEST_F(JournalEdgeTest, InitHeaderWriteFailure)
 {
     storage_ctx.fail_write = true;
 
-    EXPECT_FALSE(journal_init(&journal, &storage));
+    EXPECT_FALSE(
+        journal_init(
+            &journal,
+            &storage
+        )
+    );
 }
 
 
@@ -277,21 +317,42 @@ TEST_F(JournalEdgeTest, InitRollbackWriteFailure)
     const uint16_t target_sector = 2;
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0xAA);
+    fill_content(usage_bitmap, 0x55);
 
     JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, 0, target_sector);
-
-    header.var.content_crc =
-        crc32_calculate(content, SECTOR_SIZE);
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            content,
+            usage_bitmap
+        );
 
     write_header(header);
 
-    memcpy(journal.content, content, SECTOR_SIZE);
+    memcpy(
+        journal.content,
+        content,
+        SECTOR_SIZE
+    );
+
+    memcpy(
+        journal.usage_bitmap_sector,
+        usage_bitmap,
+        SECTOR_SIZE
+    );
 
     storage_ctx.fail_write = true;
 
-    EXPECT_FALSE(journal_init(&journal, &storage));
+    EXPECT_FALSE(
+        journal_init(
+            &journal,
+            &storage
+        )
+    );
 }
 
 
@@ -300,15 +361,22 @@ TEST_F(JournalEdgeTest, InitRollbackWriteFailure)
  * ========================================================================== */
 
 /**
- * @brief Verify journal_write() fails when writing the header fails.
+ * @brief Verify journal_write() fails when writing the journal data fails.
  */
 TEST_F(JournalEdgeTest, WriteHeaderFailure)
 {
     JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, 0, 2);
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            2
+        );
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0x55);
+    fill_content(usage_bitmap, 0xAA);
 
     storage_ctx.fail_write = true;
 
@@ -316,7 +384,8 @@ TEST_F(JournalEdgeTest, WriteHeaderFailure)
         journal_write(
             &journal,
             &header,
-            content
+            content,
+            usage_bitmap
         )
     );
 }
@@ -335,11 +404,14 @@ TEST_F(JournalEdgeTest, AddWriteFailure)
 
     data.var.magic = JRNL_MAGIC;
     data.var.state = JRNL_ACTIVE;
-    data.var.type = 1;
+    data.var.type = JRNL_CONTACT;
     data.var.sector = 2;
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0xA5);
+    fill_content(usage_bitmap, 0x5A);
 
     storage_ctx.fail_write = true;
 
@@ -347,7 +419,8 @@ TEST_F(JournalEdgeTest, AddWriteFailure)
         journal_add(
             &journal,
             data,
-            content
+            content,
+            usage_bitmap
         )
     );
 }
@@ -409,23 +482,41 @@ TEST_F(JournalEdgeTest, RollbackWriteFailure)
     const uint16_t target_sector = 2;
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0xAA);
+    fill_content(usage_bitmap, 0x55);
 
     JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, 0, target_sector);
-
-    header.var.content_crc =
-        crc32_calculate(content, SECTOR_SIZE);
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            content,
+            usage_bitmap
+        );
 
     journal.header = header;
 
-    memcpy(journal.content, content, SECTOR_SIZE);
+    memcpy(
+        journal.content,
+        content,
+        SECTOR_SIZE
+    );
+
+    memcpy(
+        journal.usage_bitmap_sector,
+        usage_bitmap,
+        SECTOR_SIZE
+    );
 
     write_header(header);
 
     storage_ctx.fail_write = true;
 
-    EXPECT_FALSE(journal_rollback(&journal));
+    EXPECT_FALSE(
+        journal_rollback(&journal)
+    );
 }
 
 
@@ -437,24 +528,87 @@ TEST_F(JournalEdgeTest, RollbackContentCrcFailure)
     const uint16_t target_sector = 2;
 
     uint8_t content[SECTOR_SIZE]{};
-    fill_content(content, 0xAA);
-
     uint8_t different_content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
+    fill_content(content, 0xAA);
     fill_content(different_content, 0xBB);
+    fill_content(usage_bitmap, 0xCC);
 
     JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, 0, target_sector);
-
-    header.var.content_crc =
-        crc32_calculate(different_content, SECTOR_SIZE);
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            different_content,
+            usage_bitmap
+        );
 
     journal.header = header;
 
-    memcpy(journal.content, content, SECTOR_SIZE);
+    memcpy(
+        journal.content,
+        content,
+        SECTOR_SIZE
+    );
+
+    memcpy(
+        journal.usage_bitmap_sector,
+        usage_bitmap,
+        SECTOR_SIZE
+    );
 
     write_header(header);
 
-    EXPECT_FALSE(journal_rollback(&journal));
+    EXPECT_FALSE(
+        journal_rollback(&journal)
+    );
+}
+
+
+/**
+ * @brief Verify rollback fails when the journal usage bitmap CRC is invalid.
+ */
+TEST_F(JournalEdgeTest, RollbackUsageBitmapCrcFailure)
+{
+    const uint16_t target_sector = 2;
+
+    uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+    uint8_t different_usage_bitmap[SECTOR_SIZE]{};
+
+    fill_content(content, 0xAA);
+    fill_content(usage_bitmap, 0xBB);
+    fill_content(different_usage_bitmap, 0xCC);
+
+    JournalHeaderBuffer header =
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            content,
+            different_usage_bitmap
+        );
+
+    journal.header = header;
+
+    memcpy(
+        journal.content,
+        content,
+        SECTOR_SIZE
+    );
+
+    memcpy(
+        journal.usage_bitmap_sector,
+        usage_bitmap,
+        SECTOR_SIZE
+    );
+
+    write_header(header);
+
+    EXPECT_FALSE(
+        journal_rollback(&journal)
+    );
 }
 
 
@@ -466,25 +620,42 @@ TEST_F(JournalEdgeTest, RollbackWriteFailureLeavesJournalActive)
     const uint16_t target_sector = 2;
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0xAA);
+    fill_content(usage_bitmap, 0x55);
 
     JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, 0, target_sector);
-
-    header.var.content_crc =
-        crc32_calculate(content, SECTOR_SIZE);
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            content,
+            usage_bitmap
+        );
 
     journal.header = header;
 
-    memcpy(journal.content, content, SECTOR_SIZE);
+    memcpy(
+        journal.content,
+        content,
+        SECTOR_SIZE
+    );
+
+    memcpy(
+        journal.usage_bitmap_sector,
+        usage_bitmap,
+        SECTOR_SIZE
+    );
 
     write_header(header);
 
     storage_ctx.fail_write = true;
 
-    EXPECT_FALSE(journal_rollback(&journal));
+    EXPECT_FALSE(
+        journal_rollback(&journal)
+    );
 
-    // journal_free() should not have been called.
     EXPECT_EQ(
         journal.header.var.data.var.state,
         JRNL_ACTIVE
@@ -502,7 +673,11 @@ TEST_F(JournalEdgeTest, RollbackWriteFailureLeavesJournalActive)
 TEST_F(JournalEdgeTest, FreeWriteFailure)
 {
     JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, 0, 2);
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            2
+        );
 
     journal.header = header;
 
@@ -510,7 +685,9 @@ TEST_F(JournalEdgeTest, FreeWriteFailure)
 
     storage_ctx.fail_write = true;
 
-    EXPECT_FALSE(journal_free(&journal));
+    EXPECT_FALSE(
+        journal_free(&journal)
+    );
 }
 
 
@@ -527,23 +704,31 @@ TEST_F(JournalEdgeTest, SectorZero)
 
     data.var.magic = JRNL_MAGIC;
     data.var.state = JRNL_ACTIVE;
-    data.var.type = 1;
+    data.var.type = JRNL_CONTACT;
     data.var.sector = 0;
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0x11);
+    fill_content(usage_bitmap, 0x22);
 
     ASSERT_TRUE(
         journal_add(
             &journal,
             data,
-            content
+            content,
+            usage_bitmap
         )
     );
 
-    JournalHeaderBuffer header = read_header();
+    JournalHeaderBuffer header =
+        read_header();
 
-    EXPECT_EQ(header.var.data.var.sector, 0);
+    EXPECT_EQ(
+        header.var.data.var.sector,
+        0
+    );
 }
 
 
@@ -561,24 +746,31 @@ TEST_F(JournalEdgeTest, MaximumSectorValue)
 
     data.var.magic = JRNL_MAGIC;
     data.var.state = JRNL_ACTIVE;
-    data.var.type = 1;
+    data.var.type = JRNL_CONTACT;
     data.var.sector = sector;
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0x22);
+    fill_content(usage_bitmap, 0x33);
 
     ASSERT_TRUE(
         journal_add(
             &journal,
             data,
-            content
+            content,
+            usage_bitmap
         )
     );
 
-    JournalHeaderBuffer header = read_header();
+    JournalHeaderBuffer header =
+        read_header();
 
     EXPECT_EQ(
         header.var.data.var.sector,
         UINT16_MAX
     );
 }
+```
+

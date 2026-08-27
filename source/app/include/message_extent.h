@@ -16,14 +16,18 @@ extern "C" {
 #include <stdint.h>
 #include "free_list_stack.h"
 #include "storage.h"
+#include "hash_table.h"
+#include "contact.h"
 
 #define SMS_MAX_MESSAGE_LENGTH 160
 
+#define MESSAGE_SECTOR_SIZE 2 * HASH_TABLE_SIZE
+
 #define MESSAGE_BYTES 164
-#define MESSAGE_BLOCK_HEADER_BYTES 6
+#define MESSAGE_BLOCK_HEADER_BYTES 24
 #define MESSAGE_BLOCK_BYTES SECTOR_SIZE
 
-// Fit messages into a 4KB block of memory
+// Fit messages into a 512B block of memory
 #define MESSAGE_BLOCK_CAPACITY \
     ((MESSAGE_BLOCK_BYTES - sizeof(MessageBlockHeader)) / sizeof(Message))
 
@@ -50,18 +54,21 @@ typedef struct {
 } Message;
 
 
-// Message Struct (6B)
+// Message Struct (24B)
 typedef struct
-{
+{ 
+    uint16_t next; // Next Extent (2B)
     uint16_t prev; // Previous Extent (2B)
     uint16_t msg_count; // Number of messages in the block (2B)
+    char phone[MAX_PHONE_LEN]; // Phone number (15B)
+    uint8_t phone_len;         // Length of phone number (1B)
     EXTENT_STATE state; // Extent State (1B) (This can be removed)
     uint8_t padding; // 1B
 
 } MessageBlockHeader;
 
 
-// Message Extent Block (4KB)
+// Message Extent Block (512B)
 typedef struct
 {
     MessageBlockHeader header; // Header (6B)

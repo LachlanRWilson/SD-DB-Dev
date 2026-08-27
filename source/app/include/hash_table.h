@@ -19,14 +19,13 @@ extern "C" {
 #include "free_list_stack.h"
 #include "storage.h"
 #include "contact.h"
+#include "superheader.h"
 
 
 
 // Struct Sizes
 #define HASH_ENTRY_BYTES 8
 
-
-// Prime number that allows a hash table of 10000 entries to have a load factor of 70%
 #define HASH_TABLE_SIZE 14293
 
 

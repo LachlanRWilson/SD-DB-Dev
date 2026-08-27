@@ -16,9 +16,19 @@ extern "C" {
 #endif
 
 #define CONTACT_SECTOR_BYTES SECTOR_SIZE
+
+//  Number of sectors to store numContacts for sectors with the capacity to store contactSecCapacity
+#define CONTACT_MEMORY_SECTORS(numContacts, contactSecCapacity) \
+    (((numContacts) + contactSecCapacity - 1) / contactSecCapacity)
+
+
+// Contact Header Size
 #define CONTACT_HEADER_BYTES 1
+
+// Contact Data Bytes    
 #define CONTACT_BYTES 81
 
+// Contact Information Max Length
 #define MAX_NAME_LEN 64
 #define MAX_PHONE_LEN 15
 
@@ -29,6 +39,9 @@ extern "C" {
 // calculate the padding of the sector
 #define CONTACT_SECTOR_PADDING \
     (CONTACT_SECTOR_BYTES - sizeof(ContactSectorHeader) - CONTACT_SECTOR_CAPACITY * sizeof(Contact))
+
+// Total number of sector needed for all contacts
+#define CONTACT_MEMORY_SECTOR_SIZE CONTACT_MEMORY_SECTORS(HASH_TABLE_SIZE, CONTACT_SECTOR_CAPACITY)
 
 // Contact Struct (81B)
 typedef struct

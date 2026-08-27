@@ -34,6 +34,7 @@ add_library(app_logic
     app/src/heap_storage.c
     app/src/journal.c
     app/src/crc.c
+    app/src/superheader.c
     #app/src/database.c
 )
 endif()

@@ -88,6 +88,50 @@ bool SDStorage_ReadBlock( void *context, uint32_t index, uint8_t *out)
 }
 
 /**
+ * @brief Reads multiple database blocks from the SD card.
+ *
+ * @param[in] context Pointer to the SDStorageContext.
+ * @param[in] index Logical block index.
+ * @param[in] readNum number of database block to read
+ * @param[out] out Pointer to a buffer of MESSAGE_BLOCK_SIZE bytes.
+ *
+ * @retval true Block read successfully.
+ * @retval false Read failed.
+ */
+bool SDStorage_ReadMultiBlock( void *context, uint32_t index, size_t readNum, uint8_t *out) 
+{
+    SDStorageContext *ctx = (SDStorageContext *)context;
+
+    // Read sector
+    uint32_t sector = ctx->start_sector + (index * SD_SECTORS_PER_BLOCK(ctx->block_size));
+    
+    // number of sectors to read
+    uint32_t readSize = SD_SECTORS_PER_BLOCK(ctx->block_size);
+
+    // Allocate raw array
+    uint8_t raw[readSize * 512U];
+
+
+    // read to raw array
+    if (HAL_SD_ReadBlocks( ctx->hsd, raw, sector, readSize * readNum, HAL_MAX_DELAY) != HAL_OK)
+    {
+        return false;
+    }
+
+    while (HAL_SD_GetCardState(ctx->hsd) != HAL_SD_CARD_TRANSFER)
+    {
+        osDelay(1);
+    }
+
+    // copy memory to output block
+    memcpy(out, raw, sizeof(uint8_t) * ctx->block_size);
+
+    return true;
+}
+
+
+
+/**
  * @brief Writes a database block to the SD card.
  *
  * @param[in] context Pointer to the SDStorageContext.
@@ -144,6 +188,7 @@ Storage sd_storage =
 {
     .context = NULL,
     .read_block = SDStorage_ReadBlock,
+    .read_multiblock = SDStorage_ReadMultiBlock,
     .write_block = SDStorage_WriteBlock,
     .capacity = SDStorage_Capacity
 };

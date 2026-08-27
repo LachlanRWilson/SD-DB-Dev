@@ -8,37 +8,41 @@ extern "C"
 #include "crc.h"
 #include "storage.h"
 #include "heap_storage.h"
+#include "superheader.h"
 }
 
 class JournalTest : public ::testing::Test
 {
 protected:
-    // Journal Struct
     Journal journal{};
 
-    // Storage Struct (heap storage)
     Storage *storage = &heap_storage;
-
-    // Heap storage context
     HeapStorageContext storage_ctx;
 
-    // Mock SD card storage
     uint8_t *storage_mem = nullptr;
 
-    // Number of sectors in mock storage
-    static constexpr uint16_t STORAGE_SECTOR_COUNT = 4;
+    static constexpr uint16_t STORAGE_SECTOR_COUNT = SUPERHEADER_SECTOR_SIZE +
+        USAGE_BITMAP_SECTOR_SIZE + JRNL_SECTOR_SIZE + TOTAL_DATA_SECTOR_SIZE;
+
 
     void SetUp() override
     {
-        // Allocate mock SD card storage
+
+        ASSERT_EQ(SUPERHEADER_SECTOR_SIZE, 1);
+        ASSERT_EQ(USAGE_BITMAP_SECTOR_SIZE, 61);
+        ASSERT_EQ(JRNL_SECTOR_SIZE, 3);
+        ASSERT_EQ(TOTAL_DATA_SECTOR_SIZE, 30969);
+        ASSERT_EQ(STORAGE_SECTOR_COUNT, 31034);
         storage_mem = new uint8_t[SECTOR_SIZE * STORAGE_SECTOR_COUNT];
 
         ASSERT_NE(storage_mem, nullptr);
 
-        // Clear mock SD card storage
-        memset(storage_mem, 0, SECTOR_SIZE * STORAGE_SECTOR_COUNT);
+        memset(
+            storage_mem,
+            0,
+            SECTOR_SIZE * STORAGE_SECTOR_COUNT
+        );
 
-        // Initialise heap storage
         ASSERT_TRUE(
             HeapStorage_Init(
                 &storage_ctx,
@@ -48,26 +52,28 @@ protected:
             )
         );
 
-        // Allocate HeapStorageContext struct to storage
         storage->context = &storage_ctx;
 
-        // Initialise journal
         memset(&journal, 0, sizeof(Journal));
+
         journal.storage = storage;
     }
 
     void TearDown() override
     {
         delete[] storage_mem;
-
         storage_mem = nullptr;
     }
 
     /**
      * @brief Create a valid journal header.
      */
-    JournalHeaderBuffer create_header(uint8_t state, uint8_t type = 0,
-                                      uint16_t sector = 0)
+    JournalHeaderBuffer create_header(
+        uint8_t state,
+        uint8_t type = JRNL_CONTACT,
+        uint16_t sector = 0,
+        const uint8_t *content = nullptr,
+        const uint8_t *usage_bitmap = nullptr)
     {
         JournalHeaderBuffer header{};
 
@@ -82,11 +88,29 @@ protected:
                 sizeof(JournalHeaderData)
             );
 
+        if (content != nullptr)
+        {
+            header.var.content_crc =
+                crc32_calculate(
+                    content,
+                    SECTOR_SIZE
+                );
+        }
+
+        if (usage_bitmap != nullptr)
+        {
+            header.var.usage_bitmap_crc =
+                crc32_calculate(
+                    usage_bitmap,
+                    SECTOR_SIZE
+                );
+        }
+
         return header;
     }
 
     /**
-     * @brief Write a journal header directly to mock storage.
+     * @brief Write a journal header directly to storage.
      */
     void write_header(JournalHeaderBuffer& header)
     {
@@ -100,7 +124,7 @@ protected:
     }
 
     /**
-     * @brief Read the journal header from mock storage.
+     * @brief Read the journal header from storage.
      */
     JournalHeaderBuffer read_header()
     {
@@ -124,15 +148,12 @@ protected:
     {
         ASSERT_NE(content, nullptr);
 
-        for (uint32_t i = 0; i < SECTOR_SIZE; i++)
-        {
-            content[i] = value;
-        }
+        memset(content, value, SECTOR_SIZE);
     }
 };
 
 /**
- * @brief Verify journal_header_init() creates a valid empty journal header.
+ * @brief Verify journal_header_init() creates a valid empty journal.
  */
 TEST_F(JournalTest, HeaderInit)
 {
@@ -142,12 +163,22 @@ TEST_F(JournalTest, HeaderInit)
 
     EXPECT_EQ(header.var.data.var.magic, JRNL_MAGIC);
     EXPECT_EQ(header.var.data.var.state, JRNL_EMPTY);
-    EXPECT_EQ(header.var.data.var.type, 0);
+    EXPECT_EQ(header.var.data.var.type, JRNL_CONTACT);
     EXPECT_EQ(header.var.data.var.sector, 0);
 
-    uint32_t expected_crc = crc32_calculate( header.var.data.buffer, sizeof(JournalHeaderData));
+    uint32_t expected_header_crc =
+        crc32_calculate(
+            header.var.data.buffer,
+            sizeof(JournalHeaderData)
+        );
 
-    EXPECT_EQ(header.var.header_crc, expected_crc);
+    EXPECT_EQ(
+        header.var.header_crc,
+        expected_header_crc
+    );
+
+    EXPECT_EQ(header.var.content_crc, 0);
+    EXPECT_EQ(header.var.usage_bitmap_crc, 0);
 }
 
 /**
@@ -155,65 +186,78 @@ TEST_F(JournalTest, HeaderInit)
  */
 TEST_F(JournalTest, StatusUninitialized)
 {
-    EXPECT_EQ(get_journal_status(&journal), JRNL_UNINITIALIZED);
+    EXPECT_EQ(
+        get_journal_status(&journal),
+        JRNL_UNINITIALIZED
+    );
 }
-
 
 /**
  * @brief Verify a valid empty journal is detected.
  */
 TEST_F(JournalTest, StatusValid)
 {
-    JournalHeaderBuffer header = create_header(JRNL_EMPTY);
+    JournalHeaderBuffer header =
+        create_header(JRNL_EMPTY);
 
     write_header(header);
 
-    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
+    EXPECT_EQ(
+        get_journal_status(&journal),
+        JRNL_VALID
+    );
 
-    EXPECT_EQ(journal.header.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(journal.header.var.data.var.state, JRNL_EMPTY);
+    EXPECT_EQ(
+        journal.header.var.data.var.magic,
+        JRNL_MAGIC
+    );
+
+    EXPECT_EQ(
+        journal.header.var.data.var.state,
+        JRNL_EMPTY
+    );
 }
-
-
-/**
- * @brief Verify a committed journal is detected as valid.
- */
-TEST_F(JournalTest, StatusCommitted)
-{
-    JournalHeaderBuffer header = create_header(JRNL_COMMITTED);
-
-    write_header(header);
-
-    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
-    EXPECT_EQ(journal.header.var.data.var.state, JRNL_COMMITTED);
-}
-
 
 /**
  * @brief Verify an active journal requires rollback.
  */
 TEST_F(JournalTest, StatusRollback)
 {
-    JournalHeaderBuffer header = create_header(JRNL_ACTIVE, 0, 2);
+    JournalHeaderBuffer header =
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            2
+        );
 
     write_header(header);
 
-    EXPECT_EQ(get_journal_status(&journal), JRNL_ROLLBACK);
-    EXPECT_EQ(journal.header.var.data.var.state, JRNL_ACTIVE);
-    EXPECT_EQ(journal.header.var.data.var.sector, 2);
-}
+    EXPECT_EQ(
+        get_journal_status(&journal),
+        JRNL_ROLLBACK
+    );
 
+    EXPECT_EQ(
+        journal.header.var.data.var.state,
+        JRNL_ACTIVE
+    );
+
+    EXPECT_EQ(
+        journal.header.var.data.var.sector,
+        2
+    );
+}
 
 /**
  * @brief Verify a corrupted journal header is detected.
  */
 TEST_F(JournalTest, StatusCorruptedHeader)
 {
-    JournalHeaderBuffer header = create_header(JRNL_EMPTY);
+    JournalHeaderBuffer header =
+        create_header(JRNL_EMPTY);
 
     write_header(header);
 
-    // Corrupt the stored CRC
     header.var.header_crc ^= 0xFFFFFFFFu;
 
     ASSERT_TRUE(
@@ -224,20 +268,22 @@ TEST_F(JournalTest, StatusCorruptedHeader)
         )
     );
 
-    EXPECT_EQ(get_journal_status(&journal), JRNL_CORRUPTED);
+    EXPECT_EQ(
+        get_journal_status(&journal),
+        JRNL_CORRUPTED
+    );
 }
-
 
 /**
  * @brief Verify corruption of journal header data is detected.
  */
 TEST_F(JournalTest, StatusCorruptedHeaderData)
 {
-    JournalHeaderBuffer header = create_header(JRNL_EMPTY);
+    JournalHeaderBuffer header =
+        create_header(JRNL_EMPTY);
 
     write_header(header);
 
-    // Corrupt the state without updating the CRC
     header.var.data.var.state = JRNL_ACTIVE;
 
     ASSERT_TRUE(
@@ -248,7 +294,10 @@ TEST_F(JournalTest, StatusCorruptedHeaderData)
         )
     );
 
-    EXPECT_EQ(get_journal_status(&journal), JRNL_CORRUPTED);
+    EXPECT_EQ(
+        get_journal_status(&journal),
+        JRNL_CORRUPTED
+    );
 }
 
 /**
@@ -256,31 +305,56 @@ TEST_F(JournalTest, StatusCorruptedHeaderData)
  */
 TEST_F(JournalTest, InitUninitializedJournal)
 {
-    ASSERT_TRUE(journal_init(&journal, storage));
+    ASSERT_TRUE(
+        journal_init(
+            &journal,
+            storage
+        )
+    );
 
     JournalHeaderBuffer header = read_header();
 
-    EXPECT_EQ(header.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(header.var.data.var.state, JRNL_EMPTY);
-}
+    EXPECT_EQ(
+        header.var.data.var.magic,
+        JRNL_MAGIC
+    );
 
+    EXPECT_EQ(
+        header.var.data.var.state,
+        JRNL_EMPTY
+    );
+
+    EXPECT_EQ(
+        header.var.header_crc,
+        crc32_calculate(
+            header.var.data.buffer,
+            sizeof(JournalHeaderData)
+        )
+    );
+}
 
 /**
  * @brief Verify journal_init() succeeds for a valid journal.
- *
- * NOTE:
- * The current journal_init() implementation does not explicitly handle
- * JRNL_VALID. This test will expose that issue.
  */
 TEST_F(JournalTest, InitValidJournal)
 {
-    JournalHeaderBuffer header = create_header(JRNL_EMPTY);
+    JournalHeaderBuffer header =
+        create_header(JRNL_EMPTY);
 
     write_header(header);
 
-    EXPECT_TRUE(journal_init(&journal, storage));
-}
+    EXPECT_TRUE(
+        journal_init(
+            &journal,
+            storage
+        )
+    );
 
+    EXPECT_EQ(
+        journal.header.var.data.var.state,
+        JRNL_EMPTY
+    );
+}
 
 /**
  * @brief Verify journal_init() performs rollback for an active journal.
@@ -290,13 +364,19 @@ TEST_F(JournalTest, InitRollbackJournal)
     const uint16_t target_sector = 2;
 
     uint8_t old_content[SECTOR_SIZE];
+    uint8_t old_usage_bitmap[SECTOR_SIZE];
+
     fill_content(old_content, 0xAA);
+    fill_content(old_usage_bitmap, 0x55);
 
-    uint32_t content_crc =
-        crc32_calculate(old_content, SECTOR_SIZE);
-
-    JournalHeaderBuffer header = create_header(JRNL_ACTIVE, 0, target_sector);
-    header.var.content_crc = content_crc;
+    JournalHeaderBuffer header =
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            old_content,
+            old_usage_bitmap
+        );
 
     write_header(header);
 
@@ -308,9 +388,32 @@ TEST_F(JournalTest, InitRollbackJournal)
         )
     );
 
-    memcpy(journal.content, old_content, SECTOR_SIZE);
+    ASSERT_TRUE(
+        storage->write_block(
+            storage->context,
+            JRNL_USAGE_SECTOR,
+            old_usage_bitmap
+        )
+    );
 
-    ASSERT_TRUE(journal_init(&journal, storage));
+    memcpy(
+        journal.content,
+        old_content,
+        SECTOR_SIZE
+    );
+
+    memcpy(
+        journal.usage_bitmap_sector,
+        old_usage_bitmap,
+        SECTOR_SIZE
+    );
+
+    ASSERT_TRUE(
+        journal_init(
+            &journal,
+            storage
+        )
+    );
 
     uint8_t result[SECTOR_SIZE]{};
 
@@ -322,35 +425,134 @@ TEST_F(JournalTest, InitRollbackJournal)
         )
     );
 
-    EXPECT_EQ(memcmp(result, old_content, SECTOR_SIZE), 0);
+    EXPECT_EQ(
+        memcmp(
+            result,
+            old_content,
+            SECTOR_SIZE
+        ),
+        0
+    );
 
-    JournalHeaderBuffer final_header = read_header();
+    uint8_t usage_result[SECTOR_SIZE]{};
 
-    EXPECT_EQ(final_header.var.data.var.state, JRNL_COMMITTED);
+    ASSERT_TRUE(
+        storage->read_block(
+            storage->context,
+            JRNL_USAGE_SECTOR,
+            usage_result
+        )
+    );
+
+    EXPECT_EQ(
+        memcmp(
+            usage_result,
+            old_usage_bitmap,
+            SECTOR_SIZE
+        ),
+        0
+    );
+
+    JournalHeaderBuffer final_header =
+        read_header();
+
+    EXPECT_EQ(
+        final_header.var.data.var.state,
+        JRNL_COMMITTED
+    );
 }
 
 /**
- * @brief Verify journal_write() writes the journal header.
+ * @brief Verify journal_write() writes header, content and usage bitmap.
  */
-TEST_F(JournalTest, WriteHeader)
+TEST_F(JournalTest, WriteJournal)
 {
-    JournalHeaderBuffer header = create_header(JRNL_ACTIVE, 1, 2);
+    JournalHeaderBuffer header =
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            2
+        );
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0x55);
+    fill_content(usage_bitmap, 0xAA);
 
-    ASSERT_TRUE(journal_write(&journal, &header, content));
+    ASSERT_TRUE(
+        journal_write(
+            &journal,
+            &header,
+            content,
+            usage_bitmap
+        )
+    );
 
-    JournalHeaderBuffer stored = read_header();
+    JournalHeaderBuffer stored_header =
+        read_header();
 
-    EXPECT_EQ(stored.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(stored.var.data.var.state, JRNL_ACTIVE);
-    EXPECT_EQ(stored.var.data.var.type, 1);
-    EXPECT_EQ(stored.var.data.var.sector, 2);
+    EXPECT_EQ(
+        stored_header.var.data.var.magic,
+        JRNL_MAGIC
+    );
+
+    EXPECT_EQ(
+        stored_header.var.data.var.state,
+        JRNL_ACTIVE
+    );
+
+    EXPECT_EQ(
+        stored_header.var.data.var.type,
+        JRNL_CONTACT
+    );
+
+    EXPECT_EQ(
+        stored_header.var.data.var.sector,
+        2
+    );
+
+    uint8_t stored_content[SECTOR_SIZE]{};
+
+    ASSERT_TRUE(
+        storage->read_block(
+            storage->context,
+            JRNL_CONTENT_SECTOR,
+            stored_content
+        )
+    );
+
+    EXPECT_EQ(
+        memcmp(
+            stored_content,
+            content,
+            SECTOR_SIZE
+        ),
+        0
+    );
+
+    uint8_t stored_usage_bitmap[SECTOR_SIZE]{};
+
+    ASSERT_TRUE(
+        storage->read_block(
+            storage->context,
+            JRNL_USAGE_SECTOR,
+            stored_usage_bitmap
+        )
+    );
+
+    EXPECT_EQ(
+        memcmp(
+            stored_usage_bitmap,
+            usage_bitmap,
+            SECTOR_SIZE
+        ),
+        0
+    );
 }
 
 /**
- * @brief Verify journal_add() calculates and stores both CRCs.
+ * @brief Verify journal_add() calculates and stores all three CRCs.
  */
 TEST_F(JournalTest, AddJournalEntry)
 {
@@ -360,11 +562,14 @@ TEST_F(JournalTest, AddJournalEntry)
 
     data.var.magic = JRNL_MAGIC;
     data.var.state = JRNL_ACTIVE;
-    data.var.type = 1;
+    data.var.type = JRNL_CONTACT;
     data.var.sector = target_sector;
 
     uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(content, 0xA5);
+    fill_content(usage_bitmap, 0x5A);
 
     uint32_t expected_header_crc =
         crc32_calculate(
@@ -373,38 +578,99 @@ TEST_F(JournalTest, AddJournalEntry)
         );
 
     uint32_t expected_content_crc =
-        crc32_calculate(content, SECTOR_SIZE);
+        crc32_calculate(
+            content,
+            SECTOR_SIZE
+        );
 
-    ASSERT_TRUE(journal_add(&journal, data, content));
+    uint32_t expected_usage_bitmap_crc =
+        crc32_calculate(
+            usage_bitmap,
+            SECTOR_SIZE
+        );
 
-    JournalHeaderBuffer stored = read_header();
+    ASSERT_TRUE(
+        journal_add(
+            &journal,
+            data,
+            content,
+            usage_bitmap
+        )
+    );
 
-    EXPECT_EQ(stored.var.header_crc, expected_header_crc);
-    EXPECT_EQ(stored.var.content_crc, expected_content_crc);
+    JournalHeaderBuffer stored =
+        read_header();
 
-    EXPECT_EQ(stored.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(stored.var.data.var.state, JRNL_ACTIVE);
-    EXPECT_EQ(stored.var.data.var.sector, target_sector);
+    EXPECT_EQ(
+        stored.var.header_crc,
+        expected_header_crc
+    );
+
+    EXPECT_EQ(
+        stored.var.content_crc,
+        expected_content_crc
+    );
+
+    EXPECT_EQ(
+        stored.var.usage_bitmap_crc,
+        expected_usage_bitmap_crc
+    );
+
+    EXPECT_EQ(
+        stored.var.data.var.magic,
+        JRNL_MAGIC
+    );
+
+    EXPECT_EQ(
+        stored.var.data.var.state,
+        JRNL_ACTIVE
+    );
+
+    EXPECT_EQ(
+        stored.var.data.var.sector,
+        target_sector
+    );
 }
 
 /**
- * @brief Verify journal_header_read() reads the journal header.
+ * @brief Verify journal_header_read() reads the complete journal header.
  */
 TEST_F(JournalTest, HeaderRead)
 {
-    JournalHeaderBuffer expected = create_header(JRNL_ACTIVE, 1, 2);
+    uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
+    fill_content(content, 0x11);
+    fill_content(usage_bitmap, 0x22);
+
+    JournalHeaderBuffer expected =
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_MESSAGE,
+            2,
+            content,
+            usage_bitmap
+        );
 
     write_header(expected);
 
     JournalHeaderBuffer result{};
 
-    ASSERT_TRUE(journal_header_read(&journal, &result));
+    ASSERT_TRUE(
+        journal_header_read(
+            &journal,
+            &result
+        )
+    );
 
-    EXPECT_EQ(result.var.data.var.magic, expected.var.data.var.magic);
-    EXPECT_EQ(result.var.data.var.state, expected.var.data.var.state);
-    EXPECT_EQ(result.var.data.var.type, expected.var.data.var.type);
-    EXPECT_EQ(result.var.data.var.sector, expected.var.data.var.sector);
-    EXPECT_EQ(result.var.header_crc, expected.var.header_crc);
+    EXPECT_EQ(
+        memcmp(
+            result.buffer,
+            expected.buffer,
+            sizeof(JournalHeader)
+        ),
+        0
+    );
 }
 
 /**
@@ -413,6 +679,7 @@ TEST_F(JournalTest, HeaderRead)
 TEST_F(JournalTest, ContentRead)
 {
     uint8_t expected[SECTOR_SIZE]{};
+
     fill_content(expected, 0x5A);
 
     ASSERT_TRUE(
@@ -425,60 +692,106 @@ TEST_F(JournalTest, ContentRead)
 
     uint8_t result[SECTOR_SIZE]{};
 
-    ASSERT_TRUE(journal_content_read(&journal, result));
+    ASSERT_TRUE(
+        journal_content_read(
+            &journal
+        )
+    );
 
-    EXPECT_EQ(memcmp(result, expected, SECTOR_SIZE), 0);
+    EXPECT_EQ(
+        memcmp(
+            journal.content,
+            expected,
+            SECTOR_SIZE
+        ),
+        0
+    );
 }
 
 /**
- * @brief Verify journal_rollback() restores the original sector contents.
+ * @brief Verify journal_rollback() restores both content and usage bitmap.
  */
 TEST_F(JournalTest, Rollback)
 {
     const uint16_t target_sector = 2;
 
     uint8_t original_content[SECTOR_SIZE]{};
-    fill_content(original_content, 0xAB);
+    uint8_t original_usage_bitmap[SECTOR_SIZE]{};
 
-    uint32_t content_crc =
-        crc32_calculate(original_content, SECTOR_SIZE);
+    fill_content(original_content, 0xAB);
+    fill_content(original_usage_bitmap, 0xCD);
+
+    JournalHeaderDataB data = {
+        .var = {
+            .magic = JRNL_MAGIC,
+            .state = JRNL_ACTIVE,
+            .type = JRNL_CONTACT,
+            .sector = target_sector
+        }
+    };
 
     JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, 1, target_sector);
-
-    header.var.content_crc = content_crc;
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            original_content,
+            original_usage_bitmap
+        );
 
     journal.header = header;
 
+    ASSERT_TRUE(journal_add(&journal, data, original_content, original_usage_bitmap));
     ASSERT_TRUE(
-        storage->write_block(
-            storage->context,
-            JRNL_HEADER_SECTOR,
-            header.buffer
-        )
+        journal_rollback(&journal)
     );
 
-    memcpy(journal.content, original_content, SECTOR_SIZE);
-
-    ASSERT_TRUE(journal_rollback(&journal));
-
-    uint8_t restored[SECTOR_SIZE]{};
+    uint8_t restored_content[SECTOR_SIZE]{};
 
     ASSERT_TRUE(
         storage->read_block(
             storage->context,
             target_sector,
-            restored
+            restored_content
         )
     );
 
-    EXPECT_EQ(memcmp(restored, original_content, SECTOR_SIZE), 0);
+    EXPECT_EQ(
+        memcmp(
+            restored_content,
+            original_content,
+            SECTOR_SIZE
+        ),
+        0
+    );
 
-    JournalHeaderBuffer final_header = read_header();
+    uint8_t restored_usage_bitmap[SECTOR_SIZE]{};
 
-    EXPECT_EQ(final_header.var.data.var.state, JRNL_COMMITTED);
+    ASSERT_TRUE(
+        storage->read_block(
+            storage->context,
+            JRNL_USAGE_SECTOR,
+            restored_usage_bitmap
+        )
+    );
+
+    EXPECT_EQ(
+        memcmp(
+            restored_usage_bitmap,
+            original_usage_bitmap,
+            SECTOR_SIZE
+        ),
+        0
+    );
+
+    JournalHeaderBuffer final_header =
+        read_header();
+
+    EXPECT_EQ(
+        final_header.var.data.var.state,
+        JRNL_COMMITTED
+    );
 }
-
 
 /**
  * @brief Verify rollback fails when journal content CRC is invalid.
@@ -488,22 +801,82 @@ TEST_F(JournalTest, RollbackCorruptedContent)
     const uint16_t target_sector = 2;
 
     uint8_t content[SECTOR_SIZE]{};
-    fill_content(content, 0x11);
-
     uint8_t different_content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+
+    fill_content(content, 0x11);
     fill_content(different_content, 0x22);
+    fill_content(usage_bitmap, 0x33);
 
     JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, 1, target_sector);
-
-    header.var.content_crc =
-        crc32_calculate(different_content, SECTOR_SIZE);
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            different_content,
+            usage_bitmap
+        );
 
     journal.header = header;
 
-    memcpy(journal.content, content, SECTOR_SIZE);
+    memcpy(
+        journal.content,
+        content,
+        SECTOR_SIZE
+    );
 
-    EXPECT_FALSE(journal_rollback(&journal));
+    memcpy(
+        journal.usage_bitmap_sector,
+        usage_bitmap,
+        SECTOR_SIZE
+    );
+
+    EXPECT_FALSE(
+        journal_rollback(&journal)
+    );
+}
+
+/**
+ * @brief Verify rollback fails when journal usage bitmap CRC is invalid.
+ */
+TEST_F(JournalTest, RollbackCorruptedUsageBitmap)
+{
+    const uint16_t target_sector = 2;
+
+    uint8_t content[SECTOR_SIZE]{};
+    uint8_t usage_bitmap[SECTOR_SIZE]{};
+    uint8_t different_usage_bitmap[SECTOR_SIZE]{};
+
+    fill_content(content, 0x11);
+    fill_content(usage_bitmap, 0x22);
+    fill_content(different_usage_bitmap, 0x33);
+
+    JournalHeaderBuffer header =
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            target_sector,
+            content,
+            different_usage_bitmap
+        );
+
+    journal.header = header;
+
+    memcpy(
+        journal.content,
+        content,
+        SECTOR_SIZE
+    );
+
+    memcpy(
+        journal.usage_bitmap_sector,
+        usage_bitmap,
+        SECTOR_SIZE
+    );
+
+    EXPECT_FALSE(
+        journal_rollback(&journal)
+    );
 }
 
 /**
@@ -511,18 +884,33 @@ TEST_F(JournalTest, RollbackCorruptedContent)
  */
 TEST_F(JournalTest, Free)
 {
-    JournalHeaderBuffer header = create_header(JRNL_ACTIVE, 1, 2);
+    JournalHeaderBuffer header =
+        create_header(
+            JRNL_ACTIVE,
+            JRNL_CONTACT,
+            2
+        );
 
     journal.header = header;
+
     write_header(header);
 
-    ASSERT_TRUE(journal_free(&journal));
+    ASSERT_TRUE(
+        journal_free(&journal)
+    );
 
-    EXPECT_EQ(journal.header.var.data.var.state, JRNL_COMMITTED);
+    EXPECT_EQ(
+        journal.header.var.data.var.state,
+        JRNL_COMMITTED
+    );
 
-    JournalHeaderBuffer stored = read_header();
+    JournalHeaderBuffer stored =
+        read_header();
 
-    EXPECT_EQ(stored.var.data.var.state, JRNL_COMMITTED);
+    EXPECT_EQ(
+        stored.var.data.var.state,
+        JRNL_COMMITTED
+    );
 }
 
 /**
@@ -533,59 +921,128 @@ TEST_F(JournalTest, CompleteRollbackLifecycle)
     const uint16_t target_sector = 2;
 
     uint8_t original_content[SECTOR_SIZE]{};
+    uint8_t original_usage_bitmap[SECTOR_SIZE]{};
+
     fill_content(original_content, 0xCC);
+    fill_content(original_usage_bitmap, 0xDD);
 
-    // Journal should initially be uninitialised
-    EXPECT_EQ(get_journal_status(&journal), JRNL_UNINITIALIZED);
+    EXPECT_EQ(
+        get_journal_status(&journal),
+        JRNL_UNINITIALIZED
+    );
 
-    // Initialise journal
-    ASSERT_TRUE(journal_init(&journal, storage));
+    ASSERT_TRUE(
+        journal_init(
+            &journal,
+            storage
+        )
+    );
 
-    JournalHeaderBuffer initial_header = read_header();
+    JournalHeaderBuffer initial_header =
+        read_header();
 
-    EXPECT_EQ(initial_header.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(initial_header.var.data.var.state, JRNL_EMPTY);
+    EXPECT_EQ(
+        initial_header.var.data.var.magic,
+        JRNL_MAGIC
+    );
 
-    // Create active journal entry
+    EXPECT_EQ(
+        initial_header.var.data.var.state,
+        JRNL_EMPTY
+    );
+
     JournalHeaderDataB data{};
 
     data.var.magic = JRNL_MAGIC;
     data.var.state = JRNL_ACTIVE;
-    data.var.type = 1;
+    data.var.type = JRNL_CONTACT;
     data.var.sector = target_sector;
 
-    ASSERT_TRUE(journal_add(&journal, data, original_content));
+    ASSERT_TRUE(
+        journal_add(
+            &journal,
+            data,
+            original_content,
+            original_usage_bitmap
+        )
+    );
 
-    // Verify journal is active
-    JournalHeaderBuffer active_header = read_header();
+    JournalHeaderBuffer active_header =
+        read_header();
 
-    EXPECT_EQ(active_header.var.data.var.state, JRNL_ACTIVE);
+    EXPECT_EQ(
+        active_header.var.data.var.state,
+        JRNL_ACTIVE
+    );
 
-    // Simulate power failure by creating a new Journal instance
     Journal recovered_journal{};
     recovered_journal.storage = storage;
 
-    // Read journal content into recovered journal
-    ASSERT_TRUE( journal_content_read( &recovered_journal, recovered_journal.content));
+    ASSERT_TRUE(
+        journal_content_read(
+            &recovered_journal
+        )
+    );
 
-    // Initialise recovered journal
-    ASSERT_TRUE(journal_init(&recovered_journal, storage));
+    ASSERT_TRUE(
+        storage->read_block(
+            storage->context,
+            JRNL_USAGE_SECTOR,
+            recovered_journal.usage_bitmap_sector
+        )
+    );
 
-    // Verify original database sector was restored
-    uint8_t restored[SECTOR_SIZE]{};
+    ASSERT_TRUE(
+        journal_init(
+            &recovered_journal,
+            storage
+        )
+    );
+
+    uint8_t restored_content[SECTOR_SIZE]{};
 
     ASSERT_TRUE(
         storage->read_block(
             storage->context,
             target_sector,
-            restored
+            restored_content
         )
     );
 
-    EXPECT_EQ(memcmp(restored, original_content, SECTOR_SIZE), 0);
+    EXPECT_EQ(
+        memcmp(
+            restored_content,
+            original_content,
+            SECTOR_SIZE
+        ),
+        0
+    );
 
-    // Journal should now be committed
-    JournalHeaderBuffer final_header = read_header();
+    uint8_t restored_usage_bitmap[SECTOR_SIZE]{};
 
-    EXPECT_EQ(final_header.var.data.var.state, JRNL_COMMITTED);
+    ASSERT_TRUE(
+        storage->read_block(
+            storage->context,
+            JRNL_USAGE_SECTOR,
+            restored_usage_bitmap
+        )
+    );
+
+    EXPECT_EQ(
+        memcmp(
+            restored_usage_bitmap,
+            original_usage_bitmap,
+            SECTOR_SIZE
+        ),
+        0
+    );
+
+    JournalHeaderBuffer final_header =
+        read_header();
+
+    EXPECT_EQ(
+        final_header.var.data.var.state,
+        JRNL_COMMITTED
+    );
 }
+

@@ -42,21 +42,21 @@ static inline uint16_t hash_double(uint16_t key, uint16_t attemptNum, uint16_t c
 }
 
 /**
-  * @brief  Phone Number Hash Function (FNV-1a)
+  * @brief  Phone Number Hash Function (DJB2) NOTE: non-numeric characters are ignored
   * @param  phone: phone number
   * @retval uint16_t: Hash Code
   */
 uint16_t hash_phone(const char *phone)
 {
-    uint32_t hash = 2166136261u;
+    uint32_t hash = 5381u;
 
-    // Iterate over numbers in phone number until null character is reached
+    // Iterate over phone number until null character is reached
     while (*phone)
     {
         if (*phone >= '0' && *phone <= '9')
         {
-            hash ^= (uint8_t)*phone;
-            hash *= 16777619u;
+            hash = ((hash << 5) + hash) + (uint8_t)*phone;
+            // Equivalent to: hash = hash * 33 + *phone;
         }
 
         phone++;
@@ -351,7 +351,7 @@ uint16_t find_hash(HashTable *table, uint16_t id, uint16_t h1, uint16_t h2, Hash
 
 
 /**
- * @brief Insert a contact into the hash table.
+ * @brief Insert a contact into the hash table and write / update to SD Card.
  *
  * @param table Pointer to the hash table.
  * @param contact Contact to insert.
@@ -417,7 +417,7 @@ uint16_t hash_insert_contact(HashTable *table, uint16_t id, ContactBuffer *conta
 }
 
 /**
- * @brief Find a contact by its unique ID on the SD Card.
+ * @brief Find and read a contact by its unique ID on the SD Card.
  *
  * @param table Pointer to the hash table.
  * @param id Contact ID to search for.
@@ -510,7 +510,7 @@ uint16_t hash_insert_phone(HashTable *table, char *phone)
 
 
 /**
-  * @brief  Find a contact by its unique ID
+  * @brief  Find an entry in the table
   * @param  table: Pointer to the hash table
   * @param  id: Contact ID to search for
   * @param  out: Output HashEntry pointer
@@ -718,16 +718,16 @@ void hash_clear(HashTable *table)
 
 }
 
-
 /**
-  * @brief  Print the contents of the hash table for debugging
+  * @brief  Reconstruct the HashTable in RAM from the information store in the data on the SD Card
   * @param  table: Pointer to the hash table
   * @retval None
   */
-void hash_print(const HashTable *table)
+bool hash_reconstruct(HashTable *table) 
 {
 
 }
+
 
 #if defined (HOST_BUILD)
 
