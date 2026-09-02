@@ -1,8 +1,9 @@
 #ifndef CONTACT_H
 #define CONTACT_H
 
-#include "stdint.h"
-#include "stdbool.h"
+#include <stdint.h>
+#include <stdbool.h>
+#include "mem_layout.h"
 #include "storage.h"
 
 #ifdef __cplusplus
@@ -15,33 +16,14 @@ extern "C" {
     #define STATIC_ASSERT _Static_assert
 #endif
 
-#define CONTACT_SECTOR_BYTES SECTOR_SIZE
-
-//  Number of sectors to store numContacts for sectors with the capacity to store contactSecCapacity
-#define CONTACT_MEMORY_SECTORS(numContacts, contactSecCapacity) \
-    (((numContacts) + contactSecCapacity - 1) / contactSecCapacity)
-
-
-// Contact Header Size
-#define CONTACT_HEADER_BYTES 1
-
-// Contact Data Bytes    
-#define CONTACT_BYTES 81
 
 // Contact Information Max Length
 #define MAX_NAME_LEN 64
 #define MAX_PHONE_LEN 15
 
-// Get the number of contacts that can be stored in the ContactSector
-#define CONTACT_SECTOR_CAPACITY \
-    ((CONTACT_SECTOR_BYTES - sizeof(ContactSectorHeader)) / sizeof(Contact))
 
-// calculate the padding of the sector
-#define CONTACT_SECTOR_PADDING \
-    (CONTACT_SECTOR_BYTES - sizeof(ContactSectorHeader) - CONTACT_SECTOR_CAPACITY * sizeof(Contact))
-
-// Total number of sector needed for all contacts
-#define CONTACT_MEMORY_SECTOR_SIZE CONTACT_MEMORY_SECTORS(HASH_TABLE_SIZE, CONTACT_SECTOR_CAPACITY)
+// Opaque Declaration
+typedef struct Journal Journal;
 
 // Contact Struct (81B)
 typedef struct
@@ -57,17 +39,19 @@ typedef union {
    uint8_t buffer[sizeof(Contact)];
 } ContactBuffer;
 
-// Contact Block Header (8B)
+// Contact Block Header (2B)
 typedef struct 
 {
     uint8_t used_bitmap; // 1B
+
 } ContactSectorHeader;
 
 // Contact Sector needs to be 512 bytes since smallest read and write size is 512B
 typedef struct 
 {
+    SECTOR_TYPE type; // 1B
+    ContactSectorHeader header; // Header MUST be first
     ContactBuffer contacts[CONTACT_SECTOR_CAPACITY];
-    ContactSectorHeader header;
     uint8_t padding[CONTACT_SECTOR_PADDING];
 } ContactSector;
 
@@ -76,7 +60,61 @@ typedef union {
     uint8_t buffer[sizeof(ContactSector)];
 } ContactSectorBuffer;
 
-STATIC_ASSERT(sizeof(Contact) == CONTACT_BYTES, "Unexpected Contact size");
+STATIC_ASSERT(sizeof(Contact) == CONTACT_RECORD_BYTES, "Unexpected Contact size");
+STATIC_ASSERT(sizeof(ContactSector) == SECTOR_SIZE, "ContactSector struct is not 512B");
+
+/**
+ * @brief Read the contact sector that the contact in stored in on the sd card
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param out Contact Sector Buffer with the desired contact position
+ * @retval True if successful read else false.
+ */
+bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out);
+
+/**
+ * @brief Write the contact sector that the contact in stored in on the sd card
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in);
+
+/**
+ * @brief Write the contact to the sd card in the appropriate contact sector
+ *
+ * @param table Pointer to the hash table.
+ * @param journal pointer to rollback journal struct
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBuffer *in);
+
+/**
+ * @brief Read the contact to the sd card from the appropriate contact sector
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool read_contact(Storage *storage, uint16_t index, ContactBuffer *out);
+
+/**
+ * @brief Remove the contact to the sd card from the appropriate contact sector
+ *
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool remove_contact(Storage *storage, Journal *journal, uint16_t index, ContactBuffer *out);
+
+
 
 #ifdef __cplusplus
 }

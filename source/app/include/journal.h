@@ -12,12 +12,8 @@ extern "C" {
 #endif
 
 #include "storage.h"
-#include "superheader.h"
+#include "mem_layout.h"
 
-// Journal Sector is after usage bitmap
-#define JRNL_HEADER_SECTOR USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_SIZE + 1
-#define JRNL_CONTENT_SECTOR JRNL_HEADER_SECTOR + 1
-#define JRNL_USAGE_SECTOR JRNL_HEADER_SECTOR + 2
 
 #define JRNL_SECTOR_SIZE 3
 
@@ -44,7 +40,7 @@ enum {
     JRNL_UNINITIALIZED,
     JRNL_CORRUPTED,
     JRNL_VALID,
-    JRNL_ROLLBACK
+    JRNL_ROLLBACK,
 };
 
 // Stored Sector Type
@@ -84,8 +80,8 @@ typedef union {
     uint8_t buffer[sizeof(JournalHeader)];
 } JournalHeaderBuffer;
 
-// Rollback Journal Struct
-typedef struct {
+// Rollback Journal Struct (Creating this way for formard declaration in other files)
+typedef struct Journal {
     Storage *storage; // Storage struct pointer
     JournalHeaderBuffer header; // Journal Header (allocated memory to read sd card mem into)
     uint8_t content[SECTOR_SIZE]; // Journal Sector (allocated memory to read sd card mem into) 
@@ -110,8 +106,7 @@ bool journal_init(Journal *journal, Storage *storage);
 
 bool journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t sectorInd);
 
-bool journal_add(Journal *journal, JournalHeaderDataB jData, uint8_t *content, uint8_t
-        *usage_bitmap);
+bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *content);
 
 bool journal_free(Journal *journal);
 

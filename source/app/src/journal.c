@@ -1,5 +1,7 @@
 #include "journal.h"
+#include "usage_bitmap.h"
 #include "crc.h"
+
 
 // Forward Declaration
 JRNL_HEAD_STATUS get_journal_status(Journal* journal);
@@ -20,7 +22,7 @@ bool journal_init(Journal *journal, Storage *storage)
 {
     journal->storage = storage;
 
-    // get the journal header status 
+    // read the journal from the sd card and determine the status of the journal
     switch(get_journal_status(journal)) {
 
         
@@ -35,6 +37,11 @@ bool journal_init(Journal *journal, Storage *storage)
         case JRNL_ROLLBACK:
             return journal_rollback(journal);
 
+        case JRNL_VALID:
+            return true;
+        default:
+            // unkown return from get_journal_status
+            return false;
     };
 
 
@@ -76,7 +83,7 @@ bool journal_header_init(Journal* journal)
 }
 
 /**
- * @brief Write to the journal
+ * @brief Write to the journal on the SD Card
  *
  * @param journal journal struct pointer (allocated in database struct)
  * @param header journal header being written
@@ -115,13 +122,35 @@ bool journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t secto
 
 }
 
-bool journal_add(Journal *journal, JournalHeaderDataB jData, uint8_t *content, uint8_t
-        *usage_bitmap)
+/**
+ * @brief Add sector and usage map to the back up journal. This is done before any changes are made
+ * to it in RAM. Allowing Database rollback if write failure.
+ *
+ * @param journal journal struct pointer (allocated in database struct)
+ * @param type type of sector the index is pointing at 
+ * @param content old content being written to journel incase of rollback 
+ * @param index sector index of the content that is being journalled
+ *
+ * @retval true journal add successful
+ * @retval false journal add fail 
+ */
+bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *content)
 {
+
+    // Init Header
+    JournalHeaderDataB jData;
+    journal_data_init(&jData, type, index);
+
     // Calc header CRC
     uint32_t header_crc = crc32_calculate(jData.buffer, sizeof(JournalHeaderData));
     uint32_t content_crc = crc32_calculate(content, SECTOR_SIZE);
-    uint32_t usage_bitmap_crc = crc32_calculate(usage_bitmap, SECTOR_SIZE);
+
+    // Get the sector in RAM of the usage bitmap vector
+    uint32_t* usage_bitmap_sector = &usage_bitmap[USAGE_BITMAP_FIND_SECTOR(index) *
+        ELEMENTS_PER_SECTOR];
+
+    // Get usage bitmap sector CRC
+    uint32_t usage_bitmap_crc = crc32_calculate((uint8_t*)usage_bitmap_sector, SECTOR_SIZE);
     
     // Create the journal header
     JournalHeaderBuffer jHeadBuff = {
@@ -134,7 +163,7 @@ bool journal_add(Journal *journal, JournalHeaderDataB jData, uint8_t *content, u
     };
 
     // Write to the journal
-    return journal_write(journal, &jHeadBuff, content, usage_bitmap);
+    return journal_write(journal, &jHeadBuff, content, (uint8_t*)usage_bitmap_sector);
 
 }
 

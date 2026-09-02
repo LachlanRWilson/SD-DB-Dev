@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-typedef struct  
+typedef struct FreeList
 {
     uint16_t *free_stack; // In RAM 
     size_t stack_top;
@@ -39,6 +39,15 @@ uint16_t free_list_allocate(FreeList *self);
  * @param sector Sector index to free
  */
 void free_list_free(FreeList *self, uint16_t sector);
+
+/**
+ * @brief Frees range of sectors [startSector, endSector)
+ *
+ * @param self free list stack instance
+ * @param startSector inclusive start sector
+ * @param endSector exclusive end sector
+ */
+void free_list_free_range(FreeList *self, uint16_t startSector, uint16_t endSector);
 
 /**
  * @brief Returns number of available sectors.

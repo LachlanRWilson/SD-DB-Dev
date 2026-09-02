@@ -16,17 +16,17 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "free_list_stack.h"
-#include "storage.h"
 #include "contact.h"
-#include "superheader.h"
-
-
 
 // Struct Sizes
 #define HASH_ENTRY_BYTES 8
 
 #define HASH_TABLE_SIZE 14293
+
+
+// Opaque Declarations
+typedef struct FreeList FreeList;
+typedef struct Journal Journal;
 
 
 // Entry State  (Pack enum to 1 byte)
@@ -41,7 +41,7 @@ enum
 // Hash Entry that points to SD Card sector (8B)
 typedef struct
 {
-    uint16_t id; // Contact ID (2B)
+    uint16_t id; // Contact ID (2B) PHONE NUMBER
     uint16_t sector; // SD Sector (2B)
     uint16_t latest_msg_extent; // Latest Message Extent offset (2B)
     ENTRY_STATE state;  // Entry occupation state (1B)
@@ -50,8 +50,6 @@ typedef struct
 
 // Static checks to ensure the size of the structs are correct
 STATIC_ASSERT(sizeof(HashEntry) == HASH_ENTRY_BYTES, "Unexpected HashEntry size");
-STATIC_ASSERT(sizeof(ContactSectorHeader) == CONTACT_HEADER_BYTES, "Unexpected ContactSector size");
-STATIC_ASSERT(sizeof(ContactSector) == CONTACT_SECTOR_BYTES, "Unexpected ContactSector size");
 
 
 // Information Struct about hash table
@@ -101,7 +99,7 @@ uint16_t hash_insert(HashTable *table, uint16_t id);
  * @param contact Contact to insert.
  * @retval Sector index if insertion successful, otherwise UINT16_MAX.
  */
-uint16_t hash_insert_contact(HashTable *table, uint16_t id, ContactBuffer *contact);
+uint16_t hash_insert_contact(HashTable *table, Journal *journal, uint16_t id, ContactBuffer *contact);
 
 /**
   * @brief  Insert a contact into the hash table using phone number of PK
@@ -163,7 +161,7 @@ bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed);
  * @param id Contact ID to remove.
  * @retval true if the contact was removed, otherwise false.
  */
-bool hash_remove_contact(HashTable *table, uint16_t id, ContactBuffer *out);
+bool hash_remove_contact(HashTable *table, Journal *journal, uint16_t id, ContactBuffer *out);
 
 /**
   * @brief  Get the number of contacts currently stored in the hash table

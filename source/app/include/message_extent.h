@@ -29,11 +29,11 @@ extern "C" {
 
 // Fit messages into a 512B block of memory
 #define MESSAGE_BLOCK_CAPACITY \
-    ((MESSAGE_BLOCK_BYTES - sizeof(MessageBlockHeader)) / sizeof(Message))
+    ((MESSAGE_BLOCK_BYTES - sizeof(MessageBlockHeader) - sizeof(SECTOR_TYPE) - sizeof(uint8_t)) / sizeof(Message))
 
 // Ensure padding is accounted for
 #define MESSAGE_BLOCK_PADDING \
-    MESSAGE_BLOCK_BYTES - sizeof(MessageBlockHeader) - sizeof(Message) * MESSAGE_BLOCK_CAPACITY
+    MESSAGE_BLOCK_BYTES - sizeof(MessageBlockHeader) - sizeof(SECTOR_TYPE) - sizeof(uint8_t) - sizeof(Message) * MESSAGE_BLOCK_CAPACITY
 
 // Ensure enum is 1 byte
 typedef uint8_t EXTENT_STATE;
@@ -63,15 +63,16 @@ typedef struct
     char phone[MAX_PHONE_LEN]; // Phone number (15B)
     uint8_t phone_len;         // Length of phone number (1B)
     EXTENT_STATE state; // Extent State (1B) (This can be removed)
-    uint8_t padding; // 1B
-
+    uint8_t padding;
 } MessageBlockHeader;
 
 
 // Message Extent Block (512B)
 typedef struct
 {
-    MessageBlockHeader header; // Header (6B)
+    SECTOR_TYPE type; // (1B)
+    uint8_t reserved; // (1B) for alignment
+    MessageBlockHeader header; // Header (24B)
     Message messages[MESSAGE_BLOCK_CAPACITY]; // Array of chats
     uint8_t padding[MESSAGE_BLOCK_PADDING];
 } MessageBlock;
@@ -85,7 +86,7 @@ typedef union
 
 // Static checks to ensure the size of the struct are correct if they are changed
 STATIC_ASSERT(MESSAGE_BLOCK_PADDING > 0, "0 or negative padding (remove padding from struct)");
-STATIC_ASSERT(sizeof(Message) == MESSAGE_BYTES, "Unexpected MessageBlockHeader size");
+STATIC_ASSERT(sizeof(Message) == MESSAGE_BYTES, "Unexpected MessageBlock size");
 STATIC_ASSERT(sizeof(MessageBlockHeader) == MESSAGE_BLOCK_HEADER_BYTES, "Unexpected \
         MessageBlockHeader size");
 STATIC_ASSERT(sizeof(MessageBlock) == MESSAGE_BLOCK_BYTES, "Unexpected MessageBlockHeader size");

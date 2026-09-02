@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Calculate a CRC-32 over a buffer.
  *
@@ -15,5 +19,9 @@
  * @return CRC-32 value.
  */
 uint32_t crc32_calculate(const uint8_t *data, size_t length);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* CRC_H */

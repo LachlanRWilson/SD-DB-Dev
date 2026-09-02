@@ -30,14 +30,21 @@ add_library(app_logic
     # Add App Source Files
     app/src/free_list_stack.c
     app/src/hash_table.c
+    app/src/hash_table_phone.c
     app/src/message_extent.c
     app/src/heap_storage.c
     app/src/journal.c
     app/src/crc.c
     app/src/superheader.c
+    app/src/usage_bitmap.c
+    app/src/contact.c
     #app/src/database.c
 )
 endif()
+
+# Print compiler include hierarchy
+#target_compile_options(app_logic PRIVATE -H)
+
 # Make the include directory PUBLIC so other files such as tests/test_my_logic.cpp and firmware/Core/Src/main.c 
 # have access to my_logic.h header  (can do #include "my_header.h")
 target_include_directories(app_logic PUBLIC 

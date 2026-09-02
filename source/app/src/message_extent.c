@@ -54,7 +54,6 @@ uint16_t message_extent_get(MessageExtent *self, uint16_t prev_extent)
         .prev = prev_extent,
         .msg_count = 0,
         .state = EXTENT_EMPTY,
-        .padding = 0
     };
 
     // Initialise message block

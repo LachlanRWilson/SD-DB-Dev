@@ -26,6 +26,31 @@ bool free_list_init(FreeList *self, uint16_t *free_stack, size_t total_sectors)
     return true;
 }
 
+/**
+ * @brief initialise an empty free list
+ *
+ * @param self FreeList struct pointer
+ * @param free_stack pointer to free list stack memory
+ * @param total_sectors number of sectors the free list stack needs to track
+ * 
+ * @return false if fail, else true
+ */
+bool free_list_empty_init(FreeList *self, uint16_t *free_stack, size_t total_sectors)
+{
+    if (self == NULL || free_stack == NULL || total_sectors == 0)
+    {
+        return false;
+    }
+
+    // Set Free List Stack attributes
+    self->free_stack = free_stack;
+    self->capacity = total_sectors;
+    self->stack_top = 0; // start stack at the bottom
+    self->used_count = total_sectors; // all sectors used
+
+    return true;
+}
+
 uint16_t free_list_allocate(FreeList *self)
 {
     // Check stack is allocated and not at bottom (should never reach bottom)
@@ -52,6 +77,27 @@ void free_list_free(FreeList *self, uint16_t sector)
     if (self->used_count > 0)
     {
         self->used_count--;
+    }
+}
+
+/**
+ * @brief Frees range of sectors [startSector, endSector)
+ *
+ * @param self free list stack instance
+ * @param startSector inclusive start sector
+ * @param endSector exclusive end sector
+ */
+void free_list_free_range(FreeList *self, uint16_t startSector, uint16_t endSector)
+{
+    for (int i = startSector; i < endSector; i++) 
+    {
+        // free index has reached passed the number of sectors allocated
+        if (i >= self->capacity)
+        {
+            return;
+        }
+
+        free_list_free(self, i);
     }
 }
 

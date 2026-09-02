@@ -5,26 +5,8 @@
 #define USAGE_BITMAP_NUM_SECTORS TOTAL_DATA_SECTOR_SIZE / SECTOR_SIZE
 #define USAGE_BITMAP_SECTOR SUPERHEADER_SECTOR + 1
 
-#ifndef HOST_BUILD
-// Read entire usage bitmap into RAM (5.6KB)
-__attribute__((section(".ram_d1")))
-uint32_t superheader_usage_bitmap[USAGE_BITMAP_SIZE];
-#else
-uint32_t superheader_usage_bitmap[USAGE_BITMAP_SIZE];
-#endif
 
 
-/**
- * @brief  Read the superheader from the SD Card and determine it's validity
-  * @param  table: Pointer to the hash table
-  * @retval None
-  */
-bool read_usage_bitmap(Storage* storage, uint32_t *usage_bitmap_storage)
-{
-    return storage->read_multiblock(storage->context, USAGE_BITMAP_SECTOR,
-            USAGE_BITMAP_NUM_SECTORS, (uint8_t *)usage_bitmap_storage);
-
-}
 
 /**
   * @brief  Read the superheader from the SD Card and determine it's validity
