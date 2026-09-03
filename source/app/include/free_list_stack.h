@@ -26,6 +26,17 @@ typedef struct FreeList
 bool free_list_init(FreeList *self, uint16_t *free_stack, size_t total_sectors);
 
 /**
+ * @brief Initialise the allocator with NO free sectors (everything marked
+ *        used). Callers then free back the sectors that are actually
+ *        available - used by hash_reconstruct_contact() which knows which
+ *        sectors hold live contacts and frees the rest.
+ *
+ * @param total_sectors Total number of sectors the allocator tracks.
+ * @retval true if initialisation succeeded
+ */
+bool free_list_empty_init(FreeList *self, uint16_t *free_stack, size_t total_sectors);
+
+/**
  * @brief Allocates a free sector.
  *
  * @retval sector index if successful

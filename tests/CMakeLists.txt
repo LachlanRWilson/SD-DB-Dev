@@ -32,7 +32,7 @@ include_directories(
 # Test Files
 add_executable(test_my_logic
     # hash table unit testing
-    #test_hash_table.cpp
+    test_hash_table.cpp
     #test_hash_table_edge.cpp
     test_free_list_stack.cpp
     test_message_extent.cpp

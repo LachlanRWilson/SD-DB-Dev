@@ -13,10 +13,10 @@ bool journal_free(Journal *journal);
  * @brief Initialise the database journal
  *
  * @param journal journal struct pointer (allocated in database struct)
- * @param storage storage abstraction struct pointer (allocated in database struct) 
+ * @param storage storage abstraction struct pointer (allocated in database struct)
  *
- * @retval true Journal Init successful 
- * @retval false journal init fail 
+ * @retval true Journal Init successful
+ * @retval false journal init fail
  */
 bool journal_init(Journal *journal, Storage *storage)
 {
@@ -25,7 +25,7 @@ bool journal_init(Journal *journal, Storage *storage)
     // read the journal from the sd card and determine the status of the journal
     switch(get_journal_status(journal)) {
 
-        
+
         case JRNL_CORRUPTED: // Storage read error
         case JRNL_READ_ERROR: // GAME OVER (Database fucked)
             return false;
@@ -54,14 +54,14 @@ bool journal_init(Journal *journal, Storage *storage)
  * @param journal journal struct pointer (allocated in database struct)
  *
  * @retval true Journal init header write successful
- * @retval false journal init header write fail 
+ * @retval false journal init header write fail
  */
 bool journal_header_init(Journal* journal)
 {
     // init header buffer to write
     JournalHeaderBuffer jHeadBuff = {
         .var = {
-            .data = { 
+            .data = {
                 .var = {
                     .magic = JRNL_MAGIC,
                     .state = JRNL_EMPTY,
@@ -87,10 +87,10 @@ bool journal_header_init(Journal* journal)
  *
  * @param journal journal struct pointer (allocated in database struct)
  * @param header journal header being written
- * @param content old content being written to journel incase of rollback 
+ * @param content old content being written to journel incase of rollback
  *
  * @retval true journal write successful
- * @retval false journal write fail 
+ * @retval false journal write fail
  */
 bool journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *content, uint8_t
         *usage_bitmap)
@@ -127,12 +127,12 @@ bool journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t secto
  * to it in RAM. Allowing Database rollback if write failure.
  *
  * @param journal journal struct pointer (allocated in database struct)
- * @param type type of sector the index is pointing at 
- * @param content old content being written to journel incase of rollback 
+ * @param type type of sector the index is pointing at
+ * @param content old content being written to journel incase of rollback
  * @param index sector index of the content that is being journalled
  *
  * @retval true journal add successful
- * @retval false journal add fail 
+ * @retval false journal add fail
  */
 bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *content)
 {
@@ -151,7 +151,7 @@ bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *cont
 
     // Get usage bitmap sector CRC
     uint32_t usage_bitmap_crc = crc32_calculate((uint8_t*)usage_bitmap_sector, SECTOR_SIZE);
-    
+
     // Create the journal header
     JournalHeaderBuffer jHeadBuff = {
         .var = {
@@ -173,7 +173,7 @@ bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *cont
  * @param journal journal struct pointer (allocated in database struct)
  *
  * @retval true journal read successful
- * @retval false journal read fail 
+ * @retval false journal read fail
  */
 bool journal_header_read(Journal *journal, JournalHeaderBuffer *out)
 {
@@ -187,7 +187,7 @@ bool journal_header_read(Journal *journal, JournalHeaderBuffer *out)
  * @param journal journal struct pointer (allocated in database struct)
  *
  * @retval true journal read successful
- * @retval false journal read fail 
+ * @retval false journal read fail
  */
 bool journal_usage_read(Journal *journal)
 {
@@ -202,7 +202,7 @@ bool journal_usage_read(Journal *journal)
  * @param journal journal struct pointer (allocated in database struct)
  *
  * @retval true journal read successful
- * @retval false journal read fail 
+ * @retval false journal read fail
  */
 bool journal_content_read(Journal *journal)
 {
@@ -244,8 +244,8 @@ bool journal_rollback(Journal *journal)
     {
         return false;
     }
-    
-    // free the journal 
+
+    // free the journal
     return journal_free(journal);
 }
 

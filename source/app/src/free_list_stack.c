@@ -89,7 +89,7 @@ void free_list_free(FreeList *self, uint16_t sector)
  */
 void free_list_free_range(FreeList *self, uint16_t startSector, uint16_t endSector)
 {
-    for (int i = startSector; i < endSector; i++) 
+    for (int i = startSector; i < endSector; i++)
     {
         // free index has reached passed the number of sectors allocated
         if (i >= self->capacity)

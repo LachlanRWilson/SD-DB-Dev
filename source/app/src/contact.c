@@ -11,11 +11,11 @@
  * @param out Contact Sector Buffer with the desired contact position
  * @retval True if successful read else false.
  */
-bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out) 
+bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out)
 {
     // Read ContactSector
     if (!storage->read_block( storage->context, (index / CONTACT_SECTOR_CAPACITY) +
-                CONTACT_DATA_START_SECTOR, out->buffer)) 
+                CONTACT_DATA_START_SECTOR, out->buffer))
     {
         return false;
     }
@@ -32,7 +32,7 @@ bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in) 
+bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in)
 {
     // Write contact sector
     if (!storage->write_block( storage->context, (index / CONTACT_SECTOR_CAPACITY) +
@@ -42,7 +42,6 @@ bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer 
     }
 
     return true;
-    
 }
 
 
@@ -59,16 +58,32 @@ bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBu
 {
     ContactSectorBuffer cSector;
     uint8_t contactPosInSector;
-    
+
+    /*
+     * FIXME(usage-bitmap): the usage bitmap tracks one bit per *physical
+     * contact sector*, not per contact slot. The write below sets the bit
+     * at (index / CONTACT_SECTOR_CAPACITY), so every check/clear site must
+     * use the same mapping. Previously these sites passed the raw `index`,
+     * so read_contact()/remove_contact() tested a bit write_contact() never
+     * set and always reported "not found" straight after an insert.
+     */
     // Check if contact sector is being used
-    if (check_usage_bit(index)) {
+    if (check_usage_bit(index / CONTACT_SECTOR_CAPACITY)) {
 
         // Read contact sector
         if (!read_contact_sector(storage, index, &cSector))
         {
             return false;
         }
-    } 
+    } else {
+        /*
+         * Sector not in use yet: start from a clean slate. Without this the
+         * other CONTACT_SECTOR_CAPACITY - 1 slots (and the used_bitmap
+         * header) keep whatever stack garbage cSector was declared with,
+         * which then gets persisted and confuses hash_reconstruct_contact.
+         */
+        memset(&cSector, 0, sizeof(cSector));
+    }
 
     // Add to journal for rollback and update usage bit on SD card
     if (!journal_add(journal, JRNL_CONTACT, index, cSector.buffer))
@@ -84,8 +99,8 @@ bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBu
 
     // Get the position in the contact sector
     contactPosInSector = index % CONTACT_SECTOR_CAPACITY;
-        
-    // Set contact bit 
+
+    // Set contact bit
     cSector.sector.header.used_bitmap |= (1 << contactPosInSector);
 
     // Write contact to sector
@@ -113,9 +128,10 @@ bool read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
 {
     ContactSectorBuffer cSector;
     uint8_t contactPosInSector;
-    
+
     // If usage bit isn't being used then trying to read empty sector
-    if (!check_usage_bit(index))
+    // (see FIXME(usage-bitmap) in write_contact: bit is per contact sector)
+    if (!check_usage_bit(index / CONTACT_SECTOR_CAPACITY))
     {
         return false;
     }
@@ -128,7 +144,7 @@ bool read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
 
     // Get the position in the contact sector
     contactPosInSector = index % CONTACT_SECTOR_CAPACITY;
-        
+
     // Check contact use bit
    if (!(cSector.sector.header.used_bitmap & (1 << contactPosInSector)))
    {
@@ -152,9 +168,9 @@ bool remove_contact(Storage *storage, Journal *journal, uint16_t index, ContactB
 {
     ContactSectorBuffer cSector;
     uint8_t contactPosInSector;
-    
-    // if usage bit isn't set don't read, if set then read contact sector
-    if (!check_usage_bit(index)) 
+
+    // check the usage bit for the contact sector is set if there is no contact sector than there is not contact
+    if (!check_usage_bit(index / CONTACT_SECTOR_CAPACITY))
     {
         return false;
     }
@@ -173,7 +189,7 @@ bool remove_contact(Storage *storage, Journal *journal, uint16_t index, ContactB
 
     // Get the position in the contact sector
     contactPosInSector = index % CONTACT_SECTOR_CAPACITY;
-        
+
     // Check contact use bit
    if (!(cSector.sector.header.used_bitmap & (1 << contactPosInSector)))
    {
@@ -189,8 +205,8 @@ bool remove_contact(Storage *storage, Journal *journal, uint16_t index, ContactB
     // If there is no contact in the sector set as empty
     if (cSector.sector.header.used_bitmap == 0)
     {
-        // if update usage bit error return false
-        if (!update_usage_bit(storage, index, false)) {return false;}
+        // set the sector empty since there are no contact left in the sector
+        if (!update_usage_bit(storage, index / CONTACT_SECTOR_CAPACITY, false)) {return false;}
 
     } else {
 
@@ -205,7 +221,7 @@ bool remove_contact(Storage *storage, Journal *journal, uint16_t index, ContactB
 /**
   * @brief  Create a Contact
   * @param storage Pointer to the storage struct
-  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
+  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs)
   * @param  entries: In RAM storage of hash table entries
   * @param  size: number of elements in hash table
   */

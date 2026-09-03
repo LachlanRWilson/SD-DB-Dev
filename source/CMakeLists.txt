@@ -29,7 +29,9 @@ else ()
 add_library(app_logic
     # Add App Source Files
     app/src/free_list_stack.c
-    app/src/hash_table.c
+    # hash_table.c (ID-keyed) and hash_table_phone.c (phone-keyed) define
+    # the same symbols (hash_init, hash_size, hash_phone, ...). The host
+    # build / tests use the phone-keyed implementation only.
     app/src/hash_table_phone.c
     app/src/message_extent.c
     app/src/heap_storage.c

@@ -92,7 +92,7 @@ void hash_destroy(HashTable *table);
  * @retval true  Landed on a matching entry or a free slot.
  * @retval false Table is completely full.
  */
-bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out);
+bool hash_find_entry(HashTable *table, const char *phone, HashEntry** out);
 
 /**
  * @brief Perform a double-hash search on the hash table using a phone

@@ -1,12 +1,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "hash_table.h"
+#include "hash_table_phone.h"
 #include "contact.h"
 #include "storage.h"
 #include "usage_bitmap.h"
 #include "free_list_stack.h"
 #include "journal.h"
+
+typedef enum {
+    SAME_PHONE = 0,
+    DIFF_PHONE,
+    CONTACT_READ_ERROR
+} PHONE_CHECK;
 
 /**
   * @brief  Primary Hash Function
@@ -95,6 +101,34 @@ void hash_destroy(HashTable *table)
     hash_clear(table);
 }
 
+PHONE_CHECK check_contact_phone(Storage *storage, const char* phone, HashEntry *entry)
+{
+    ContactBuffer contact;
+
+    /*
+     * entry->id is the phone HASH, not a storage location. The contact
+     * lives at entry->sector - read from there.
+     */
+    if (!read_contact(storage, entry->sector, &contact))
+    {
+       return CONTACT_READ_ERROR;
+    }
+
+    /*
+     * contact.phone is a fixed 15-byte field that is NOT guaranteed to be
+     * NUL-terminated, so compare against its stored length. Require the
+     * lengths to match as well, otherwise "0412" would match "0412345678".
+     */
+    size_t query_len = strlen(phone);
+
+    if (query_len == contact.contact.phone_len &&
+        strncmp(phone, contact.contact.phone, contact.contact.phone_len) == 0)
+    {
+        return SAME_PHONE;
+    }
+    return DIFF_PHONE;
+}
+
 /**
  * @brief Probe the hash table for a slot matching the given key.
  *
@@ -122,15 +156,19 @@ void hash_destroy(HashTable *table)
  * @retval true  Landed on a matching OCCUPIED entry, or a free EMPTY/DELETED slot.
  * @retval false Table is completely full with no match and no free slot.
  */
-bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out)
+bool hash_find_entry(HashTable *table, const char* phone, HashEntry** out)
 {
+
     if (table == NULL || table->htable == NULL || table->size == 0 || out == NULL)
     {
         return false;
     }
 
-    uint16_t h1 = hash_primary(id, table->size);
-    uint16_t h2 = hash_secondary(id, table->size);
+    // hash phone number
+    uint16_t hash = hash_phone(phone);
+
+    uint16_t h1 = hash_primary(hash, table->size);
+    uint16_t h2 = hash_secondary(hash, table->size);
 
     for (uint16_t i = 0; i < table->size; i++)
     {
@@ -143,8 +181,18 @@ bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out)
             return true;
         }
 
-        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
+        if (entry->state == ENTRY_OCCUPIED) 
         {
+            // check the contact phone number is the same as the one being inserted
+            PHONE_CHECK is_contact_phone_same = check_contact_phone(table->storage, phone, entry);
+
+            // If different pohone number continue double hashing, if read error cry
+            if (is_contact_phone_same == DIFF_PHONE)
+            {
+                continue;
+            } else if (is_contact_phone_same == CONTACT_READ_ERROR) {
+                return false;
+            }
             *out = entry;
             return true;
         }
@@ -171,23 +219,45 @@ bool find_hash_phone(HashTable *table, const char *phone, uint16_t h1, uint16_t 
     uint16_t target_hash = hash_phone(phone);
     ContactBuffer contact;
 
+    /*
+     * A DELETED slot is a tombstone: it is a valid insertion point, but
+     * it must NOT stop a lookup, because a matching entry may have been
+     * probed past it before the deletion. So we remember the first
+     * tombstone for the insert path and keep probing for a real match.
+     * Only an EMPTY slot ends the probe chain (nothing was ever stored
+     * beyond it on this chain).
+     */
+    HashEntry *first_free = NULL;
+
     for (uint16_t i = 0; i < table->size; i++)
     {
         uint16_t index = (h1 + i * h2) % table->size;
+        HashEntry *cur = &table->htable[index];
 
-        *entry = &table->htable[index];
-
-        if ((*entry)->state == ENTRY_EMPTY || (*entry)->state == ENTRY_DELETED)
+        if (cur->state == ENTRY_EMPTY)
         {
 #if defined(HOST_BUILD)
             table->collision_count = i;
 #endif
+            // End of chain: phone not present. Hand back the earlier
+            // tombstone if we saw one, otherwise this empty slot.
+            *entry = (first_free != NULL) ? first_free : cur;
             return true;
         }
 
-        if ((*entry)->state == ENTRY_OCCUPIED && (*entry)->id == target_hash)
+        if (cur->state == ENTRY_DELETED)
         {
-            if (!read_contact(table->storage, (*entry)->sector, &contact))
+            if (first_free == NULL)
+            {
+                first_free = cur;
+            }
+            continue; // keep probing past the tombstone
+        }
+
+        // ENTRY_OCCUPIED
+        if (cur->id == target_hash)
+        {
+            if (!read_contact(table->storage, cur->sector, &contact))
             {
                 continue; // couldn't verify - treat as a miss and keep probing
             }
@@ -197,10 +267,19 @@ bool find_hash_phone(HashTable *table, const char *phone, uint16_t h1, uint16_t 
 #if defined(HOST_BUILD)
                 table->collision_count = i;
 #endif
+                *entry = cur;
                 return true;
             }
             // same hash, different phone - keep probing past this slot
         }
+    }
+
+    // Walked the whole table with no EMPTY sentinel. A tombstone seen
+    // along the way is still a usable insertion point.
+    if (first_free != NULL)
+    {
+        *entry = first_free;
+        return true;
     }
 
     return false; // table full, no match
@@ -502,51 +581,81 @@ bool hash_reconstruct_contact(HashTable *table)
         while (bits != 0)
         {
             uint32_t bit = __builtin_ctz(bits);
-            uint16_t contact_index = (uint16_t)(word * BITS_PER_ELEMENT + bit);
 
-            // Everything between the last used index and this one is free -
-            // return it to the allocator so it can be handed out again.
-            free_list_free_range(table->free_stack, (uint16_t)last_free_index, contact_index);
+            // check that the bit that we are on doesn't go past the total number of sectors allocated to contacts
+            if ((bit + word * BITS_PER_ELEMENT) >= CONTACT_MEMORY_SECTOR_SIZE )
+            {
+                break;
+            }
 
-            if (!read_contact_sector(table->storage, contact_index, &cSector))
+            /*
+             * The usage bitmap holds one bit per *physical contact sector*
+             * (see mem_layout.h: USAGE_BITMAP_SIZE is sized from
+             * TOTAL_DATA_SECTOR_SIZE, and write_contact() sets the bit at
+             * index / CONTACT_SECTOR_CAPACITY). The free list / entry->sector
+             * work in *contact slot* units, CONTACT_SECTOR_CAPACITY of which
+             * pack into one physical sector.
+             */
+            uint16_t phys_sector = (uint16_t)(word * BITS_PER_ELEMENT + bit);
+            uint16_t slot_base = (uint16_t)(phys_sector * CONTACT_SECTOR_CAPACITY);
+
+            // Slots before this sector's first slot are unused - hand back
+            // to the allocator so it matches reality.
+            // FIXME(reconstruct): this frees whole sectors' worth of slots;
+            // unused slots *within* a partially-filled sector are not
+            // reclaimed here. Fine while starting from a full free list
+            // (every free is a no-op), needs revisiting for empty-init.
+            free_list_free_range(table->free_stack, (uint16_t)last_free_index, slot_base);
+
+            // read_contact_sector() divides its arg by CONTACT_SECTOR_CAPACITY,
+            // so address it with the first slot of this physical sector.
+            if (!read_contact_sector(table->storage, slot_base, &cSector))
             {
                 return false;
             }
 
-            uint8_t pos_in_sector = contact_index % CONTACT_SECTOR_CAPACITY;
+            uint8_t cSector_used = cSector.sector.header.used_bitmap;
 
-            // The usage bitmap says this index is used - confirm against
-            // the sector's own used_bitmap, which is authoritative for
-            // that individual contact slot.
-            if (cSector.sector.header.used_bitmap & (1 << pos_in_sector))
+            // Iterate over every used contact in the sector and add it to
+            // the hash table keyed by its stored phone number. (NOTE: create a func for this)
+            while (cSector_used != 0)
             {
+                uint8_t pos_in_sector = __builtin_ctz(cSector_used);
+                uint16_t slot_index = (uint16_t)(slot_base + pos_in_sector);
+
                 const char *phone = cSector.sector.contacts[pos_in_sector].contact.phone;
                 uint16_t hash = hash_phone(phone);
 
                 HashEntry *entry;
 
-                if (!hash_find_entry(table, hash, &entry))
+                if (!hash_find_entry(table, phone, &entry))
                 {
                     return false; // table full mid-reconstruction
                 }
 
                 entry->state = ENTRY_OCCUPIED;
                 entry->id = hash;
-                entry->sector = contact_index;
+                entry->sector = slot_index;
                 table->num_elems++;
+                // Need to also increment free list used count (NOTE: should add
+                // func to insert contact ptr to entry directly)
+                table->free_stack->used_count++;
+
+                cSector_used &= cSector_used - 1; // clear lowest set bit
             }
 
             bits &= bits - 1; // clear the lowest set bit
-            last_free_index = contact_index + 1;
+            last_free_index = slot_base + CONTACT_SECTOR_CAPACITY;
         }
     }
 
-    // Anything after the last used index in the whole bitmap is free
+    // Anything after the last used index in the whole bitmap is free (NOTE: need to stop this for the final word)
     free_list_free_range(table->free_stack, (uint16_t)last_free_index,
             (uint16_t)(USAGE_BITMAP_STORAGE_SIZE * BITS_PER_ELEMENT));
 
     return true;
 }
+
 
 
 #if defined (HOST_BUILD)
