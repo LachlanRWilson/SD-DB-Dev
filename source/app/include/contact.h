@@ -1,14 +1,14 @@
 #ifndef CONTACT_H
 #define CONTACT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "mem_layout.h"
 #include "storage.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #if defined(__cplusplus)
     #define STATIC_ASSERT static_assert
@@ -40,14 +40,14 @@ typedef union {
 } ContactBuffer;
 
 // Contact Block Header (2B)
-typedef struct 
+typedef struct
 {
     uint8_t used_bitmap; // 1B
 
 } ContactSectorHeader;
 
 // Contact Sector needs to be 512 bytes since smallest read and write size is 512B
-typedef struct 
+typedef struct
 {
     SECTOR_TYPE type; // 1B
     ContactSectorHeader header; // Header MUST be first

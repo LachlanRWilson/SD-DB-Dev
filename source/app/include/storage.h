@@ -37,15 +37,37 @@ enum {
 };
 
 
-typedef struct 
+typedef struct
 {
     void * context;  // Storage context
     bool (*read_block)(void *context, uint32_t index, uint8_t *outBuf);
-    bool (*read_multiblock)(void *contect, uint32_t startIndex, size_t readNum, uint8_t *outBuf); 
+    bool (*read_multiblock)(void *contect, uint32_t startIndex, size_t readNum, uint8_t *outBuf);
     bool (*write_block)(void *context, uint32_t index, uint8_t *inBuf);
-    bool (*write_multiblock)(void *contect, uint32_t startIndex, size_t writeNum, uint8_t *inBuf); 
+    bool (*write_multiblock)(void *contect, uint32_t startIndex, size_t writeNum, uint8_t *inBuf);
     uint32_t (*capacity)(void *context);
 } Storage;
+
+
+
+/**
+ * @brief Read sector to the sd card
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param index sector index on the SD Card
+ * @param in sector being read from the SD Card
+ * @retval True if successful read else false.
+ */
+bool read_sector(Storage *storage, uint16_t index, uint8_t *out);
+
+/**
+ * @brief Write to the sd card
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param index memory index of the contact.
+ * @param in sector being written to the SD Card
+ * @retval True if successful write else false.
+ */
+bool write_sector(Storage *storage, uint16_t index, uint8_t *in);
 
 #ifdef __cplusplus
 }

@@ -11,7 +11,7 @@ extern "C" {
 
 typedef struct FreeList
 {
-    uint16_t *free_stack; // In RAM 
+    uint16_t *free_stack; // In RAM
     size_t stack_top;
     size_t capacity;
     size_t used_count;

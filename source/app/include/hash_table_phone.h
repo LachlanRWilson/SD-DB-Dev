@@ -27,7 +27,7 @@ typedef struct Journal Journal;
 // Entry State  (Pack enum to 1 byte)
 typedef uint8_t ENTRY_STATE;
 enum
-{ 
+{
     ENTRY_EMPTY = 0,
     ENTRY_OCCUPIED,
     ENTRY_DELETED
@@ -47,13 +47,13 @@ typedef struct
 STATIC_ASSERT(sizeof(HashEntry) == HASH_ENTRY_BYTES, "Unexpected HashEntry size");
 
 // Information Struct about hash table
-typedef struct 
+typedef struct
 {
     HashEntry *htable; // In RAM hash table (allocated in RAM D1)
     Storage *storage; // Pointer to storage struct (allocated in database struct)
     FreeList *free_stack; // Pointer to FLS struct (allocates in database struct)
     size_t num_elems; // amount of elements in table
-    size_t size; // total space in table 
+    size_t size; // total space in table
 #if defined (HOST_BUILD)
     size_t collision_count; // for benchmarking hash functions
 #endif
@@ -207,7 +207,7 @@ void hash_print(const HashTable *table);
 HashEntry* hash_create_software(void);
 
 /**
- * @brief SOFTWARE TESTING ONLY - Allocate memory on heap for SD Card  
+ * @brief SOFTWARE TESTING ONLY - Allocate memory on heap for SD Card
  */
 uint8_t* hash_create_sd_mock(void);
 

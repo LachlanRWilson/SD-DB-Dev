@@ -13,15 +13,7 @@
  */
 bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out)
 {
-    // Read ContactSector
-    if (!storage->read_block( storage->context, (index / CONTACT_SECTOR_CAPACITY) +
-                CONTACT_DATA_START_SECTOR, out->buffer))
-    {
-        return false;
-    }
-
-    return true;
-
+    return read_sector(storage, (index / CONTACT_SECTOR_CAPACITY) + CONTACT_DATA_START_SECTOR, out->buffer);
 }
 
 /**
@@ -34,14 +26,7 @@ bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *
  */
 bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in)
 {
-    // Write contact sector
-    if (!storage->write_block( storage->context, (index / CONTACT_SECTOR_CAPACITY) +
-                CONTACT_DATA_START_SECTOR, in->buffer))
-    {
-        return false;
-    }
-
-    return true;
+    return write_sector(storage, (index / CONTACT_SECTOR_CAPACITY) + CONTACT_DATA_START_SECTOR, in->buffer);
 }
 
 

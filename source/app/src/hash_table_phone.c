@@ -17,7 +17,7 @@ typedef enum {
 /**
   * @brief  Primary Hash Function
   * @param  key: entry key
-  * @param  capacity: Number of entries 
+  * @param  capacity: Number of entries
   * @retval uint16_t: Hash Code
   */
 static inline uint16_t hash_primary(uint16_t key, uint16_t capacity)
@@ -28,7 +28,7 @@ static inline uint16_t hash_primary(uint16_t key, uint16_t capacity)
 /**
   * @brief  Secondary Hash Function
   * @param  key: entry key
-  * @param  capacity: Number of entries 
+  * @param  capacity: Number of entries
   * @retval uint16_t: Hash Code
   */
 static inline uint16_t hash_secondary(uint16_t key, uint16_t capacity)
@@ -41,7 +41,7 @@ static inline uint16_t hash_secondary(uint16_t key, uint16_t capacity)
   * @brief  Double Hash Function
   * @param  key: entry key
   * @param attemptNum: Hashing attempt number
-  * @param  capacity: Number of entries 
+  * @param  capacity: Number of entries
   * @retval uint16_t: Hash Code
   */
 static inline uint16_t hash_double(uint16_t key, uint16_t attemptNum, uint16_t capacity)
@@ -139,17 +139,6 @@ PHONE_CHECK check_contact_phone(Storage *storage, const char* phone, HashEntry *
  * callers decide what "empty" means for their use case - "not found"
  * for a pure lookup, or "free to claim" for an insert/reconstruct.
  *
- * NOTE: this does NOT disambiguate hash collisions between two
- * different phone numbers that happen to produce the same 16-bit
- * hash - it only compares the stored `id` (the hash), not the actual
- * phone string. find_hash_phone() below does that disambiguation via
- * a storage read + strcmp, which is why hash_insert_contact_by_phone
- * and hash_find_contact_by_phone use find_hash_phone rather than this
- * function. hash_reconstruct_contact uses this lighter version and is
- * therefore subject to the same collision risk as pre-existing entries
- * inserted during the current session - worth revisiting if 16-bit
- * hash collisions turn out to be common enough to matter in practice.
- *
  * @param table Pointer to the hash table.
  * @param id Key to search for (a phone hash from hash_phone()).
  * @param out Output: the entry the probe landed on.
@@ -181,7 +170,7 @@ bool hash_find_entry(HashTable *table, const char* phone, HashEntry** out)
             return true;
         }
 
-        if (entry->state == ENTRY_OCCUPIED) 
+        if (entry->state == ENTRY_OCCUPIED)
         {
             // check the contact phone number is the same as the one being inserted
             PHONE_CHECK is_contact_phone_same = check_contact_phone(table->storage, phone, entry);
@@ -315,6 +304,7 @@ uint16_t hash_insert_contact_by_phone(HashTable *table, Journal *journal, Contac
         return UINT16_MAX; // table full
     }
 
+    // If the entry at the hash index (therefore no sector allocated, allocate a new sector)
     is_new_entry = (entry->state == ENTRY_EMPTY || entry->state == ENTRY_DELETED);
 
     if (is_new_entry)
@@ -547,6 +537,50 @@ void hash_clear(HashTable *table)
     table->num_elems = 0;
 }
 
+
+/**
+  * @brief insert all contact from the contact sector into the hash table.
+  *
+  * @param table Pointer to a freshly hash_init'd, empty hash table.
+  * @param cSector contact sector read from the SD Card
+  * @param contact_sector_base contact sector start conatct pointer (raw_sector_ptr * CONTACT_SECTOR_CAPACITY)
+  * @retval true contacts read and inserted from sector successfully
+  * @retval false if fail
+  */
+bool insert_contacts_from_sector(HashTable *table, ContactSector cSector, uint16_t contact_sector_base)
+{
+    // Get used bit map from header
+    uint8_t used_bit_vec = cSector.header.used_bitmap;
+    while (used_bit_vec != 0)
+    {
+        uint8_t pos_in_sector = __builtin_ctz(used_bit_vec);
+        uint16_t slot_index = (uint16_t)(contact_sector_base + pos_in_sector);
+
+        const char *phone = cSector.contacts[pos_in_sector].contact.phone;
+        uint16_t hash = hash_phone(phone);
+
+        HashEntry *entry;
+
+        if (!hash_find_entry(table, phone, &entry))
+        {
+            return false; // table full mid-reconstruction
+        }
+
+        entry->state = ENTRY_OCCUPIED;
+        entry->id = hash;
+        entry->sector = slot_index;
+        table->num_elems++;
+        // Need to also increment free list used count (NOTE: should add
+        // func to insert contact ptr to entry directly)
+        table->free_stack->used_count++;
+
+        used_bit_vec &= used_bit_vec - 1; // clear lowest set bit
+    }
+
+
+  return true;
+}
+
 /**
   * @brief  Reconstruct the in-RAM HashTable from persistent contact data
   *         after a restart, using the usage bitmap so only used sectors
@@ -614,34 +648,11 @@ bool hash_reconstruct_contact(HashTable *table)
                 return false;
             }
 
-            uint8_t cSector_used = cSector.sector.header.used_bitmap;
-
             // Iterate over every used contact in the sector and add it to
-            // the hash table keyed by its stored phone number. (NOTE: create a func for this)
-            while (cSector_used != 0)
+            bool contacts_insert_success = insert_contacts_from_sector(table, cSector.sector, slot_base);
+            if (!contacts_insert_success)
             {
-                uint8_t pos_in_sector = __builtin_ctz(cSector_used);
-                uint16_t slot_index = (uint16_t)(slot_base + pos_in_sector);
-
-                const char *phone = cSector.sector.contacts[pos_in_sector].contact.phone;
-                uint16_t hash = hash_phone(phone);
-
-                HashEntry *entry;
-
-                if (!hash_find_entry(table, phone, &entry))
-                {
-                    return false; // table full mid-reconstruction
-                }
-
-                entry->state = ENTRY_OCCUPIED;
-                entry->id = hash;
-                entry->sector = slot_index;
-                table->num_elems++;
-                // Need to also increment free list used count (NOTE: should add
-                // func to insert contact ptr to entry directly)
-                table->free_stack->used_count++;
-
-                cSector_used &= cSector_used - 1; // clear lowest set bit
+                return false;
             }
 
             bits &= bits - 1; // clear the lowest set bit
@@ -649,7 +660,7 @@ bool hash_reconstruct_contact(HashTable *table)
         }
     }
 
-    // Anything after the last used index in the whole bitmap is free (NOTE: need to stop this for the final word)
+    // Anything after the last used index in the whole bitmap is free (this only frees up to the FLS capacity)
     free_list_free_range(table->free_stack, (uint16_t)last_free_index,
             (uint16_t)(USAGE_BITMAP_STORAGE_SIZE * BITS_PER_ELEMENT));
 

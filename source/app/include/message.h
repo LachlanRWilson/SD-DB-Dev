@@ -1,5 +1,5 @@
-#ifndef MESSAGE_EXTENT_H
-#define MESSAGE_EXTENT_H
+#ifndef MESSAGE_H
+#define MESSAGE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,15 +14,13 @@ extern "C" {
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include "free_list_stack.h"
+#include "mem_layout.h"
 #include "storage.h"
-#include "hash_table.h"
-#include "contact.h"
-
-#define SMS_MAX_MESSAGE_LENGTH 160
 
 #define MESSAGE_SECTOR_SIZE 2 * HASH_TABLE_SIZE
 
+#define SMS_MAX_MESSAGE_LENGTH 160
+#define MAX_PHONE_LEN 15
 #define MESSAGE_BYTES 164
 #define MESSAGE_BLOCK_HEADER_BYTES 24
 #define MESSAGE_BLOCK_BYTES SECTOR_SIZE
@@ -67,7 +65,7 @@ typedef struct
 } MessageBlockHeader;
 
 
-// Message Extent Block (512B)
+// Message Sector (512B)
 typedef struct
 {
     SECTOR_TYPE type; // (1B)
@@ -75,13 +73,13 @@ typedef struct
     MessageBlockHeader header; // Header (24B)
     Message messages[MESSAGE_BLOCK_CAPACITY]; // Array of chats
     uint8_t padding[MESSAGE_BLOCK_PADDING];
-} MessageBlock;
+} MessageSector;
 
 typedef union
 {
-    MessageBlock var;
-    uint8_t buffer[sizeof(MessageBlock)];
-} MessageBlockBuffer;
+    MessageSector var;
+    uint8_t buffer[sizeof(MessageSector)];
+} MessageSectorBuffer;
 
 
 // Static checks to ensure the size of the struct are correct if they are changed
@@ -89,7 +87,11 @@ STATIC_ASSERT(MESSAGE_BLOCK_PADDING > 0, "0 or negative padding (remove padding 
 STATIC_ASSERT(sizeof(Message) == MESSAGE_BYTES, "Unexpected MessageBlock size");
 STATIC_ASSERT(sizeof(MessageBlockHeader) == MESSAGE_BLOCK_HEADER_BYTES, "Unexpected \
         MessageBlockHeader size");
-STATIC_ASSERT(sizeof(MessageBlock) == MESSAGE_BLOCK_BYTES, "Unexpected MessageBlockHeader size");
+STATIC_ASSERT(sizeof(MessageSector) == SECTOR_SIZE, "Unexpected MessageSector size");
+
+// Opaque Declaration of FreeList
+typedef struct FreeList FreeList;
+typedef struct Journal Journal;
 
 typedef struct
 {
@@ -101,62 +103,57 @@ typedef struct
     uint16_t num_extents; // number of used extents
 } MessageExtent;
 
+
 /**
- * @brief Initialise the message extent manager.
+ * @brief Read message sector to the sd card
  *
- * @param self Message extent manager.
- * @param free_list Free list allocator.
- * @param blocks Storage array.
- * @param total_extents Number of extents.
+ * @param storage Pointer to the storage abstraction.
+ * @param index sector index on the SD Card
+ * @param in sector being read from the SD Card
+ * @retval True if successful read else false.
  */
-bool message_extent_init( MessageExtent *self, Storage *storage, FreeList *free_list, uint16_t total_extents);
+bool read_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *out);
 
 /**
- * @brief Allocate the first extent for a new conversation.
+ * @brief Write message to the sd card
  *
- * @return Extent index or INVALID_EXTENT.
+ * @param storage Pointer to the storage abstraction.
+ * @param index memory index of the contact.
+ * @param in sector being written to the SD Card
+ * @retval True if successful write else false.
  */
-uint16_t message_extent_get(MessageExtent *self, uint16_t prev_extent);
+bool write_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *out);
 
 /**
- * @brief Delete an entire conversation.
+ * @brief Write the contact to the sd card in the appropriate contact sector
  *
- * @param last_extent Last extent in the chain.
+ * @param table Pointer to the hash table.
+ * @param journal pointer to rollback journal struct
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
  */
-bool message_extent_delete( MessageExtent *self, uint16_t last_extent);
+bool write_message(Storage *storage, Journal *journal, uint16_t index, Message *in);
 
 /**
- * @brief Append a message to a conversation.
+ * @brief Read the contact to the sd card from the appropriate contact sector
  *
- * @param self Extent manager.
- * @param last_extent Pointer to current last extent.
- *        Updated if a new extent is allocated.
- * @param message Message to append.
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
+ */
+bool read_message(Storage *storage, uint16_t index, Message *out);
+
+/**
+ * @brief Remove the contact to the sd card from the appropriate contact sector
  *
- * @retval true Success.
+ * @param table Pointer to the hash table.
+ * @param index memory index of the contact.
+ * @param in Contact Sector Buffer going into the SD card
+ * @retval True if successful write else false.
  */
-bool message_extent_append( MessageExtent *self, uint16_t *last_extent, const Message *message);
-
-/**
- * @brief Read a message by logical index.
- *
- * @param last_extent Last extent.
- * @param index Logical message index.
- * @param out Output message.
- */
-// bool message_extent_get(MessageExtent *self, uint16_t first_extent, uint16_t index, Message
-//         *out);
-
-
-/**
- * @brief Count messages in a conversation.
- */
-uint16_t message_extent_count(MessageExtent *self, uint16_t last_extent);
-
-/**
- * @brief Reset all extents.
- */
-void message_extent_reset( MessageExtent *self);
+bool remove_message_chat(Storage *storage, Journal *journal, uint16_t index, Message *out);
 
 #ifdef __cplusplus
 }
