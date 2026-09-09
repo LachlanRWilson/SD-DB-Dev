@@ -113,7 +113,7 @@ bool journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *conte
     return storage->write_block(storage->context, JRNL_USAGE_SECTOR, usage_bitmap);
 }
 
-bool journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t sectorInd)
+void journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t sectorInd)
 {
     jData->var.magic = JRNL_MAGIC;
     jData->var.state = JRNL_ACTIVE;
@@ -308,6 +308,9 @@ bool journal_free(Journal *journal)
 
     // Set journal header to committed
     journal->header.var.data.var.state = JRNL_COMMITTED;
+
+    // Need to recalculate the crc for the committed journal header
+    journal->header.var.header_crc = crc32_calculate(journal->header.buffer, sizeof(JournalHeaderData));
 
     // Write update to SD card
     return storage->write_block(storage->context, JRNL_HEADER_SECTOR, journal->header.buffer);

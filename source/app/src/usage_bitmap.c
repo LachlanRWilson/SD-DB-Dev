@@ -14,7 +14,7 @@ uint32_t usage_bitmap[USAGE_BITMAP_STORAGE_SIZE];
 /**
  * @brief Write zero-initialised bitmap to storage
  *
- * @param storage storage access struct 
+ * @param storage storage access struct
  * @retval True if successful write else false.
  */
 bool init_usage_bitmap(Storage *storage)
@@ -29,7 +29,7 @@ bool init_usage_bitmap(Storage *storage)
 /**
  * @brief Read the usage bitmap to RAM
  *
- * @param storage storage access struct 
+ * @param storage storage access struct
  * @param out read out usage bitmap sector
  * @retval True if successful read else false.
  */
@@ -43,7 +43,7 @@ bool read_usage_bitmap(Storage* storage)
 /**
  * @brief Check the usage bit in RAM
  *
- * @param index 
+ * @param index
  * @retval True if used else false
  */
 bool check_usage_bit(uint16_t index)
@@ -56,7 +56,7 @@ bool check_usage_bit(uint16_t index)
 /**
  * @brief Do a blind write to usage bitmap based on in RAM bitmap
  *
- * @param index 
+ * @param index
  * @retval True is successful write, else false
  */
 bool update_usage_bit(Storage *storage, uint16_t index, bool used_state)

@@ -98,22 +98,16 @@ bool SDStorage_ReadBlock( void *context, uint32_t index, uint8_t *out)
  * @retval true Block read successfully.
  * @retval false Read failed.
  */
-bool SDStorage_ReadMultiBlock( void *context, uint32_t index, size_t readNum, uint8_t *out) 
+bool SDStorage_ReadMultiBlock( void *context, uint32_t index, size_t readNum, uint8_t *out)
 {
     SDStorageContext *ctx = (SDStorageContext *)context;
 
-    // Read sector
-//     uint32_t sector = ctx->start_sector + (index * SD_SECTORS_PER_BLOCK(ctx->block_size));
-    
-    // number of sectors to read
-    uint32_t readSize = SD_SECTORS_PER_BLOCK(ctx->block_size);
+    // Total 512B sectors spanned by readNum logical blocks
+    uint32_t sectors = SD_SECTORS_PER_BLOCK(ctx->block_size) * (uint32_t)readNum;
 
-    // Allocate raw array
-    uint8_t raw[readSize * 512U];
-
-
-    // read to raw array
-    if (HAL_SD_ReadBlocks( ctx->hsd, raw, index, readSize * readNum, HAL_MAX_DELAY) != HAL_OK)
+    // Read straight into the caller's buffer (must hold readNum * block_size
+    // bytes and be 32-bit aligned for the SDMMC transfer).
+    if (HAL_SD_ReadBlocks(ctx->hsd, out, index, sectors, HAL_MAX_DELAY) != HAL_OK)
     {
         return false;
     }
@@ -122,9 +116,6 @@ bool SDStorage_ReadMultiBlock( void *context, uint32_t index, size_t readNum, ui
     {
         osDelay(1);
     }
-
-    // copy memory to output block
-    memcpy(out, raw, sizeof(uint8_t) * ctx->block_size);
 
     return true;
 }

@@ -20,6 +20,7 @@
 #include "main.h"
 #include "FreeRTOS.h"
 #include "cmsis_os2.h"
+#include "crc.h"
 #include "fatfs.h"
 #include "sdmmc.h"
 #include "gpio.h"
@@ -99,18 +100,16 @@ int main(void)
   MX_GPIO_Init();
   MX_FMC_Init();
   MX_SDMMC1_SD_Init();
-  //MX_FATFS_Init();
+  MX_FATFS_Init();
+  MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
-  //MX_FREERTOS_Init();
-
-
-  DB_Extent_Init();
-  //DB_Init();
+  MX_FREERTOS_Init();
+    DB_Init();
 
   /* Start scheduler */
   osKernelStart();

@@ -15,9 +15,19 @@ extern "C" {
 extern uint32_t usage_bitmap[USAGE_BITMAP_STORAGE_SIZE];
 
 /**
+ * @brief Zero the whole usage bitmap region, in RAM and on storage.
+ *
+ * Used at database bring-up so reconstruction never walks stale bits.
+ *
+ * @param storage storage access struct
+ * @retval True if successful write else false.
+ */
+bool init_usage_bitmap(Storage *storage);
+
+/**
  * @brief Read the usage bitmap to RAM
  *
- * @param storage storage access struct 
+ * @param storage storage access struct
  * @param out read out usage bitmap sector
  * @retval True if successful read else false.
  */

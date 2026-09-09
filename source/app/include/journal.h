@@ -19,7 +19,8 @@ extern "C" {
 
 #define JRNL_HEADER_DATA_SIZE 8
 // Journal magic number to check header corruption
-#define JRNL_MAGIC 0x4A524E4Cu
+//#define JRNL_MAGIC 0x4A524E4Cu
+#define JRNL_MAGIC 0x4A524E5Cu
 #define JOURNAL_PADDING SECTOR_SIZE - sizeof(JournalHeaderData)  - sizeof(uint32_t) * 3
 
 
@@ -104,7 +105,7 @@ STATIC_ASSERT(sizeof(JournalHeader) == SECTOR_SIZE, "Unexpected JournalHeader si
  */
 bool journal_init(Journal *journal, Storage *storage);
 
-bool journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t sectorInd);
+void journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t sectorInd);
 
 bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *content);
 

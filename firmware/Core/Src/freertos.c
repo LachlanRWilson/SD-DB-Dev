@@ -72,7 +72,7 @@ const osThreadAttr_t heartbeatTask_attributes = {
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 4096,
+  .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 
@@ -127,15 +127,6 @@ void MX_FREERTOS_Init(void) {
 
 }
 
-static void DWT_Init(void)
-{
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-
-    DWT->CYCCNT = 0;
-
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-}
-
 /* USER CODE BEGIN Header_StartDefaultTask */
 // /**
 //   * @brief  Function implementing the defaultTask thread.
@@ -145,97 +136,14 @@ static void DWT_Init(void)
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
-    uint8_t tx_buffer[512];
-    uint8_t rx_buffer[512];
-
-    HAL_StatusTypeDef status;
-
-    DWT_Init();
-    /* Fill write buffer with known pattern */
-    for (uint32_t i = 0; i < sizeof(tx_buffer); i++)
-    {
-        tx_buffer[i] = (uint8_t)i;
-    }
-
-    memset(rx_buffer, 0, sizeof(rx_buffer));
-
-
-    /*
-     * Check card state before operation
-     */
-    if (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER)
-    {
-        Error_Handler();
-    }
-
-
-    /*
-     * Write sector 0
-     */
-    status = HAL_SD_WriteBlocks(
-        &hsd1,
-        tx_buffer,
-        0,              // sector address
-        1,              // number of blocks
-        5000
-    );
-
-    if (status != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-
-    /*
-     * Wait until write completes
-     */
-    while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER)
-    {
-        osDelay(1);
-    }
-
-
-uint32_t start_cycles;
-uint32_t end_cycles;
-uint32_t elapsed_cycles;
-
-start_cycles = DWT->CYCCNT;
-
-status = HAL_SD_ReadBlocks(
-    &hsd1,
-    rx_buffer,
-    0,
-    1,
-    5000
-);
-
-while (HAL_SD_GetCardState(&hsd1) != HAL_SD_CARD_TRANSFER)
-{
-    osDelay(1);
-}
-
-end_cycles = DWT->CYCCNT;
-
-elapsed_cycles = end_cycles - start_cycles;
-
-
-    /*
-     * Verify data
-     */
-    if (memcmp(tx_buffer, rx_buffer, sizeof(tx_buffer)) != 0)
-    {
-        Error_Handler();
-    }
-
-
-    /*
-     * Success indication
-     */
-    for (;;)
-    {
-        GPIOB->ODR ^= (1 << 0);
-        osDelay(1000);
-    }
+  /* USER CODE BEGIN StartDefaultTask */
+  /* Infinite loop */
+  for(;;)
+  {
+      GPIOB->ODR ^= (1 << 0);
+    osDelay(500);
+  }
+  /* USER CODE END StartDefaultTask */
 }
 
 /* Private application code --------------------------------------------------*/

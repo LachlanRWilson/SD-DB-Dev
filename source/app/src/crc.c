@@ -45,7 +45,7 @@ uint32_t crc32_calculate(const uint8_t *data, size_t length)
 #include "crc_stm32.h"
 
 /**
- * @brief Calculate CRC-32 using the STM32 CRC peripheral. 
+ * @brief Calculate CRC-32 using the STM32 CRC peripheral.
  * NEED TO ENSURE THE CRC CALC IS THE SAME AS SOFTARE
  *
  * @param data      Pointer to data.
