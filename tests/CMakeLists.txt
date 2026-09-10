@@ -29,34 +29,41 @@ include_directories(
     ${gmock_SOURCE_DIR}/include
 )
 
-# Test Files
-add_executable(test_my_logic
-    # hash table unit testing
+add_executable(test_hash_table
     test_hash_table.cpp
     #test_hash_table_edge.cpp
+)
+
+add_executable(test_free_list
     test_free_list_stack.cpp
+)
+
+add_executable(test_message_extent
     test_message_extent.cpp
+)
+
+add_executable(test_usage_bitmap
     test_usage_bitmap.cpp
-    test_journal.cpp 
-    #test_journal_edge.cpp
-    #test_hash_table_messages.cpp
 )
 
-# Link libraries
-target_link_libraries(test_my_logic
-    gtest
-    gtest_main
-
-    # User Libraries
-    # Application Logic
-    app_logic   
-
-    # Host PAL
-    platform_host 
+add_executable(test_journal
+    test_journal.cpp
+    #    test_journal_edge.cpp
 )
 
-# Enable CTest
-enable_testing()
+foreach(test
+    test_hash_table
+    test_free_list
+    test_message_extent
+    test_usage_bitmap
+    test_journal
+)
+    target_link_libraries(${test}
+        gtest
+        gtest_main
+        app_logic
+        platform_host
+    )
 
-# Unit Tests (NAME <name> COMMAND <executable>)
-gtest_discover_tests(test_my_logic)
+    gtest_discover_tests(${test})
+endforeach()

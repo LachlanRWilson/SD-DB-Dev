@@ -92,7 +92,7 @@ bool journal_header_init(Journal* journal)
  * @retval true journal write successful
  * @retval false journal write fail
  */
-bool journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *content, uint8_t
+STRG_RET journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *content, uint8_t
         *usage_bitmap)
 {
     // allocate pointer to make it more readable
@@ -101,13 +101,13 @@ bool journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *conte
     // Write header
     if (!storage->write_block(storage->context, JRNL_HEADER_SECTOR, header->buffer))
     {
-        return false;
+        return STRG_FAIL;
     }
 
     // Write content
     if (!storage->write_block(storage->context, JRNL_CONTENT_SECTOR, content))
     {
-        return false;
+        return STRG_FAIL;
     }
 
     return storage->write_block(storage->context, JRNL_USAGE_SECTOR, usage_bitmap);

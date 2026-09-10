@@ -1,0 +1,5 @@
+if(EXISTS "/home/lachlan-wilson/Documents/University/thesis/dev/tests/test_free_list[1]_tests.cmake")
+  include("/home/lachlan-wilson/Documents/University/thesis/dev/tests/test_free_list[1]_tests.cmake")
+else()
+  add_test(test_free_list_NOT_BUILT test_free_list_NOT_BUILT)
+endif()

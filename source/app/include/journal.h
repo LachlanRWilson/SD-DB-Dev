@@ -85,7 +85,7 @@ typedef union {
 typedef struct Journal {
     Storage *storage; // Storage struct pointer
     JournalHeaderBuffer header; // Journal Header (allocated memory to read sd card mem into)
-    uint8_t content[SECTOR_SIZE]; // Journal Sector (allocated memory to read sd card mem into) 
+    uint8_t content[SECTOR_SIZE]; // Journal Sector (allocated memory to read sd card mem into)
     uint8_t usage_bitmap_sector[SECTOR_SIZE]; // Journal Bitmap
 } Journal;
 
@@ -98,10 +98,10 @@ STATIC_ASSERT(sizeof(JournalHeader) == SECTOR_SIZE, "Unexpected JournalHeader si
  * @brief Initialise the database journal
  *
  * @param journal journal struct pointer (allocated in database struct)
- * @param storage storage abstraction struct pointer (allocated in database struct) 
+ * @param storage storage abstraction struct pointer (allocated in database struct)
  *
- * @retval true Journal Init successful 
- * @retval false journal init fail 
+ * @retval true Journal Init successful
+ * @retval false journal init fail
  */
 bool journal_init(Journal *journal, Storage *storage);
 
@@ -119,7 +119,7 @@ bool journal_free(Journal *journal);
  * @param journal journal struct pointer (allocated in database struct)
  *
  * @retval true Journal init header write successful
- * @retval false journal init header write fail 
+ * @retval false journal init header write fail
  */
 bool journal_header_init(Journal* journal);
 
@@ -128,12 +128,12 @@ bool journal_header_init(Journal* journal);
  *
  * @param journal journal struct pointer (allocated in database struct)
  * @param header journal header being written
- * @param content old content being written to journel incase of rollback 
+ * @param content old content being written to journel incase of rollback
  *
  * @retval true journal write successful
- * @retval false journal write fail 
+ * @retval false journal write fail
  */
-bool journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *content, uint8_t
+STRG_RET journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *content, uint8_t
         *usage_bitmap);
 
 bool journal_rollback(Journal *journal);
@@ -144,7 +144,7 @@ bool journal_rollback(Journal *journal);
  * @param journal journal struct pointer (allocated in database struct)
  *
  * @retval true journal read successful
- * @retval false journal read fail 
+ * @retval false journal read fail
  */
 bool journal_header_read(Journal *journal, JournalHeaderBuffer *out);
 
@@ -154,7 +154,7 @@ bool journal_header_read(Journal *journal, JournalHeaderBuffer *out);
  * @param journal journal struct pointer (allocated in database struct)
  *
  * @retval true journal read successful
- * @retval false journal read fail 
+ * @retval false journal read fail
  */
 bool journal_content_read(Journal *journal);
 
@@ -164,7 +164,7 @@ bool journal_content_read(Journal *journal);
  * @param journal journal struct pointer (allocated in database struct)
  *
  * @retval true journal read successful
- * @retval false journal read fail 
+ * @retval false journal read fail
  */
 bool journal_usage_read(Journal *journal);
 

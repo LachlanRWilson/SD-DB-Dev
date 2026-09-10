@@ -118,7 +118,7 @@ typedef struct
  * @param in sector being read from the SD Card
  * @retval True if successful read else false.
  */
-bool read_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *out);
+STRG_RET read_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *out);
 
 /**
  * @brief Write message to the sd card
@@ -128,7 +128,7 @@ bool read_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *
  * @param in sector being written to the SD Card
  * @retval True if successful write else false.
  */
-bool write_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *out);
+STRG_RET write_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *out);
 
 /**
  * @brief Write the message to the sd card in the appropriate message sector
@@ -139,7 +139,7 @@ bool write_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer 
  * @param in message Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool write_message(Storage *storage, Journal *journal, uint16_t index, MessageBuffer *in);
+STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, MessageBuffer *in);
 
 
 /**
@@ -150,7 +150,7 @@ bool write_message(Storage *storage, Journal *journal, uint16_t index, MessageBu
  * @param in message Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool read_message(Storage *storage, uint16_t index, MessageBuffer *out);
+STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuffer *out);
 
 /**
  * @brief Remove the message to the sd card from the appropriate message sector

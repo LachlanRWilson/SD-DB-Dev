@@ -36,7 +36,7 @@ bool read_usage_bitmap(Storage* storage);
 /**
  * @brief Check the usage bit in RAM
  *
- * @param index 
+ * @param index
  * @retval True if used else false
  */
 bool check_usage_bit(uint16_t index);
@@ -44,10 +44,10 @@ bool check_usage_bit(uint16_t index);
 /**
  * @brief Do a blind write to usage bitmap based on in RAM bitmap
  *
- * @param index 
+ * @param index
  * @retval True is successful write, else false
  */
-bool update_usage_bit(Storage *storage, uint16_t index, bool used_state);
+STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state);
 #ifdef __cplusplus
 }
 #endif

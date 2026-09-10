@@ -71,7 +71,7 @@ STATIC_ASSERT(sizeof(ContactSector) == SECTOR_SIZE, "ContactSector struct is not
  * @param out Contact Sector Buffer with the desired contact position
  * @retval True if successful read else false.
  */
-bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out);
+STRG_RET read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out);
 
 /**
  * @brief Write the contact sector that the contact in stored in on the sd card
@@ -81,7 +81,7 @@ bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in);
+STRG_RET write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in);
 
 /**
  * @brief Write the contact to the sd card in the appropriate contact sector
@@ -92,7 +92,7 @@ bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer 
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBuffer *in);
+STRG_RET write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBuffer *in);
 
 /**
  * @brief Read the contact to the sd card from the appropriate contact sector
@@ -102,7 +102,7 @@ bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBu
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool read_contact(Storage *storage, uint16_t index, ContactBuffer *out);
+STRG_RET read_contact(Storage *storage, uint16_t index, ContactBuffer *out);
 
 /**
  * @brief Remove the contact to the sd card from the appropriate contact sector

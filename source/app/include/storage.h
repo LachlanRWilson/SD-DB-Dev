@@ -36,6 +36,14 @@ enum {
     CALL_HISTORY_SECTOR
 };
 
+// Storage access return values
+typedef enum {
+    STRG_FAIL = 0,
+    STRG_OK,
+    STRG_EMPTY,
+    STRG_FULL
+} STRG_RET;
+
 
 typedef struct
 {
@@ -57,7 +65,7 @@ typedef struct
  * @param in sector being read from the SD Card
  * @retval True if successful read else false.
  */
-bool read_sector(Storage *storage, uint16_t index, uint8_t *out);
+STRG_RET read_sector(Storage *storage, uint16_t index, uint8_t *out);
 
 /**
  * @brief Write to the sd card
@@ -67,7 +75,7 @@ bool read_sector(Storage *storage, uint16_t index, uint8_t *out);
  * @param in sector being written to the SD Card
  * @retval True if successful write else false.
  */
-bool write_sector(Storage *storage, uint16_t index, uint8_t *in);
+STRG_RET write_sector(Storage *storage, uint16_t index, uint8_t *in);
 
 #ifdef __cplusplus
 }

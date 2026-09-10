@@ -11,7 +11,7 @@
  * @param out Contact Sector Buffer with the desired contact position
  * @retval True if successful read else false.
  */
-bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out)
+STRG_RET read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out)
 {
     return read_sector(storage, (index / CONTACT_SECTOR_CAPACITY) + CONTACT_DATA_START_SECTOR, out->buffer);
 }
@@ -24,7 +24,7 @@ bool read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in)
+STRG_RET write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in)
 {
     return write_sector(storage, (index / CONTACT_SECTOR_CAPACITY) + CONTACT_DATA_START_SECTOR, in->buffer);
 }
@@ -39,7 +39,7 @@ bool write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer 
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBuffer *in)
+STRG_RET write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBuffer *in)
 {
     ContactSectorBuffer cSector;
     uint8_t contactPosInSector;
@@ -58,7 +58,7 @@ bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBu
         // Read contact sector
         if (!read_contact_sector(storage, index, &cSector))
         {
-            return false;
+            return STRG_FAIL;
         }
     } else {
         /*
@@ -73,13 +73,13 @@ bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBu
     // Add to journal for rollback and update usage bit on SD card
     if (!journal_add(journal, JRNL_CONTACT, index, cSector.buffer))
     {
-        return false;
+        return STRG_FAIL;
     }
 
     // update usage bit in ram and sd
     if(!update_usage_bit(storage, (index / CONTACT_SECTOR_CAPACITY), true))
     {
-        return false;
+        return STRG_FAIL;
     }
 
     // Get the position in the contact sector
@@ -95,10 +95,15 @@ bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBu
     // return false
     if (!write_contact_sector(storage, index, &cSector) || !journal_free(journal))
     {
-        return false;
+        return STRG_FAIL;
     }
 
-    return true;
+    if (!journal_free(journal))
+    {
+        return STRG_FAIL;
+    }
+
+    return STRG_OK;
 }
 
 /**
@@ -109,7 +114,7 @@ bool write_contact(Storage *storage, Journal *journal, uint16_t index, ContactBu
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
+STRG_RET read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
 {
     ContactSectorBuffer cSector;
     uint8_t contactPosInSector;
@@ -118,13 +123,13 @@ bool read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
     // (see FIXME(usage-bitmap) in write_contact: bit is per contact sector)
     if (!check_usage_bit(index / CONTACT_SECTOR_CAPACITY))
     {
-        return false;
+        return STRG_EMPTY;
     }
 
     // read contact sector
     if(!read_contact_sector(storage, index, &cSector))
     {
-        return false;
+        return STRG_FAIL;
     }
 
     // Get the position in the contact sector
@@ -133,12 +138,13 @@ bool read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
     // Check contact use bit
    if (!(cSector.sector.header.used_bitmap & (1 << contactPosInSector)))
    {
-       return false;
+       return STRG_EMPTY;
    }
 
    // Write contact buffer in sector to output buffer
    memcpy(out->buffer, cSector.sector.contacts[contactPosInSector].buffer, sizeof(Contact));
-   return true;
+
+   return STRG_OK;
 }
 
 /**

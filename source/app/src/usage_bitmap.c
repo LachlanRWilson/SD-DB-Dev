@@ -59,7 +59,7 @@ bool check_usage_bit(uint16_t index)
  * @param index
  * @retval True is successful write, else false
  */
-bool update_usage_bit(Storage *storage, uint16_t index, bool used_state)
+STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
 {
     // Bit map sector
     uint32_t bitmap_sector = USAGE_BITMAP_FIND_SECTOR(index);
