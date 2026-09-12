@@ -208,16 +208,11 @@ bool find_hash_phone(HashTable *table, const char *phone, uint16_t h1, uint16_t 
     uint16_t target_hash = hash_phone(phone);
     ContactBuffer contact;
 
-    /*
-     * A DELETED slot is a tombstone: it is a valid insertion point, but
-     * it must NOT stop a lookup, because a matching entry may have been
-     * probed past it before the deletion. So we remember the first
-     * tombstone for the insert path and keep probing for a real match.
-     * Only an EMPTY slot ends the probe chain (nothing was ever stored
-     * beyond it on this chain).
-     */
+    // The first free entry. Note that a tombstoned entry is free but there may
+    // be an actual entry further down the collision chain
     HashEntry *first_free = NULL;
 
+    // Iterate until I find empty spot for entry
     for (uint16_t i = 0; i < table->size; i++)
     {
         uint16_t index = (h1 + i * h2) % table->size;
@@ -234,6 +229,7 @@ bool find_hash_phone(HashTable *table, const char *phone, uint16_t h1, uint16_t 
             return true;
         }
 
+        // This could be an earlier entry in the collision chain. Therefore must search to the end of the tombstone
         if (cur->state == ENTRY_DELETED)
         {
             if (first_free == NULL)
@@ -530,8 +526,7 @@ void hash_clear(HashTable *table)
 {
     for (int i = 0; i < table->size; i++)
     {
-        table->htable[i].state = ENTRY_EMPTY;
-        free_list_free(table->free_stack, table->htable[i].sector);
+        memset(table->htable, 0, sizeof(HashEntry) * HASH_TABLE_SIZE);
     }
 
     table->num_elems = 0;
@@ -633,20 +628,17 @@ bool hash_reconstruct_contact(HashTable *table)
             uint16_t phys_sector = (uint16_t)(word * BITS_PER_ELEMENT + bit);
             uint16_t slot_base = (uint16_t)(phys_sector * CONTACT_SECTOR_CAPACITY);
 
-            // Slots before this sector's first slot are unused - hand back
-            // to the allocator so it matches reality.
-            // FIXME(reconstruct): this frees whole sectors' worth of slots;
-            // unused slots *within* a partially-filled sector are not
-            // reclaimed here. Fine while starting from a full free list
-            // (every free is a no-op), needs revisiting for empty-init.
-            free_list_free_range(table->free_stack, (uint16_t)last_free_index, slot_base);
+
 
             // read_contact_sector() divides its arg by CONTACT_SECTOR_CAPACITY,
             // so address it with the first slot of this physical sector.
-            if (!read_contact_sector(table->storage, slot_base, &cSector))
+            STRG_RET ret = read_contact_sector(table->storage, slot_base, &cSector);
+            if (ret == STRG_FAIL)
             {
                 return false;
             }
+
+            free_list_free_range(table->free_stack, (uint16_t)last_free_index, slot_base);
 
             // Iterate over every used contact in the sector and add it to
             bool contacts_insert_success = insert_contacts_from_sector(table, cSector.sector, slot_base);

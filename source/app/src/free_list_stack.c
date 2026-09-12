@@ -1,4 +1,6 @@
 #include "free_list_stack.h"
+#include "mem_layout.h"
+#include "storage.h"
 
 #include <stdlib.h>
 
@@ -32,7 +34,7 @@ bool free_list_init(FreeList *self, uint16_t *free_stack, size_t total_sectors)
  * @param self FreeList struct pointer
  * @param free_stack pointer to free list stack memory
  * @param total_sectors number of sectors the free list stack needs to track
- * 
+ *
  * @return false if fail, else true
  */
 bool free_list_empty_init(FreeList *self, uint16_t *free_stack, size_t total_sectors)
@@ -65,6 +67,11 @@ uint16_t free_list_allocate(FreeList *self)
     return sector;
 }
 
+/**
+ * @brief Frees a previously allocated sector.
+ *
+ * @param sector Sector index to free
+ */
 void free_list_free(FreeList *self, uint16_t sector)
 {
     if (self->free_stack == NULL || self->stack_top >= self->capacity)
@@ -81,15 +88,15 @@ void free_list_free(FreeList *self, uint16_t sector)
 }
 
 /**
- * @brief Frees range of sectors [startSector, endSector)
+ * @brief Frees range of indexes in a sector [startIndex, endIndex)
  *
  * @param self free list stack instance
- * @param startSector inclusive start sector
- * @param endSector exclusive end sector
+ * @param startIndex inclusive start index
+ * @param endIndex exclusive end index
  */
-void free_list_free_range(FreeList *self, uint16_t startSector, uint16_t endSector)
+void free_list_free_range(FreeList *self, uint16_t startIndex, uint16_t endIndex)
 {
-    for (int i = startSector; i < endSector; i++)
+    for (int i = startIndex; i < endIndex; i++)
     {
         // free index has reached passed the number of sectors allocated
         if (i >= self->capacity)
@@ -101,16 +108,45 @@ void free_list_free_range(FreeList *self, uint16_t startSector, uint16_t endSect
     }
 }
 
+/**
+ * @brief Frees range of sectors [startSector, endSector)
+ *
+ * @param self free list stack instance
+ * @param startSector inclusive start sector
+ * @param endSector exclusive end sector
+ */
+void free_list_free_sector_range(FreeList *self, uint16_t startSector, uint16_t endSector)
+{
+    for (int i = startSector; startSector < endSector; i++)
+    {
+        if (i >= self->capacity)
+        {
+            return;
+        }
+        free_list_free_range(self, startSector * CONTACT_SECTOR_CAPACITY, endSector * CONTACT_SECTOR_CAPACITY);
+    }
+
+}
+
+/**
+ * @brief Returns number of available sectors.
+ */
 size_t free_list_available(FreeList *self)
 {
     return self->stack_top;
 }
 
+/**
+ * @brief Returns number of used sectors.
+ */
 size_t free_list_used(FreeList *self)
 {
     return self->used_count;
 }
 
+/**
+ * @brief Resets allocator (all sectors become free again).
+ */
 void free_list_reset(FreeList *self)
 {
     if (self->free_stack == NULL)

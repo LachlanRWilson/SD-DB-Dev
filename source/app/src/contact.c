@@ -1,5 +1,6 @@
 #include <string.h>
 #include "contact.h"
+#include "free_list_stack.h"
 #include "journal.h"
 #include "usage_bitmap.h"
 
@@ -155,7 +156,7 @@ STRG_RET read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool remove_contact(Storage *storage, Journal *journal, uint16_t index, ContactBuffer *out)
+bool remove_contact(Storage *storage, Journal *journal, FreeList *contact_allocator, uint16_t index, ContactBuffer *out)
 {
     ContactSectorBuffer cSector;
     uint8_t contactPosInSector;
@@ -205,7 +206,15 @@ bool remove_contact(Storage *storage, Journal *journal, uint16_t index, ContactB
         if (!write_contact_sector(storage, index, &cSector)) {return false;}
     }
 
-   return true;
+    // Free the active journal
+    if (!journal_free(journal))
+    {
+        return false;
+    }
+
+    // need to free index so FLS can reallocate to a new contact
+    free_list_free(contact_allocator, index);
+    return true;
 
 }
 

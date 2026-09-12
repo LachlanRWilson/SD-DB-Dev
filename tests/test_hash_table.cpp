@@ -6,7 +6,7 @@
 
 extern "C"
 {
-#include "hash_table_phone.h"
+#include "hash_table.h"
 #include "contact.h"
 #include "storage.h"
 #include "free_list_stack.h"
@@ -47,6 +47,7 @@ protected:
     Journal journal{};
 
     FreeList contact_allocator{};
+    FreeList message_allocator{};
     uint16_t *fls_mem_pool = nullptr;
 
     uint8_t *storage_mem = nullptr;
@@ -85,7 +86,7 @@ protected:
 
         ASSERT_TRUE(free_list_init(&contact_allocator, fls_mem_pool, HASH_TABLE_SIZE));
 
-        hash_init(&htable, storage, &contact_allocator, entries, HASH_TABLE_SIZE);
+        hash_init(&htable, storage, &contact_allocator, &message_allocator, entries, HASH_TABLE_SIZE);
     }
 
     void TearDown() override
@@ -105,7 +106,7 @@ protected:
     uint16_t insert(const std::string& name, const std::string& phone)
     {
         ContactBuffer c = create_contact(name, phone);
-        return hash_insert_contact_by_phone(&htable, &journal, &c);
+        return hash_insert_contact(&htable, &journal, &c);
     }
 
     // Backing memory for a second, freshly-rebuilt table (see rebuild()).
@@ -132,7 +133,7 @@ protected:
             return false;
         }
 
-        hash_init(&rebuilt, storage, &rebuilt_fls, rebuilt_entries.data(), HASH_TABLE_SIZE);
+        hash_init(&rebuilt, storage, &rebuilt_fls, &message_allocator, rebuilt_entries.data(), HASH_TABLE_SIZE);
 
         // Drop the in-RAM bitmap and reload it from storage, as a real boot would.
         std::memset(usage_bitmap, 0, USAGE_BITMAP_STORAGE_SIZE * sizeof(uint32_t));
@@ -173,11 +174,11 @@ TEST_F(HashTablePhoneTest, FindContact)
 {
     ContactBuffer original = create_contact("Alice", "0412345678");
 
-    ASSERT_NE(hash_insert_contact_by_phone(&htable, &journal, &original), UINT16_MAX);
+    ASSERT_NE(hash_insert_contact(&htable, &journal, &original), UINT16_MAX);
 
     ContactBuffer result{};
 
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, "0412345678", &result));
+    ASSERT_TRUE(hash_find_contact(&htable, "0412345678", &result));
 
     EXPECT_EQ(result.contact.name_len, original.contact.name_len);
     EXPECT_EQ(result.contact.phone_len, original.contact.phone_len);
@@ -194,38 +195,7 @@ TEST_F(HashTablePhoneTest, FindMissingContact)
 
     ContactBuffer result{};
 
-    EXPECT_FALSE(hash_find_contact_by_phone(&htable, "0400000000", &result));
-}
-
-/**
- * @brief hash_find_sector_by_phone() returns the stored sector, and
- *        UINT16_MAX for a missing number.
- */
-TEST_F(HashTablePhoneTest, FindSectorByPhone)
-{
-    uint16_t sector = insert("Alice", "0412345678");
-    ASSERT_NE(sector, UINT16_MAX);
-
-    EXPECT_EQ(hash_find_sector_by_phone(&htable, "0412345678"), sector);
-    EXPECT_EQ(hash_find_sector_by_phone(&htable, "0499999999"), UINT16_MAX);
-}
-
-/**
- * @brief hash_find_message_by_phone() reflects the entry's latest
- *        message extent.
- */
-TEST_F(HashTablePhoneTest, FindMessageByPhone)
-{
-    ASSERT_NE(insert("Alice", "0412345678"), UINT16_MAX);
-
-    // Reach the entry through its phone hash and stamp a message extent.
-    HashEntry *entry = nullptr;
-    ASSERT_TRUE(hash_find_entry(&htable, "0412345678", &entry));
-    ASSERT_NE(entry, nullptr);
-    entry->latest_msg_extent = 4321;
-
-    EXPECT_EQ(hash_find_message_by_phone(&htable, "0412345678"), 4321);
-    EXPECT_EQ(hash_find_message_by_phone(&htable, "0400000000"), UINT16_MAX);
+    EXPECT_FALSE(hash_find_contact(&htable, "0400000000", &result));
 }
 
 /**
@@ -239,14 +209,14 @@ TEST_F(HashTablePhoneTest, RemoveContact)
 
     ContactBuffer removed{};
 
-    ASSERT_TRUE(hash_remove_contact_by_phone(&htable, &journal, "0412345678", &removed));
+    ASSERT_TRUE(hash_remove_contact(&htable, &journal, "0412345678", &removed));
 
     EXPECT_STREQ(removed.contact.name, "Alice");
     EXPECT_STREQ(removed.contact.phone, "0412345678");
     EXPECT_EQ(hash_size(&htable), 0u);
 
     ContactBuffer result{};
-    EXPECT_FALSE(hash_find_contact_by_phone(&htable, "0412345678", &result));
+    EXPECT_FALSE(hash_find_contact(&htable, "0412345678", &result));
 }
 
 /**
@@ -256,11 +226,11 @@ TEST_F(HashTablePhoneTest, RemoveMissingContact)
 {
     ContactBuffer removed{};
 
-    EXPECT_FALSE(hash_remove_contact_by_phone(&htable, &journal, "0412345678", &removed));
+    EXPECT_FALSE(hash_remove_contact(&htable, &journal, "0412345678", &removed));
 }
 
 /**
- * @brief hash_remove_by_phone() drops the RAM entry without needing the
+ * @brief hash_remove() drops the RAM entry without needing the
  *        journal, and the contact is no longer findable.
  */
 TEST_F(HashTablePhoneTest, RemoveByPhoneRamOnly)
@@ -268,13 +238,13 @@ TEST_F(HashTablePhoneTest, RemoveByPhoneRamOnly)
     ASSERT_NE(insert("Alice", "0412345678"), UINT16_MAX);
 
     HashEntry *removed = nullptr;
-    ASSERT_TRUE(hash_remove_by_phone(&htable, "0412345678", &removed));
+    ASSERT_TRUE(hash_remove(&htable, &journal, "0412345679", &removed));
     ASSERT_NE(removed, nullptr);
     EXPECT_EQ(removed->state, ENTRY_DELETED);
     EXPECT_EQ(hash_size(&htable), 0u);
 
     ContactBuffer result{};
-    EXPECT_FALSE(hash_find_contact_by_phone(&htable, "0412345678", &result));
+    EXPECT_FALSE(hash_find_contact(&htable, "0412345678", &result));
 }
 
 /**
@@ -291,13 +261,13 @@ TEST_F(HashTablePhoneTest, MultipleContacts)
 
     ContactBuffer result{};
 
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, "0411111111", &result));
+    ASSERT_TRUE(hash_find_contact(&htable, "0411111111", &result));
     EXPECT_STREQ(result.contact.name, "Alice");
 
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, "0422222222", &result));
+    ASSERT_TRUE(hash_find_contact(&htable, "0422222222", &result));
     EXPECT_STREQ(result.contact.name, "Bob");
 
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, "0433333333", &result));
+    ASSERT_TRUE(hash_find_contact(&htable, "0433333333", &result));
     EXPECT_STREQ(result.contact.name, "Charlie");
 }
 
@@ -318,7 +288,7 @@ TEST_F(HashTablePhoneTest, DuplicateInsertUpdatesInPlace)
     EXPECT_EQ(hash_size(&htable), 1u);
 
     ContactBuffer result{};
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, "0412345678", &result));
+    ASSERT_TRUE(hash_find_contact(&htable, "0412345678", &result));
     EXPECT_STREQ(result.contact.name, "Alice Updated");
 }
 
@@ -350,12 +320,12 @@ TEST_F(HashTablePhoneTest, PhoneHashCollisionResolved)
     ContactBuffer result{};
 
     // Find Contact A
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, phone_a, &result));
+    ASSERT_TRUE(hash_find_contact(&htable, phone_a, &result));
     EXPECT_STREQ(result.contact.name, "Collide A");
     EXPECT_STREQ(result.contact.phone, phone_a);
 
     // Find Contact B
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, phone_b, &result));
+    ASSERT_TRUE(hash_find_contact(&htable, phone_b, &result));
     EXPECT_STREQ(result.contact.name, "Collide B");
     EXPECT_STREQ(result.contact.phone, phone_b);
 }
@@ -375,17 +345,17 @@ TEST_F(HashTablePhoneTest, RemoveFromCollisionChain)
     ASSERT_NE(insert("Collide B", phone_b), UINT16_MAX);
 
     ContactBuffer removed{};
-    ASSERT_TRUE(hash_remove_contact_by_phone(&htable, &journal, phone_a, &removed));
+    ASSERT_TRUE(hash_remove_contact(&htable, &journal, phone_a, &removed));
     EXPECT_STREQ(removed.contact.name, "Collide A");
 
     ContactBuffer result{};
 
     // The other colliding contact is still reachable past the tombstone.
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, phone_b, &result));
+    ASSERT_TRUE(hash_find_contact(&htable, phone_b, &result));
     EXPECT_STREQ(result.contact.name, "Collide B");
 
     // The removed one is gone.
-    EXPECT_FALSE(hash_find_contact_by_phone(&htable, phone_a, &result));
+    EXPECT_FALSE(hash_find_contact(&htable, phone_a, &result));
 }
 
 /**
@@ -396,14 +366,14 @@ TEST_F(HashTablePhoneTest, ReinsertAfterRemove)
     ASSERT_NE(insert("Alice", "0412345678"), UINT16_MAX);
 
     ContactBuffer removed{};
-    ASSERT_TRUE(hash_remove_contact_by_phone(&htable, &journal, "0412345678", &removed));
+    ASSERT_TRUE(hash_remove_contact(&htable, &journal, "0412345678", &removed));
     EXPECT_EQ(hash_size(&htable), 0u);
 
     ASSERT_NE(insert("Alice Again", "0412345678"), UINT16_MAX);
     EXPECT_EQ(hash_size(&htable), 1u);
 
     ContactBuffer result{};
-    ASSERT_TRUE(hash_find_contact_by_phone(&htable, "0412345678", &result));
+    ASSERT_TRUE(hash_find_contact(&htable, "0412345678", &result));
     EXPECT_STREQ(result.contact.name, "Alice Again");
 }
 
@@ -421,7 +391,7 @@ TEST_F(HashTablePhoneTest, SizeTracksContacts)
     EXPECT_EQ(hash_size(&htable), 2u);
 
     ContactBuffer removed{};
-    ASSERT_TRUE(hash_remove_contact_by_phone(&htable, &journal, "0411111111", &removed));
+    ASSERT_TRUE(hash_remove_contact(&htable, &journal, "0411111111", &removed));
     EXPECT_EQ(hash_size(&htable), 1u);
 }
 
@@ -433,13 +403,13 @@ TEST_F(HashTablePhoneTest, RejectsBadArguments)
     ContactBuffer c = create_contact("Alice", "0412345678");
     ContactBuffer out{};
 
-    EXPECT_EQ(hash_insert_contact_by_phone(nullptr, &journal, &c), UINT16_MAX);
-    EXPECT_EQ(hash_insert_contact_by_phone(&htable, &journal, nullptr), UINT16_MAX);
+    EXPECT_EQ(hash_insert_contact(nullptr, &journal, &c), UINT16_MAX);
+    EXPECT_EQ(hash_insert_contact(&htable, &journal, nullptr), UINT16_MAX);
 
-    EXPECT_FALSE(hash_find_contact_by_phone(nullptr, "0412345678", &out));
-    EXPECT_FALSE(hash_find_contact_by_phone(&htable, nullptr, &out));
+    EXPECT_FALSE(hash_find_contact(nullptr, "0412345678", &out));
+    EXPECT_FALSE(hash_find_contact(&htable, nullptr, &out));
 
-    EXPECT_FALSE(hash_remove_contact_by_phone(&htable, &journal, nullptr, &out));
+    EXPECT_FALSE(hash_remove_contact(&htable, &journal, nullptr, &out));
 }
 
 /* ============================================================================
@@ -533,10 +503,9 @@ TEST_F(HashTablePhoneTest, ReconstructFindsAllContacts)
     for (auto& p : people)
     {
         ContactBuffer result{};
-        ASSERT_TRUE(hash_find_contact_by_phone(&rebuilt, p.phone, &result)) << p.name;
+        ASSERT_TRUE(hash_find_contact(&rebuilt, p.phone, &result)) << p.name;
         EXPECT_STREQ(result.contact.name, p.name);
         EXPECT_STREQ(result.contact.phone, p.phone);
-        EXPECT_EQ(hash_find_sector_by_phone(&rebuilt, p.phone), p.sector) << p.name;
     }
 }
 
@@ -549,7 +518,7 @@ TEST_F(HashTablePhoneTest, ReconstructEmptyDatabase)
     EXPECT_EQ(hash_size(&rebuilt), 0u);
 
     ContactBuffer result{};
-    EXPECT_FALSE(hash_find_contact_by_phone(&rebuilt, "0412345678", &result));
+    EXPECT_FALSE(hash_find_contact(&rebuilt, "0412345678", &result));
 }
 
 /**
@@ -563,16 +532,16 @@ TEST_F(HashTablePhoneTest, ReconstructSkipsRemovedContacts)
     ASSERT_NE(insert("Charlie", "0433333333"), UINT16_MAX);
 
     ContactBuffer removed{};
-    ASSERT_TRUE(hash_remove_contact_by_phone(&htable, &journal, "0422222222", &removed));
+    ASSERT_TRUE(hash_remove_contact(&htable, &journal, "0422222222", &removed));
 
     ASSERT_TRUE(rebuild());
 
     EXPECT_EQ(hash_size(&rebuilt), 2u);
 
     ContactBuffer result{};
-    EXPECT_TRUE(hash_find_contact_by_phone(&rebuilt, "0411111111", &result));
-    EXPECT_TRUE(hash_find_contact_by_phone(&rebuilt, "0433333333", &result));
-    EXPECT_FALSE(hash_find_contact_by_phone(&rebuilt, "0422222222", &result));
+    EXPECT_TRUE(hash_find_contact(&rebuilt, "0411111111", &result));
+    EXPECT_TRUE(hash_find_contact(&rebuilt, "0433333333", &result));
+    EXPECT_FALSE(hash_find_contact(&rebuilt, "0422222222", &result));
 }
 
 /**
@@ -593,9 +562,9 @@ TEST_F(HashTablePhoneTest, ReconstructPreservesCollisionChain)
     EXPECT_EQ(hash_size(&rebuilt), 2u);
 
     ContactBuffer result{};
-    ASSERT_TRUE(hash_find_contact_by_phone(&rebuilt, phone_a, &result));
+    ASSERT_TRUE(hash_find_contact(&rebuilt, phone_a, &result));
     EXPECT_STREQ(result.contact.name, "Collide A");
-    ASSERT_TRUE(hash_find_contact_by_phone(&rebuilt, phone_b, &result));
+    ASSERT_TRUE(hash_find_contact(&rebuilt, phone_b, &result));
     EXPECT_STREQ(result.contact.name, "Collide B");
 }
 
@@ -616,16 +585,16 @@ TEST_F(HashTablePhoneTest, ReconstructedTableAcceptsNewWrites)
 
     // Create a new contact "Bob" and insert into the hash_table (verify size)
     ContactBuffer bob = create_contact("Bob", "0422222222");
-    ASSERT_NE(hash_insert_contact_by_phone(&rebuilt, &journal, &bob), UINT16_MAX);
+    ASSERT_NE(hash_insert_contact(&rebuilt, &journal, &bob), UINT16_MAX);
     EXPECT_EQ(hash_size(&rebuilt), 2u);
 
     // Check Bob can be found
     ContactBuffer result{};
-    EXPECT_TRUE(hash_find_contact_by_phone(&rebuilt, "0422222222", &result));
+    EXPECT_TRUE(hash_find_contact(&rebuilt, "0422222222", &result));
 
     // Try and remove contact from the hash_table
     ContactBuffer removed{};
-    ASSERT_TRUE(hash_remove_contact_by_phone(&rebuilt, &journal, "0411111111", &removed));
+    ASSERT_TRUE(hash_remove_contact(&rebuilt, &journal, "0411111111", &removed));
     EXPECT_STREQ(removed.contact.name, "Alice");
     EXPECT_EQ(hash_size(&rebuilt), 1u);
 }

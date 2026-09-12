@@ -51,8 +51,7 @@ add_library(app_logic
     # hash_table.c (ID-keyed) and hash_table_phone.c (phone-keyed) define
     # the same symbols (hash_init, hash_size, hash_phone, ...). The host
     # build / tests use the phone-keyed implementation only.
-    app/src/hash_table_phone.c
-    app/src/message_extent.c
+    app/src/hash_table.c
     app/src/storage.c
     app/src/heap_storage.c
     app/src/journal.c

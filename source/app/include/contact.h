@@ -24,6 +24,7 @@ extern "C" {
 
 // Opaque Declaration
 typedef struct Journal Journal;
+typedef struct FreeList FreeList;
 
 // Contact Struct (81B)
 typedef struct
@@ -112,7 +113,14 @@ STRG_RET read_contact(Storage *storage, uint16_t index, ContactBuffer *out);
  * @param in Contact Sector Buffer going into the SD card
  * @retval True if successful write else false.
  */
-bool remove_contact(Storage *storage, Journal *journal, uint16_t index, ContactBuffer *out);
+bool remove_contact(Storage *storage, Journal *journal, FreeList *contact_allocator, uint16_t index, ContactBuffer *out);
+
+/**
+  * @brief  Create a Contact
+  * @param name: name of the contact that is being created
+  * @param phone: phone number string
+  */
+ContactBuffer create_contact(const char *name, const char *phone);
 
 
 

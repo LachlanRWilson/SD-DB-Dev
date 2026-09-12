@@ -2,16 +2,24 @@
 #include <string.h>
 
 #include "hash_table.h"
+#include "message.h"
 #include "contact.h"
 #include "storage.h"
 #include "usage_bitmap.h"
 #include "free_list_stack.h"
 #include "journal.h"
 
+// Return code from checking if the sector phone number is the same as the search phone number
+typedef enum {
+    SAME_PHONE = 0,
+    DIFF_PHONE,
+    CONTACT_READ_ERROR
+} PHONE_CHECK;
+
 /**
   * @brief  Primary Hash Function
   * @param  key: entry key
-  * @param  capacity: Number of entries 
+  * @param  capacity: Number of entries
   * @retval uint16_t: Hash Code
   */
 static inline uint16_t hash_primary(uint16_t key, uint16_t capacity)
@@ -22,7 +30,7 @@ static inline uint16_t hash_primary(uint16_t key, uint16_t capacity)
 /**
   * @brief  Seconary Hash Function
   * @param  key: entry key
-  * @param  capacity: Number of entries 
+  * @param  capacity: Number of entries
   * @retval uint16_t: Hash Code
   */
 static inline uint16_t hash_secondary(uint16_t key, uint16_t capacity)
@@ -36,7 +44,7 @@ static inline uint16_t hash_secondary(uint16_t key, uint16_t capacity)
   * @brief  Double Hash Function
   * @param  key: entry key
   * @param attemptNum: Hashing attempt number
-  * @param  capacity: Number of entries 
+  * @param  capacity: Number of entries
   * @retval uint16_t: Hash Code
   */
 static inline uint16_t hash_double(uint16_t key, uint16_t attemptNum, uint16_t capacity)
@@ -71,15 +79,75 @@ uint16_t hash_phone(const char *phone)
     return (uint16_t)hash ^ (hash >> 16);
 }
 
+
+/**
+  * @brief  Create a hash table
+  * @param  table: Hash Table struct being initialised
+  * @param storage: storage struct for Heap or SD Card storage
+  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs)
+  * @param  entries: In RAM storage of hash table entries
+  * @param  size: number of elements in hash table
+  */
+void hash_init(HashTable* table, Storage* storage, FreeList *contact_fstack, FreeList *message_fstack,
+               HashEntry* entries, size_t
+        size)
+{
+    table->htable = entries;
+    table->storage = storage;
+    table->contact_allocator = contact_fstack;
+    table->message_allocator = message_fstack;
+    table->size = size;
+    table->num_elems = 0;
+}
+
+/**
+  * @brief  Destroy a hash table and free all associated memory
+  * @param  table: Pointer to the hash table
+  * @retval None
+  */
+void hash_destroy(HashTable *table)
+{
+    // For statically allocated on stm32 memory will not be freed
+    hash_clear(table);
+}
+
+
+
+/**
+  * @brief  Check that the phone number stored at the contact index of this entry is the same as the search phone #
+  *
+  * @param  storage: storage struct to access memory
+  * @param phone: phone number to be check
+  * @param entry: current entry that is being checked
+  *
+  * @retval status of phone check
+  */
+PHONE_CHECK check_contact_phone(Storage *storage, const char* phone, HashEntry *entry)
+{
+    ContactBuffer contact;
+
+    // read contact where this entry points
+    if (!read_contact(storage, entry->sector, &contact))
+    {
+       return CONTACT_READ_ERROR;
+    }
+
+    // read the phone number in the sector to the same length as the search length
+    size_t query_len = strlen(phone);
+
+    if (query_len == contact.contact.phone_len &&
+        strncmp(phone, contact.contact.phone, contact.contact.phone_len) == 0)
+    {
+        return SAME_PHONE;
+    }
+    return DIFF_PHONE;
+}
+
+
 /**
  * @brief Perform a double-hash search on the hash table using a phone
- *        number as the key.
- *
- * Because the table is indexed by a 16-bit DJB2 hash of the phone
- * number rather than a unique numeric ID, two different phone numbers
- * can land on the same hash. Any OCCUPIED slot whose stored hash
- * matches is therefore verified against the actual phone number
- * persisted in the contact sector before being treated as a match.
+ *        number as the key, disambiguating hash collisions by reading
+ *        back the stored phone number.
  *
  * @param table Pointer to the hash table.
  * @param phone Phone number being searched for.
@@ -89,35 +157,50 @@ uint16_t hash_phone(const char *phone)
  * @retval true  An empty slot (for insertion) or a confirmed matching entry was found.
  * @retval false Table is full with no match found.
  */
-bool find_hash_phone(HashTable *table, const char *phone, uint16_t h1, uint16_t h2, HashEntry **entry)
+bool hash_find_entry(HashTable *table, const char *phone, HashEntry **entry)
 {
     uint16_t target_hash = hash_phone(phone);
+    uint16_t h1 = hash_primary(target_hash, table->size);
+    uint16_t h2 = hash_secondary(target_hash, table->size);
     ContactBuffer contact;
 
+    // The first free entry. Note that a tombstoned entry is free but there may
+    // be an actual entry further down the collision chain
+    HashEntry *first_free = NULL;
+
+    // Iterate until I find empty spot for entry
     for (uint16_t i = 0; i < table->size; i++)
     {
         uint16_t index = (h1 + i * h2) % table->size;
+        HashEntry *cur = &table->htable[index];
 
-        *entry = &table->htable[index];
-
-        // Empty or tombstoned slot - nothing stored here, safe to insert
-        if ((*entry)->state == ENTRY_EMPTY || (*entry)->state == ENTRY_DELETED)
+        if (cur->state == ENTRY_EMPTY)
         {
 #if defined(HOST_BUILD)
             table->collision_count = i;
 #endif
+            // End of chain: phone not present. Hand back the earlier
+            // tombstone if we saw one, otherwise this empty slot.
+            *entry = (first_free != NULL) ? first_free : cur;
             return true;
         }
 
-        // Occupied slot with the same hash - could be the same phone
-        // number, or a genuine hash collision between two different
-        // numbers. Disambiguate by reading the actual stored phone.
-        if ((*entry)->state == ENTRY_OCCUPIED && (*entry)->id == target_hash)
+        // This could be an earlier entry in the collision chain. Therefore must search to the end of the tombstone
+        if (cur->state == ENTRY_DELETED)
         {
-            if (!read_contact(table->storage, (*entry)->sector, &contact))
+            if (first_free == NULL)
             {
-                // Couldn't verify - treat as a miss and keep probing
-                continue;
+                first_free = cur;
+            }
+            continue; // keep probing past the tombstone
+        }
+
+        // ENTRY_OCCUPIED
+        if (cur->id == target_hash)
+        {
+            if (!read_contact(table->storage, cur->sector, &contact))
+            {
+                continue; // couldn't verify - treat as a miss and keep probing
             }
 
             if (strcmp(contact.contact.phone, phone) == 0)
@@ -125,10 +208,19 @@ bool find_hash_phone(HashTable *table, const char *phone, uint16_t h1, uint16_t 
 #if defined(HOST_BUILD)
                 table->collision_count = i;
 #endif
+                *entry = cur;
                 return true;
             }
-            // Same hash, different phone - keep probing past this slot
+            // same hash, different phone - keep probing past this slot
         }
+    }
+
+    // Walked the whole table with no EMPTY sentinel. A tombstone seen
+    // along the way is still a usable insertion point.
+    if (first_free != NULL)
+    {
+        *entry = first_free;
+        return true;
     }
 
     return false; // table full, no match
@@ -143,32 +235,33 @@ bool find_hash_phone(HashTable *table, const char *phone, uint16_t h1, uint16_t 
  * @param contact Contact to insert or update (phone number read from here).
  * @retval Sector index on success, otherwise UINT16_MAX.
  */
-uint16_t hash_insert_contact_by_phone(HashTable *table, Journal *journal, ContactBuffer *contact)
+bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *contact)
 {
     HashEntry *entry;
     uint16_t sector;
     bool is_new_entry;
 
-    if (table == NULL || table->storage == NULL || table->free_stack == NULL || contact == NULL)
+    if (table == NULL || table->storage == NULL || table->contact_allocator == NULL || contact == NULL)
     {
         return UINT16_MAX;
     }
 
+    // create hash number using phone number stored in inserting contact
     const char *phone = contact->contact.phone;
     uint16_t hash = hash_phone(phone);
-    uint16_t h1 = hash_primary(hash, table->size);
-    uint16_t h2 = hash_secondary(hash, table->size);
 
-    if (!find_hash_phone(table, phone, h1, h2, &entry) || entry == NULL)
+    // Find the entry associated to the hash number
+    if (!hash_find_entry(table, phone, &entry) || entry == NULL)
     {
         return UINT16_MAX; // table full
     }
 
+    // If the entry at the hash index (therefore no sector allocated, allocate a new sector)
     is_new_entry = (entry->state == ENTRY_EMPTY || entry->state == ENTRY_DELETED);
 
     if (is_new_entry)
     {
-        sector = free_list_allocate(table->free_stack);
+        sector = free_list_allocate(table->contact_allocator);
 
         if (sector == UINT16_MAX)
         {
@@ -182,21 +275,20 @@ uint16_t hash_insert_contact_by_phone(HashTable *table, Journal *journal, Contac
     }
     else
     {
-        // find_hash_phone already confirmed this is the same phone number
-        sector = entry->sector;
+        sector = entry->sector; // find_hash_phone already confirmed same phone number
     }
 
     if (!write_contact(table->storage, journal, entry->sector, contact))
     {
-        // Only unwind hash-table state for a brand-new entry. If this was
-        // an update to an existing contact, the entry was valid before
-        // this call, and a failed write here must not tear it down.
+        // Only unwind hash-table state for a brand-new entry. An update
+        // to an existing contact must not tear down a previously valid
+        // entry just because the write failed.
         if (is_new_entry)
         {
             entry->state = ENTRY_EMPTY;
             entry->id = 0;
             entry->sector = UINT16_MAX;
-            free_list_free(table->free_stack, sector);
+            free_list_free(table->contact_allocator, sector);
             table->num_elems--;
         }
 
@@ -207,6 +299,108 @@ uint16_t hash_insert_contact_by_phone(HashTable *table, Journal *journal, Contac
 }
 
 /**
+ * @brief Insert or update a contact in the hash table using its phone
+ *        number as the key, and persist it to storage.
+ *
+ * @param table Pointer to the hash table.
+ * @param journal Pointer to the rollback journal.
+ * @param contact Contact to insert or update (phone number read from here).
+ * @retval Sector index on success, otherwise UINT16_MAX.
+ */
+bool hash_insert_message(HashTable *table, Journal *journal, const char *phone, MessageBuffer *in)
+{
+    HashEntry *entry;
+    uint16_t sector;
+    STRG_RET ret;
+    bool is_new_entry;
+
+    if (table == NULL || table->storage == NULL || table->contact_allocator == NULL || in == NULL)
+    {
+        return UINT16_MAX;
+    }
+
+    // create hash number using phone number stored in inserting contact
+    uint16_t hash = hash_phone(phone);
+
+    // Find the entry associated to the hash number
+    if (!hash_find_entry(table, phone, &entry) || entry == NULL)
+    {
+        return UINT16_MAX; // table full
+    }
+
+    // If the entry at the hash index (therefore no sector allocated, allocate a new sector)
+    is_new_entry = (entry->state == ENTRY_EMPTY || entry->state == ENTRY_DELETED);
+
+    if (is_new_entry)
+    {
+        // add new contact
+        sector = free_list_allocate(table->contact_allocator);
+
+        if (sector == UINT16_MAX)
+        {
+            return false; // allocator exhausted
+        }
+
+        // create an empty contact with a phone number
+        ContactBuffer new_contact = create_contact("", phone);
+
+        // write the new empty contact to the SD card
+        ret = write_contact(table->storage, journal, sector, &new_contact);
+
+        if (ret != STRG_OK)
+        {
+            return false;
+        }
+
+        entry->sector = sector;
+        entry->state = ENTRY_OCCUPIED;
+        entry->id = hash; // stored hash used for fast re-probing, not a unique key
+        table->num_elems++;
+
+        // Allocate new sector for message
+        sector = free_list_allocate(table->message_allocator);
+
+        // write message to the sd card
+        ret = write_new_message_sector(table->storage, journal, phone, sector, in);
+
+        if (ret != STRG_OK)
+        {
+            return false;
+        }
+        entry->latest_msg_extent = sector;
+
+    } else { // if not a new entry write message to current message sector
+
+        ret = write_message(table->storage, journal, entry->latest_msg_extent, in);
+
+        // If the currect sector is full of messages create a new one in the linked list
+        if (ret == STRG_FULL)
+        {
+            uint16_t next_sector = free_list_allocate(table->message_allocator);
+
+            // create a next message sector at allocated index and update previous message sector to point to next sector
+            ret = write_next_message_sector(table->storage, journal, phone, entry->latest_msg_extent, next_sector, in);
+
+            if (ret != STRG_OK)
+            {
+                return false;
+            }
+
+            // update entry to point at the latest extent
+            entry->latest_msg_extent = next_sector;
+
+        } else if (ret != STRG_OK) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+
+
+
+/**
  * @brief Find and read a contact by phone number.
  *
  * @param table Pointer to the hash table.
@@ -215,28 +409,23 @@ uint16_t hash_insert_contact_by_phone(HashTable *table, Journal *journal, Contac
  * @retval true if a matching contact was found and read successfully.
  * @retval false otherwise.
  */
-bool hash_find_contact_by_phone(HashTable *table, const char *phone, ContactBuffer *out)
+bool hash_find_contact(HashTable *table, const char *phone, ContactBuffer *out)
 {
     HashEntry *entry;
 
-    if (table == NULL || table->htable == NULL || table->storage == NULL || out == NULL || 
-            phone == NULL || table->size == 0)
+    if (table == NULL || table->htable == NULL || table->storage == NULL ||
+            out == NULL || phone == NULL || table->size == 0)
     {
         return false;
     }
 
     uint16_t hash = hash_phone(phone);
-    uint16_t h1 = hash_primary(hash, table->size);
-    uint16_t h2 = hash_secondary(hash, table->size);
 
-    if (!find_hash_phone(table, phone, h1, h2, &entry))
+    if (!hash_find_entry(table, phone, &entry))
     {
-        return false; // table full, no match
+        return false;
     }
 
-    // find_hash_phone returns true both for a confirmed match AND for an
-    // empty/tombstoned slot (the "safe to insert here" case used by the
-    // insert path). Only an OCCUPIED slot is an actual find.
     if (entry->state != ENTRY_OCCUPIED)
     {
         return false;
@@ -246,419 +435,174 @@ bool hash_find_contact_by_phone(HashTable *table, const char *phone, ContactBuff
 }
 
 /**
-  * @brief  Create a hash table
-  * @param  table: Hash Table struct being initialised
-  * @param storage: storage struct for Heap or SD Card storage
-  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
-  * @param  entries: In RAM storage of hash table entries
-  * @param  size: number of elements in hash table
-  */
-void hash_init(HashTable* table, Storage* storage, FreeList *fstack,  HashEntry* entries, size_t
-        size)
-{
-    table->htable = entries;
-    table->storage = storage;
-    table->free_stack = fstack;
-    table->size = size;
-    table->num_elems = 0;
-}
-
-/**
-  * @brief  Destroy a hash table and free all associated memory
+  * @brief  Find a contacts latest message
   * @param  table: Pointer to the hash table
-  * @retval None
+  * @param phone: phone number the message is associated with
+  * @retval Pointer to the matching message extent, or NULL if not found
   */
-void hash_destroy(HashTable *table)
+bool hash_find_message(HashTable *table, const char *phone, MessageBuffer *out)
 {
-    // For statically allocated on stm32 memory will not be freed
-    hash_clear(table);         
-}
-
-/**
-  * @brief  Insert a contact into the hash table
-  * @param  table: Pointer to the hash table
-  * @param  contact: Contact to insert
-  * @retval if insertion successful return sector index, else UINT16_MAX
-  */
-uint16_t hash_insert(HashTable *table, uint16_t id)
-{
-    // Pre calculate double hash
-    uint16_t h1 = hash_primary(id, table->size);
-    uint16_t h2 = hash_secondary(id, table->size);
-
-    // Iterate until no collision (shouldn't be too many as table is limited to 70% table->size)
-    for (uint16_t i = 0; i < table->size; i++)
-    {
-        // Calculate hash code based on step
-        uint16_t index = (h1 + i * h2) % table->size;
-
-         HashEntry *entry = &table->htable[index];
-
-        // Check empty or tombstoned
-        if (entry->state == ENTRY_EMPTY || entry->state == ENTRY_DELETED)
-        {
-            entry->state = ENTRY_OCCUPIED;
-            entry->id = id;
-            entry->sector = free_list_allocate(table->free_stack);
-            table->num_elems++;
-
-// Collission Debugging
-#if defined (HOST_BUILD)
-            table->collision_count = i;
-#endif
-            return entry->sector;
-        }
-
-        // If same id then updating
-        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
-        {
-// Collission Debugging
-#if defined (HOST_BUILD)
-            table->collision_count = i;
-#endif
-            return entry->sector;
-        }
-    }
-
-    return UINT16_MAX; // table full (should never happen)
-}
-
-/**
- * @brief Perform a double hash search on the hash table
- *
- * @param table Pointer to the hash table.
- * @param h1 primary hash.
- * @param h2 secondary hash.
- * @param entry entry found in hash table or NULL
- * @retval True if hash entry found else false
- */
-uint16_t find_hash(HashTable *table, uint16_t id, uint16_t h1, uint16_t h2, HashEntry** entry)
-{
-    // Iterate until no collision
-    for (uint16_t i = 0; i <= table->size; i++)
-    {
-        
-        // Table full
-        if (i == table->size) {
-            return UINT16_MAX;
-        }
-
-        // Calculate hash index based on probe step
-        uint16_t index = (h1 + i * h2) % table->size;
-
-        *entry = &table->htable[index];
-
-        // Empty or tombstoned entry
-        if ((*entry)->state == ENTRY_EMPTY)
-        {
-
-#if defined(HOST_BUILD)
-            table->collision_count = i;
-#endif
-            return true;
-        }
-
-        // Contact already exists and the same id
-        if ((*entry)->state == ENTRY_OCCUPIED && (*entry)->id == id)
-        {
-#if defined(HOST_BUILD)
-            table->collision_count = i;
-#endif
-            return true;
-        }
-    }
-
-    return false;
-
-}
-
-
-/**
- * @brief Insert a contact into the hash table and write / update to SD Card.
- *
- * @param table Pointer to the hash table.
- * @param contact Contact to insert.
- * @retval Sector index if insertion successful, otherwise UINT16_MAX.
- */
-uint16_t hash_insert_contact(HashTable *table, Journal *journal, uint16_t id, ContactBuffer *contact)
-{
-    // HashEntry pointer that contact will be inserted into
     HashEntry *entry;
 
-    // Catch null pointers
-    if (table == NULL || table->storage == NULL || table->free_stack == NULL || contact == NULL)
+    if (table == NULL || table->htable == NULL || table->storage == NULL ||
+            out == NULL || phone == NULL || table->size == 0)
     {
-        return UINT16_MAX;
+        return false;
     }
 
-    // Pre-calculate double hash
-    uint16_t h1 = hash_primary(id, table->size);
-    uint16_t h2 = hash_secondary(id, table->size);
+    uint16_t hash = hash_phone(phone);
 
-    // If has cannot be found throw error
-    if (!find_hash(table, id, h1, h2, &entry) || entry == NULL)
+    if (!hash_find_entry(table, phone, &entry))
     {
-        return UINT16_MAX;
+        return false;
     }
 
-    // Variable for new sector
-    uint16_t sector; 
-
-    // Check to see if this is a new contact
-    if (entry->state == ENTRY_EMPTY || entry->state == ENTRY_DELETED) {
-        sector = free_list_allocate(table->free_stack);
-
-        // If invalid sector throw error (stack empty)
-        if (sector == UINT16_MAX)
-        {
-            return UINT16_MAX;
-        }    
-
-        // allocate sector to new contact
-        entry->sector = sector;
-        entry->state = ENTRY_OCCUPIED;
-        entry->id = id;
-        entry->sector = sector;
-        table->num_elems++;
-    }
-
-    // Update Contact in ContactSector
-    if (!write_contact(table->storage, journal, entry->sector, contact))
+    if (entry->state != ENTRY_OCCUPIED)
     {
-        // Storage failed, undo hash table allocation
-        entry->state = ENTRY_EMPTY;
-        entry->id = 0;
-        entry->sector = UINT16_MAX;
-
-        free_list_free(table->free_stack, sector);
-        table->num_elems--;
-
-        return UINT16_MAX;
+        return false;
     }
 
-    return sector;
+    // read the latest message
+    return read_message(table->storage, entry->latest_msg_extent, 0, out);
+}
+
+
+/**
+  * @brief  Find n number of messages from a contact
+  * @param  table: Pointer to the hash table
+  * @param phone: phone number the message is associated with
+  * @retval the number of messages read from the sd card, -1 if fault
+  */
+int hash_find_n_message(HashTable *table, const char *phone, int n, MessageBuffer *out)
+{
+    HashEntry *entry;
+
+    if (table == NULL || table->htable == NULL || table->storage == NULL ||
+            out == NULL || phone == NULL || table->size == 0)
+    {
+        return false;
+    }
+
+    uint16_t hash = hash_phone(phone);
+
+    if (!hash_find_entry(table, phone, &entry))
+    {
+        return false;
+    }
+
+    if (entry->state != ENTRY_OCCUPIED)
+    {
+        return false;
+    }
+
+    // read messages from latest backwards
+    return read_n_messages(table->storage, entry->latest_msg_extent, n, out);
 }
 
 /**
- * @brief Find and read a contact by its unique ID on the SD Card.
+ * @brief Remove a contact from the hash table and storage by phone number.
  *
  * @param table Pointer to the hash table.
- * @param id Contact ID to search for.
- * @param out Pointer to output Contact.
- * @retval true if contact found, otherwise false.
- */
-bool hash_find_contact(HashTable *table, uint16_t id, ContactBuffer *out)
-{
-    // HashEntry that will be pulled from the table
-    HashEntry* entry;
-
-    if (table == NULL || table->htable == NULL || table->storage == NULL || out == NULL ||
-            table->size == 0)
-    {
-        return false;
-    }
-
-    // Hash calculations
-    uint16_t h1 = hash_primary(id, table->size);
-    uint16_t h2 = hash_secondary(id, table->size);
-    
-    // if hash cannot be found in table
-    if (!find_hash(table, id, h1, h2, &entry) && entry == NULL) {
-        return false;
-    }
-
-    // read contact from sd card
-    if(!read_contact(table->storage, entry->sector, out))
-    {
-        return false;
-    }
-
-    return true;
-}
-
-/**
-  * @brief  Find an entry in the table
-  * @param  table: Pointer to the hash table
-  * @param  id: Contact ID to search for
-  * @param  out: Output HashEntry pointer
-  * @retval True if entry found else false
-  */
-bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out) 
-{
-    if (table == NULL || table->htable == NULL || table->size == 0)
-    {
-        return false;
-    }
-
-    // Hash Calculations
-    uint16_t h1 = hash_primary(id, table->size);
-    uint16_t h2 = hash_secondary(id, table->size);
-
-    for (uint16_t i = 0; i < table->size; i++)
-    {
-        uint16_t index = (h1 + i * h2) % table->size;
-
-        // Get Entry from RAM
-        HashEntry *entry = &table->htable[index];
-
-        // If we hit an empty slot, key was never inserted
-        if (entry->state == ENTRY_EMPTY)
-        {
-            return false;
-        }
-
-        // If occupied and match found
-        if (entry->state == ENTRY_OCCUPIED && entry->id == id)
-        {
-            // set the out HashEntry pointer to the HashEntry in RAM
-            *out = entry;
-            return true;
-        }
-
-        // ENTRY_DELETED -> continue probing
-    }
-
-    return false;
-}
-
-
-/**
-  * @brief  Find a contact by its unique ID
-  * @param  table: Pointer to the hash table
-  * @param  id: Contact ID to search for
-  * @retval Pointer to the matching contact, or NULL if not found
-  */
-uint16_t hash_find_sector(HashTable *table, uint16_t id)
-{
-    if (table == NULL || table->htable == NULL || table->size == 0)
-    {
-        return UINT16_MAX;
-    }
-
-    HashEntry *entry;
-    
-    // Get the entry, if not found through error
-    if (!hash_find_entry(table, id, &entry)) {
-        return UINT16_MAX;
-    }
-    
-    return entry->sector;
-}
-
-/**
-  * @brief  Find a contacts latest message extent index
-  * @param  table: Pointer to the hash table
-  * @param  id: Contact ID to search for
-  * @retval Pointer to the matching contact, or NULL if not found
-  */
-uint16_t hash_find_message(HashTable *table, uint16_t id)
-{
-    if (table == NULL || table->htable == NULL || table->size == 0)
-    {
-        return UINT16_MAX;
-    }
-
-    HashEntry *entry;
-    
-    // Get the entry, if not found through error
-    if (!hash_find_entry(table, id, &entry)) {
-        return UINT16_MAX;
-    }
-    
-    return entry->latest_msg_extent;
-}
-
-/**
-  * @brief  Remove a contact from the hash table
-  * @param  table: Pointer to the hash table
-  * @param  id: Contact ID to remove
-  * @param removed: removed entry
-  * @retval true if the contact was removed, false if it was not found
-  */
-bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed)
-{
-    HashEntry *entry = NULL;
-    
-    // Get the entry, if not found through error
-    if (!hash_find_entry(table, id, &entry)) {
-        return false;
-    }
-
-    // If same id then set to deleted
-    if (entry->state == ENTRY_OCCUPIED && entry->id == id)
-    {
-        // Set state to deleted
-        entry->state = ENTRY_DELETED;
-
-        // return memory address back to free stack to be recycled
-        free_list_free(table->free_stack, entry->sector);
-
-        // decrease number of elements
-        table->num_elems--;
-
-        // Store removed entry
-        *removed = entry;
-        return true;
-    }
-
-    return false; // table full (should never happen)
-
-}
-
-/**
- * @brief Remove a contact from the hash table.
- *
- * @param table Pointer to the hash table.
- * @param id Contact ID to remove.
+ * @param journal Pointer to the rollback journal.
+ * @param phone Phone number to remove.
+ * @param out Removed contact's data.
  * @retval true if the contact was removed, otherwise false.
  */
-bool hash_remove_contact(HashTable *table, Journal *journal, uint16_t id, ContactBuffer *out)
+bool hash_remove_contact(HashTable *table, Journal *journal, const char *phone, ContactBuffer *out)
 {
-    // HashEntry that will be pulled from the table
-    HashEntry* entry;
+    HashEntry *entry;
 
-    if (table == NULL || table->htable == NULL || table->storage == NULL || out == NULL ||
-            table->size == 0)
+    if (table == NULL || table->htable == NULL || table->storage == NULL ||
+            out == NULL || phone == NULL || table->size == 0)
     {
         return false;
     }
 
-    // Hash calculations
-    uint16_t h1 = hash_primary(id, table->size);
-    uint16_t h2 = hash_secondary(id, table->size);
-    
-    // if hash cannot be found in table
-    if (!find_hash(table, id, h1, h2, &entry) && entry == NULL) {
-        return false;
-    }
+    uint16_t hash = hash_phone(phone);
 
-    if (entry->state != ENTRY_OCCUPIED || entry->id != id)
-    {
-        return false;
-    }
-    
-    // remove contact from SD card
-    if(!remove_contact(table->storage, journal, entry->sector, out))
+    if (!hash_find_entry(table, phone, &entry) || entry->state != ENTRY_OCCUPIED)
     {
         return false;
     }
 
-    /* NOTE: IF FAILURE HERE SD CARD AND RAM OUT OF SYNC */
+    if (!remove_contact(table->storage, journal, table->contact_allocator, entry->sector, out))
+    {
+        return false;
+    }
 
-    // Set state to deleted
-    entry->state = ENTRY_DELETED;
-
-    // return memory address back to free stack to be recycled
-    free_list_free(table->free_stack, entry->sector);
-
-    // decrease number of elements
-    table->num_elems--;
+    entry->sector = UINT16_MAX;
 
     return true;
+}
+
+bool hash_remove_message(HashTable *table, Journal *journal, const char *phone, int message_num, MessageBuffer *out)
+{
+    HashEntry *entry;
+
+    if (table == NULL || table->htable == NULL || table->storage == NULL ||
+            out == NULL || phone == NULL || table->size == 0)
     {
         return false;
     }
+
+    uint16_t hash = hash_phone(phone);
+
+    if (!hash_find_entry(table, phone, &entry) || entry->state != ENTRY_OCCUPIED)
+    {
+        return false;
+    }
+
+    if (!remove_message_chat(table->storage, journal, table->message_allocator, entry->sector))
+    {
+        return false;
+    }
+
+    entry->latest_msg_extent = UINT16_MAX;
+
+    return true;
 }
+
+
+/**
+  * @brief  Remove an entry from the hash table. That include removed the contact and message chat from the SD card
+  * @param  table: Pointer to the hash table
+  * @param  phone: phone number of entry that is being removed
+  * @param removed: removed entry
+  * @retval true if the entry, contact and message chat was removed, false if not found or not removed properly
+  */
+bool hash_remove(HashTable *table, Journal *journal, const char *phone, HashEntry *removed)
+{
+    ContactBuffer cOut;
+
+
+    if (table == NULL || table->htable == NULL || table->storage == NULL ||
+        phone == NULL || table->size == 0) {
+      return false;
+    }
+
+    uint16_t hash = hash_phone(phone);
+
+    // find hash entry that is being removed
+    if (!hash_find_entry(table, phone, &removed) || removed->state != ENTRY_OCCUPIED)
+    {
+        return false;
+    }
+
+    // remove contacts
+    bool contact_removed = remove_contact(table->storage, journal, table->contact_allocator, removed->sector, &cOut);
+    bool message_chat_removal = remove_message_chat(table->storage, journal, table->message_allocator, removed->sector);
+
+    // check both contact and message change has been removed
+    if (!contact_removed || !message_chat_removal) {
+        return false;
+    }
+
+    // decrease the number of hash entries in the table
+    removed->state = ENTRY_DELETED;
+    table->num_elems--;
+    return true;
+}
+
 
 /**
   * @brief  Get the number of contacts currently stored in the hash table
@@ -668,7 +612,6 @@ bool hash_remove_contact(HashTable *table, Journal *journal, uint16_t id, Contac
 size_t hash_size(const HashTable *table)
 {
     return table->num_elems;
-
 }
 
 /**
@@ -678,84 +621,303 @@ size_t hash_size(const HashTable *table)
   */
 void hash_clear(HashTable *table)
 {
-    // Just set the values as empty. Written data will simple be overwritten
-    for (int i = 0; i < table->size; i++) {
-        table->htable[i].state = ENTRY_EMPTY; 
-        // Clear the free list stack
-        free_list_free(table->free_stack, table->htable[i].sector);
-    }
-        table->num_elems = 0;
+    // reset allocators
+    free_list_reset(table->contact_allocator);
+    free_list_reset(table->message_allocator);
 
+    // wipe entire hash table
+    memset(table->htable, 0, sizeof(HashEntry) * HASH_TABLE_SIZE);
+
+    table->num_elems = 0;
+}
+
+
+/**
+  * @brief insert all contact from the contact sector into the hash table.
+  *
+  * @param table Pointer to a freshly hash_init'd, empty hash table.
+  * @param cSector contact sector read from the SD Card
+  * @param contact_sector_base contact sector start conatct pointer (raw_sector_ptr * CONTACT_SECTOR_CAPACITY)
+  * @retval true contacts read and inserted from sector successfully
+  * @retval false if fail
+  */
+bool insert_contacts_from_sector(HashTable *table, ContactSector cSector, uint16_t contact_sector_base)
+{
+    // Get used bit map from header
+    uint8_t used_bit_vec = cSector.header.used_bitmap;
+    uint32_t last_free_index = 0;
+    while (used_bit_vec != 0)
+    {
+        uint8_t pos_in_sector = __builtin_ctz(used_bit_vec);
+        uint16_t slot_index = (uint16_t)(contact_sector_base + pos_in_sector);
+
+        // Free from the last free index
+        free_list_free_range(table->contact_allocator, (uint16_t)last_free_index, slot_index);
+
+        const char *phone = cSector.contacts[pos_in_sector].contact.phone;
+        uint16_t hash = hash_phone(phone);
+
+        HashEntry *entry;
+
+        if (!hash_find_entry(table, phone, &entry))
+        {
+            return false; // table full mid-reconstruction
+        }
+
+        entry->state = ENTRY_OCCUPIED;
+        entry->id = hash;
+        entry->sector = slot_index;
+        table->num_elems++;
+        // Need to also increment free list used count (NOTE: should add
+        // func to insert contact ptr to entry directly)
+        table->contact_allocator->used_count++;
+
+        used_bit_vec &= used_bit_vec - 1; // clear lowest set bit
+    }
+        // free from last contact index to end of the sector
+        last_free_index = CONTACT_SECTOR_CAPACITY;
+
+
+  return true;
 }
 
 /**
-  * @brief  Reconstruct the HashTable in RAM from the information store in the data on the SD Card
-  * @param  table: Pointer to the hash table
-  * @retval None
+  * @brief  Reconstruct the in-RAM HashTable from persistent contact data
+  *         after a restart, using the usage bitmap so only used sectors
+  *         need to be read (rather than scanning the whole SD card).
+  *
+  * For every contact index the usage bitmap marks as used, this reads
+  * the owning ContactSector, re-derives the phone hash from the stored
+  * phone number (rather than needing a separately persisted ID), and
+  * uses hash_find_entry to claim/activate the correct table entry with
+  * that contact's sector index. Any index the bitmap marks as free is
+  * pushed back onto the free-list allocator so it matches reality.
+  *
+  * @param table Pointer to a freshly hash_init'd, empty hash table.
+  * @retval true Reconstruction completed successfully.
+  * @retval false A storage read failed or the hash table filled up mid-reconstruction.
   */
-bool hash_reconstruct_contact(HashTable *table) 
+bool hash_reconstruct_contact(HashTable *table)
 {
-    
-    uint32_t used, last_bit;
-    ContactSectorBuffer cSector;
-    // Iterate over usage map in ram
-    for (uint32_t j = 0; j < USAGE_BITMAP_STORAGE_SIZE; j++)
+    if (table == NULL || table->storage == NULL || table->htable == NULL)
     {
-        used = usage_bitmap[j];
-        last_bit = 0;
+        return false;
+    }
 
-        while (used != 0)
+    ContactSectorBuffer cSector;
+    uint32_t last_free_index = 0;
+
+    // The starting word for contact sector
+    int first_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(DATA_REGION_START_SECTOR - CONTACT_DATA_START_SECTOR);
+    int first_contact_usage_bit = USAGE_BITMAP_FIND_BIT(DATA_REGION_START_SECTOR - CONTACT_DATA_START_SECTOR);
+
+    // Get the last uint32_t and bit in said word which stores a contact sector usage bit
+    int last_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(HASH_TABLE_SIZE);
+    int last_sector_usage_bit = USAGE_BITMAP_FIND_ELEMENT(HASH_TABLE_SIZE);
+
+
+    // iterate over every uint32 in the usage bitmap
+    for (uint32_t word = first_contact_usage_elem; word <= last_contact_usage_elem ; word++)
+    {
+
+        uint32_t bits = usage_bitmap[word];
+
+        // clear all non-contact bits that are in this work before contact usage sector bits start
+        if (first_contact_usage_elem > 0)
         {
-            uint32_t bit = __builtin_ctz(used);
-            uint16_t sector = (uint16_t)(j * 32 + bit);
-
-            // Free sectors before this used sector
-            free_list_free_range(table->free_stack, (uint16_t) (j * 32 + last_bit), sector);
-
-            // Read ContactSector
-            read_contact_sector(table->storage, sector, &cSector);
-
-            uint8_t cSector_used = cSector.sector.header.used_bitmap;
-            // Read every contact in sector
-            while (cSector_used != 0)
-            {
-                uint32_t contact_bit = __builtin_ctz(cSector_used);
-                cSector_used--;
-            }
-            // Reconstruct hash entry
-
-            used &= used - 1;
-            last_bit = bit + 1;
+            bits &= (~0) << (first_contact_usage_bit - 1);
         }
 
-        // Free sectors after the final used sector
-        free_list_free_range(table->free_stack, (uint16_t) (j * BITS_PER_ELEMENT + last_bit), 
-                j * BITS_PER_ELEMENT + BITS_PER_ELEMENT);
+
+        while (bits != 0)
+        {
+            uint32_t bit = __builtin_ctz(bits);
+
+            // check that the bit that we are on doesn't go past the total number of sectors allocated to contacts
+            if ((bit + word * BITS_PER_ELEMENT) >= CONTACT_MEMORY_SECTOR_SIZE )
+            {
+                break;
+            }
+
+            /*
+             * The usage bitmap holds one bit per *physical contact sector*
+             * (see mem_layout.h: USAGE_BITMAP_SIZE is sized from
+             * TOTAL_DATA_SECTOR_SIZE, and write_contact() sets the bit at
+             * index / CONTACT_SECTOR_CAPACITY). The free list / entry->sector
+             * work in *contact slot* units, CONTACT_SECTOR_CAPACITY of which
+             * pack into one physical sector.
+             */
+            uint16_t phys_sector = (uint16_t)(word * BITS_PER_ELEMENT + bit);
+            uint16_t slot_base = (uint16_t)(phys_sector * CONTACT_SECTOR_CAPACITY);
+
+            free_list_free_range(table->contact_allocator, (uint16_t)last_free_index, slot_base);
+
+            // read_contact_sector() divides its arg by CONTACT_SECTOR_CAPACITY,
+            // so address it with the first slot of this physical sector.
+            STRG_RET ret = read_contact_sector(table->storage, slot_base, &cSector);
+            if (ret == STRG_FAIL)
+            {
+                return false;
+            }
+
+
+            // Iterate over every used contact in the sector and add it to
+            bool contacts_insert_success = insert_contacts_from_sector(table, cSector.sector, slot_base);
+            if (!contacts_insert_success)
+            {
+                return false;
+            }
+
+            bits &= bits - 1; // clear the lowest set bit
+            last_free_index = slot_base + CONTACT_SECTOR_CAPACITY;
+        }
     }
+
+    // Anything after the last used index in the whole bitmap is free (this only frees up to the FLS capacity)
+    free_list_free_range(table->contact_allocator, (uint16_t)last_free_index,
+            (uint16_t)(USAGE_BITMAP_STORAGE_SIZE * BITS_PER_ELEMENT));
+
+    return true;
 }
 
+
+bool insert_message_from_sector(HashTable *table, Journal *journal, MessageSectorBuffer *mSector, uint16_t index)
+{
+    const char* phone = mSector->var.header.phone;
+    uint16_t hash = hash_phone(phone);
+    STRG_RET ret;
+
+    HashEntry *entry;
+
+    if (!hash_find_entry(table, phone, &entry))
+    {
+        return false; // table full mid-reconstruction
+    }
+
+    // If there is a message without a contact (this should never happen as contact are read first)
+    if (entry->state != ENTRY_OCCUPIED)
+    {
+        // create an empty contact with a phone number
+        ContactBuffer new_contact = create_contact("", phone);
+        uint16_t sector = free_list_allocate(table->contact_allocator);
+
+        // No more contact sector available
+        if (sector == UINT16_MAX)
+        {
+            return false;
+        }
+
+        // write the new empty contact to the SD card
+        ret = write_contact(table->storage, journal, sector, &new_contact);
+
+        if (ret != STRG_OK)
+        {
+            return false;
+        }
+    entry->state = ENTRY_OCCUPIED;
+    entry->id = hash;
+    table->num_elems++;
+    }
+
+    // Need to also increment free list used count (NOTE: should add
+    // func to insert contact ptr to entry directly)
+    entry->latest_msg_extent = index;
+    table->message_allocator->used_count++;
+
+    return true;
+}
+
+bool hash_reconstruct_message(HashTable *table, Journal *journal)
+{
+    MessageSectorBuffer mSector;
+    uint32_t last_free_sector = 0;
+
+    // The starting word for contact sector
+    int first_message_usage_elem = USAGE_BITMAP_FIND_ELEMENT(DATA_REGION_START_SECTOR - MESSAGE_DATA_START_SECTOR);
+    int first_message_usage_bit = USAGE_BITMAP_FIND_BIT(DATA_REGION_START_SECTOR - MESSAGE_DATA_START_SECTOR);
+
+    // Get the last uint32_t and bit in said word which stores a contact sector usage bit
+    int last_message_usage_elem = USAGE_BITMAP_FIND_ELEMENT(MESSAGE_SECTOR_SIZE);
+    int last_message_usage_bit = USAGE_BITMAP_FIND_ELEMENT(MESSAGE_SECTOR_SIZE);
+
+    for (uint32_t word = first_message_usage_elem; word <= last_message_usage_elem; word++)
+    {
+        // copy bits to another variable
+        uint32_t bits = usage_bitmap[word];
+        // clear all non-contact bits that are in this work before contact usage sector bits start
+        if (first_message_usage_elem > 0)
+        {
+            bits &= (~0) << (first_message_usage_bit - 1);
+        }
+
+        while (bits != 0)
+        {
+            uint32_t bit = __builtin_ctz(bits);
+
+            // check that the bit that we are on doesn't go past the total number of sectors allocated to contacts
+            if ((bit + word * BITS_PER_ELEMENT) >= CONTACT_MEMORY_SECTOR_SIZE )
+            {
+                break;
+            }
+
+            // get the physical sector in the message data memory block
+            uint16_t phys_sector = (uint16_t)(word * BITS_PER_ELEMENT + bit);
+
+            free_list_free_range(table->contact_allocator, (uint16_t)last_free_sector, phys_sector);
+
+            // read the message sector and determine if it is the latest message
+            STRG_RET ret = read_message_sector(table->storage, phys_sector, &mSector);
+
+            if (ret != STRG_OK)
+            {
+                return false;
+            }
+
+            // Only add the latest message in the message linked list
+            if (mSector.var.header.next == UINT16_MAX)
+            {
+                // insert the latest message from message sector into hash entry
+               if (!insert_message_from_sector(table, journal, &mSector, phys_sector))
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+
+}
+
+bool hash_cleanup(HashTable *table) {
+
+    // break the hash table
+    hash_clear(table);
+
+    bool reconstruction_success = hash_reconstruct_contact(table);
+
+    if (!reconstruction_success) {
+        return false;
+    }
+
+    // hash_reconstruct_message(table); <- need to implement
+    return true;
+}
 
 #if defined (HOST_BUILD)
 
-/**
- * @brief SOFTWARE TESTING ONLY - Allocate memory on heap for RAM (statically allocated for STM32)
- *
- */
-HashEntry* hash_create_software(void) {
-    return  (HashEntry*)calloc(HASH_TABLE_SIZE, sizeof(HashEntry));
+HashEntry* hash_create_software(void)
+{
+    return (HashEntry*)calloc(HASH_TABLE_SIZE, sizeof(HashEntry));
 }
 
-/**
- * @brief SOFTWARE TESTING ONLY - Allocate memory on heap for SD Card  
- */
-uint8_t* hash_create_sd_mock(void) {
+uint8_t* hash_create_sd_mock(void)
+{
     return (uint8_t*)calloc(HASH_TABLE_SIZE, sizeof(Contact));
 }
 
-/**
- * @brief SOFTWARE TESTING ONLY - Free allocated memory for hash table testing
- */
-void hash_destroy_software(HashTable* table, uint8_t* sd) {
+void hash_destroy_software(HashTable* table, uint8_t* sd)
+{
     free(table->htable);
     free(sd);
 }

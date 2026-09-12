@@ -91,14 +91,14 @@ extern "C" {
  * exactly one place that can get the offsets wrong.
  */
 
-// Superheader — sector 0
+/* ---- Superheader — sector 0 ----------------------------------------*/
 #define SUPERHEADER_SECTOR 0
 #define SUPERHEADER_DATA_BYTES 12
 #define SUPERHEADER_PADDING (SUPERHEADER_BYTES - SUPERHEADER_DATA_BYTES - 2 * sizeof(uint32_t))
 #define SUPERHEADER_BYTES SECTOR_SIZE
 #define SUPERHEADER_SECTOR_SIZE 1
 
-// Usage bitmap — starts right after the superheader
+/* ---- Usage bitmap — starts right after the superheader ----------------------------------------*/
 #define USAGE_BITMAP_START_SECTOR (SUPERHEADER_SECTOR + SUPERHEADER_SECTOR_SIZE)
 
 #define BITS_PER_ELEMENT 32
@@ -123,7 +123,7 @@ extern "C" {
 #define USAGE_BITMAP_FIND_INDEX(sectorInd)   ((sectorInd) / BITS_PER_ELEMENT)
 #define USAGE_BITMAP_FIND_BIT(sectorInd)     ((sectorInd) % BITS_PER_ELEMENT)
 
-// Journal — starts right after the usage bitmap.
+/* ---- Journal — starts right after the usage bitmap ----------------------------------------*/
 #define JRNL_HEADER_SECTOR  (USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_SECTOR_SIZE)
 #define JRNL_CONTENT_SECTOR (JRNL_HEADER_SECTOR + 1)
 #define JRNL_USAGE_SECTOR   (JRNL_HEADER_SECTOR + 2)

@@ -90,9 +90,12 @@ typedef union
 
 // Static checks to ensure the size of the struct are correct if they are changed
 STATIC_ASSERT(MESSAGE_BLOCK_PADDING > 0, "0 or negative padding (remove padding from struct)");
+
 STATIC_ASSERT(sizeof(Message) == MESSAGE_BYTES, "Unexpected Message size");
+
 STATIC_ASSERT(sizeof(MessageSectorHeader) == MESSAGE_BLOCK_HEADER_BYTES, "Unexpected \
         MessageSectorHeader size");
+
 STATIC_ASSERT(sizeof(MessageSector) == SECTOR_SIZE, "Unexpected MessageSector size");
 
 // Opaque Declaration of FreeList
@@ -130,6 +133,19 @@ STRG_RET read_message_sector(Storage *storage, uint16_t index, MessageSectorBuff
  */
 STRG_RET write_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *out);
 
+
+/**
+ * @brief Initialise a new message sector with message and write to SD card
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param journal pointer to rollback journal
+ * @param phone phone number associated with message
+ * @param index sector index the new sector is being written to
+ * @param in sector being written to the SD Card
+ * @retval True if successful write else false.
+ */
+STRG_RET write_new_message_sector(Storage *storage, Journal *journal, const char* phone, uint16_t index, MessageBuffer *in);
+
 /**
  * @brief Write the message to the sd card in the appropriate message sector
  *
@@ -140,6 +156,20 @@ STRG_RET write_message_sector(Storage *storage, uint16_t index, MessageSectorBuf
  * @retval True if successful write else false.
  */
 STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, MessageBuffer *in);
+
+/**
+ * @brief Initialise a new message sector with message and write to SD card
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param journal pointer to rollback journal
+ * @param phone phone number associated with message
+ * @param prev sector index the current full sector
+ * @param next sector index the next sector given from allocator
+ * @param in sector being written to the SD Card
+ * @retval True if successful write else false.
+ */
+STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const char* phone, uint16_t prev, uint16_t next,
+        MessageBuffer *in);
 
 
 /**
@@ -153,6 +183,17 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
 STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuffer *out);
 
 /**
+ * @brief Read n number of messages from the sd card of the associated phone number
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param startIndex memory index of the latest message sector
+ * @param n number of message to be read to the output message buffer array
+ * @param out array of messages
+ * @retval number of messages read, if failure return negative number. Follows STRG_RET enum except -1 if failure
+ */
+int read_n_messages(Storage *storage, uint16_t startIndex, int n, MessageBuffer *out);
+
+/**
  * @brief Remove the message to the sd card from the appropriate message sector
  *
  * @param table Pointer to the hash table.
@@ -160,7 +201,7 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
  * @param out message Sector Buffer that has been deleted from the chat
  * @retval True if successful write else false.
  */
-bool remove_message_chat(Storage *storage, Journal *journal, uint16_t index, MessageBuffer *out);
+bool remove_message_chat(Storage *storage, Journal *journal, FreeList *msg_allocator, uint16_t index);
 
 /**
  * @brief Add a new message to a chat. Shall be appended to the end of the chat
@@ -181,6 +222,20 @@ bool add_message(Storage *storage, Journal *journal, uint16_t, MessageBuffer *in
  * @retval True if message has successfully been added, else false
  */
 bool remove_message(Storage *storage, Journal *journal, uint16_t, MessageBuffer *out);
+
+
+/**
+ * @brief Create a new message struct
+ *
+ * @retval Empty MessageBuffer if failure
+ */
+MessageBuffer create_message(uint16_t timestamp, bool direction, char *str);
+
+/**
+ * @brief Create a new message sector struct
+ */
+void create_new_message_sector(MessageSectorBuffer *mSector, const char *phone, uint16_t prev);
+
 
 
 

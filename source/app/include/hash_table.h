@@ -17,6 +17,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 #include "contact.h"
+#include "message.h"
 
 // Struct Sizes
 #define HASH_ENTRY_BYTES 8
@@ -32,7 +33,7 @@ typedef struct Journal Journal;
 // Entry State  (Pack enum to 1 byte)
 typedef uint8_t ENTRY_STATE;
 enum
-{ 
+{
     ENTRY_EMPTY = 0,
     ENTRY_OCCUPIED,
     ENTRY_DELETED
@@ -53,13 +54,14 @@ STATIC_ASSERT(sizeof(HashEntry) == HASH_ENTRY_BYTES, "Unexpected HashEntry size"
 
 
 // Information Struct about hash table
-typedef struct 
+typedef struct
 {
     HashEntry *htable; // In RAM hash table (allocated in RAM D1)
     Storage *storage; // Pointer to storage struct (allocated in database struct)
-    FreeList *free_stack; // Pointer to FLS struct (allocates in database struct)
+    FreeList *contact_allocator; // Pointer to contat FLS struct (allocates in database struct)
+    FreeList *message_allocator; // Pointer to message FLS struct (allocated in database struct)
     size_t num_elems; // amount of elements in table
-    size_t size; // total space in table 
+    size_t size; // total space in table
 #if defined (HOST_BUILD)
     size_t collision_count; // for benchmarking hash functions
 #endif
@@ -69,13 +71,13 @@ typedef struct
 /**
   * @brief  Create a hash table
   * @param  table: Hash Table struct being initialised
-  * @param storage: 
-  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs) 
+  * @param storage:
+  * @param  fstacks: pointer to array of FLSs (allowing multiple FLSs)
   * @param  entries: In RAM storage of hash table entries
   * @param  size: number of elements in hash table
   */
-
-void hash_init( HashTable* table, Storage* storage, FreeList *fstacks,  HashEntry* entries, size_t size);
+void hash_init(HashTable *table, Storage *storage, FreeList *contact_fstack, FreeList *message_fstack,
+        HashEntry *entries, size_t size);
 
 /**
   * @brief  Destroy a hash table and free all associated memory
@@ -99,7 +101,7 @@ uint16_t hash_insert(HashTable *table, uint16_t id);
  * @param contact Contact to insert.
  * @retval Sector index if insertion successful, otherwise UINT16_MAX.
  */
-uint16_t hash_insert_contact(HashTable *table, Journal *journal, uint16_t id, ContactBuffer *contact);
+bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *contact);
 
 /**
   * @brief  Insert a contact into the hash table using phone number of PK
@@ -107,52 +109,55 @@ uint16_t hash_insert_contact(HashTable *table, Journal *journal, uint16_t id, Co
   * @param  contact: Contact to insert
   * @retval if insertion successful return sector index, else UINT16_MAX
   */
-uint16_t hash_insert_phone(HashTable *table, char *phone);
+bool hash_insert_message(HashTable *table, Journal *journal, const char* phone, MessageBuffer *in);
 
 /**
-  * @brief  Find a contact by its unique ID
+  * @brief  Find hash table entry to associated phone number
   * @param  table: Pointer to the hash table
-  * @param  id: Contact ID to search for
-  * @retval Pointer to the matching contact, or NULL if not found
-  */
-uint16_t hash_find_sector(HashTable *table, uint16_t id);
-
-/**
-  * @brief  Find a contact by its unique ID
-  * @param  table: Pointer to the hash table
-  * @param  id: Contact ID to search for
-  * @param  out: Output HashEntry pointer
+  * @param  phone: phone number contact in being inserted with
+  * @param  h1: phone number hash 1
+  * @param  h2: phone number hash 2
+  * @param entry: output entry from from the hash table
   * @retval True if entry found else false
   */
-bool hash_find_entry(HashTable *table, uint16_t id, HashEntry** out);
+bool hash_find_entry(HashTable *table, const char *phone, HashEntry **entry);
 
 /**
  * @brief Find a contact by its unique ID. This will pull the contact from the SD Card in one
  * go
  *
  * @param table Pointer to the hash table.
- * @param id Contact ID to search for.
+ * @param phone: phone number the contact is stored under
  * @param out Pointer to output Contact.
  * @retval true if contact found, otherwise false.
  */
-bool hash_find_contact(HashTable *table, uint16_t id, ContactBuffer *out);
+bool hash_find_contact(HashTable *table, const char *phone, ContactBuffer *out);
 
 /**
-  * @brief  Find a contacts message extent offset
+  * @brief  Find a contacts message
   * @param  table: Pointer to the hash table
-  * @param  id: Contact ID to search for
+  * @param phone: phone number the message is associated with
   * @retval Pointer to the matching message extent, or NULL if not found
   */
-uint16_t hash_find_message(HashTable *table, uint16_t id);
+bool hash_find_message(HashTable *table, const char *phone, MessageBuffer *out);
+
 
 /**
-  * @brief  Remove a contact from the hash table
+  * @brief  Find n number of messages from a contact
   * @param  table: Pointer to the hash table
-  * @param  id: Contact ID to remove
+  * @param  phone: phone number the message is associated with
+  * @retval the number of messages read from the sd card, -1 if fault
+  */
+int hash_find_n_message(HashTable *table, const char *phone, int n, MessageBuffer *out);
+
+/**
+  * @brief  Remove an entry from the hash table. That include removed the contact and message chat from the SD card
+  * @param  table: Pointer to the hash table
+  * @param  phone: phone number of entry that is being removed
   * @param removed: removed entry
   * @retval true if the contact was removed, false if it was not found
   */
-bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed);
+bool hash_remove(HashTable *table, Journal *journal, const char *phone, HashEntry *removed);
 
 /**
  * @brief Remove a contact from the hash table.
@@ -161,7 +166,61 @@ bool hash_remove(HashTable *table, uint16_t id, HashEntry **removed);
  * @param id Contact ID to remove.
  * @retval true if the contact was removed, otherwise false.
  */
-bool hash_remove_contact(HashTable *table, Journal *journal, uint16_t id, ContactBuffer *out);
+bool hash_remove_contact(HashTable *table, Journal *journal, const char *phone, ContactBuffer *out);
+
+/**
+ * @brief Remove a messages from the hash table
+ *
+ * @param table Pointer to the hash table.
+ * @param phone: phone number with which the message is being removed from
+ * @param message_num: message number being removed from the message chat
+ * @param out: pointer to message buffer which is filled with removed message buffer
+ * @retval true if the contact was removed, otherwise false.
+ */
+bool hash_remove_message(HashTable *table, Journal *journal, const char *phone, int message_num, MessageBuffer *out);
+
+
+/**
+  * @brief  Reconstruct the in-RAM hash table from persistent contact
+  *         data after a restart, using the usage bitmap to avoid
+  *         scanning unused sectors.
+  * @param  table: Pointer to a freshly hash_init'd, empty hash table
+  * @retval true if reconstruction completed successfully, false on a
+  *         storage read failure or if the table filled up mid-reconstruction.
+  */
+bool hash_reconstruct_contact(HashTable *table);
+
+
+/**
+  * @brief  Reconstruct the in-RAM hash table from persistent message
+  *         data after a restart, using the usage bitmap to avoid
+  *         scanning unused sectors.
+  * @param  table: Pointer to a freshly hash_init'd, empty hash table
+  * @retval true if reconstruction completed successfully, false on a
+  *         storage read failure or if the table filled up mid-reconstruction.
+  */
+bool hash_reconstruct_message(HashTable *table, Journal *journal);
+
+/**
+  * @brief  Reconstruct the in-RAM hash table from persistent
+  *         data after a restart, using the usage bitmap to avoid
+  *         scanning unused sectors.
+  * @param  table: Pointer to a freshly hash_init'd, empty hash table
+  * @retval true if reconstruction completed successfully, false on a
+  *         storage read failure or if the table filled up mid-reconstruction.
+  */
+bool hash_reconstruct(HashTable *table);
+
+/**
+ * @brief  Reconstruct the in-RAM hash table from persistent contact data to cleanup tombstoned entries.
+ *         This shall be done if the effective load factor reaches 75% OR the number of collission /  probing hops
+ *         exceeds PROBING_HOP_MAX
+ * @param  table: Pointer to a freshly hash table
+ * @retval true if reconstruction completed successfully, false on a
+ *         storage read failure or if the table filled up mid-reconstruction.
+ */
+bool hash_cleanup(HashTable* table);
+
 
 /**
   * @brief  Get the number of contacts currently stored in the hash table
@@ -193,7 +252,7 @@ void hash_print(const HashTable *table);
 HashEntry* hash_create_software(void);
 
 /**
- * @brief SOFTWARE TESTING ONLY - Allocate memory on heap for SD Card  
+ * @brief SOFTWARE TESTING ONLY - Allocate memory on heap for SD Card
  */
 uint8_t* hash_create_sd_mock(void);
 /**

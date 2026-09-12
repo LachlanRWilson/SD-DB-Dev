@@ -41,7 +41,8 @@ typedef enum {
     STRG_FAIL = 0,
     STRG_OK,
     STRG_EMPTY,
-    STRG_FULL
+    STRG_FULL,
+    STRG_NEXT // need to move to the next storage sector
 } STRG_RET;
 
 

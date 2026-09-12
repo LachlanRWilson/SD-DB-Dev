@@ -8,7 +8,6 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "message_extent.h"
 #include "hash_table.h"
 #include "storage.h"
 #include "sdmmc.h"

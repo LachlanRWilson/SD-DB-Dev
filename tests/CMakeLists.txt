@@ -38,10 +38,6 @@ add_executable(test_free_list
     test_free_list_stack.cpp
 )
 
-add_executable(test_message_extent
-    test_message_extent.cpp
-)
-
 add_executable(test_usage_bitmap
     test_usage_bitmap.cpp
 )
@@ -54,7 +50,6 @@ add_executable(test_journal
 foreach(test
     test_hash_table
     test_free_list
-    test_message_extent
     test_usage_bitmap
     test_journal
 )

@@ -16,7 +16,7 @@ extern "C" {
 #include <stdint.h>
 #include "mem_layout.h"
 #include "contact.h"
-#include "message_extent.h"
+#include "message.h"
 #include "hash_table.h"
 #include "usage_bitmap.h"
 
