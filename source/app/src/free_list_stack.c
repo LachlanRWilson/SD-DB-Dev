@@ -109,23 +109,17 @@ void free_list_free_range(FreeList *self, uint16_t startIndex, uint16_t endIndex
 }
 
 /**
- * @brief Frees range of sectors [startSector, endSector)
+ * @brief Frees every contact slot belonging to a range of physical
+ *        contact sectors [startSector, endSector).
  *
- * @param self free list stack instance
- * @param startSector inclusive start sector
- * @param endSector exclusive end sector
+ * @param self free list stack instance (tracks contact slot indices)
+ * @param startSector inclusive start physical sector index
+ * @param endSector exclusive end physical sector index
  */
 void free_list_free_sector_range(FreeList *self, uint16_t startSector, uint16_t endSector)
 {
-    for (int i = startSector; startSector < endSector; i++)
-    {
-        if (i >= self->capacity)
-        {
-            return;
-        }
-        free_list_free_range(self, startSector * CONTACT_SECTOR_CAPACITY, endSector * CONTACT_SECTOR_CAPACITY);
-    }
-
+    free_list_free_range(self, (uint16_t)(startSector * CONTACT_SECTOR_CAPACITY),
+                          (uint16_t)(endSector * CONTACT_SECTOR_CAPACITY));
 }
 
 /**

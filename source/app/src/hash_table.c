@@ -243,7 +243,7 @@ bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *cont
 
     if (table == NULL || table->storage == NULL || table->contact_allocator == NULL || contact == NULL)
     {
-        return UINT16_MAX;
+        return false;
     }
 
     // create hash number using phone number stored in inserting contact
@@ -253,7 +253,7 @@ bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *cont
     // Find the entry associated to the hash number
     if (!hash_find_entry(table, phone, &entry) || entry == NULL)
     {
-        return UINT16_MAX; // table full
+        return false; // table full
     }
 
     // If the entry at the hash index (therefore no sector allocated, allocate a new sector)
@@ -265,12 +265,13 @@ bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *cont
 
         if (sector == UINT16_MAX)
         {
-            return UINT16_MAX; // allocator exhausted
+            return false; // allocator exhausted
         }
 
         entry->sector = sector;
         entry->state = ENTRY_OCCUPIED;
         entry->id = hash; // stored hash used for fast re-probing, not a unique key
+        entry->latest_msg_extent = UINT16_MAX; // no message chat yet
         table->num_elems++;
     }
     else
@@ -292,10 +293,10 @@ bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *cont
             table->num_elems--;
         }
 
-        return UINT16_MAX;
+        return false;
     }
 
-    return sector;
+    return true;
 }
 
 /**
@@ -314,9 +315,9 @@ bool hash_insert_message(HashTable *table, Journal *journal, const char *phone, 
     STRG_RET ret;
     bool is_new_entry;
 
-    if (table == NULL || table->storage == NULL || table->contact_allocator == NULL || in == NULL)
+    if (table == NULL || table->storage == NULL || table->contact_allocator == NULL || in == NULL || phone == NULL)
     {
-        return UINT16_MAX;
+        return false;
     }
 
     // create hash number using phone number stored in inserting contact
@@ -325,7 +326,7 @@ bool hash_insert_message(HashTable *table, Journal *journal, const char *phone, 
     // Find the entry associated to the hash number
     if (!hash_find_entry(table, phone, &entry) || entry == NULL)
     {
-        return UINT16_MAX; // table full
+        return false; // table full
     }
 
     // If the entry at the hash index (therefore no sector allocated, allocate a new sector)
@@ -355,10 +356,22 @@ bool hash_insert_message(HashTable *table, Journal *journal, const char *phone, 
         entry->sector = sector;
         entry->state = ENTRY_OCCUPIED;
         entry->id = hash; // stored hash used for fast re-probing, not a unique key
+        entry->latest_msg_extent = UINT16_MAX; // no message chat yet
         table->num_elems++;
+    }
 
+    // The contact may already exist (e.g. inserted via hash_insert_contact)
+    // without ever having received a message, so the chat-empty check must
+    // be independent of is_new_entry.
+    if (entry->latest_msg_extent == UINT16_MAX)
+    {
         // Allocate new sector for message
         sector = free_list_allocate(table->message_allocator);
+
+        if (sector == UINT16_MAX)
+        {
+            return false; // allocator exhausted
+        }
 
         // write message to the sd card
         ret = write_new_message_sector(table->storage, journal, phone, sector, in);
@@ -369,7 +382,7 @@ bool hash_insert_message(HashTable *table, Journal *journal, const char *phone, 
         }
         entry->latest_msg_extent = sector;
 
-    } else { // if not a new entry write message to current message sector
+    } else { // otherwise write message to current message sector
 
         ret = write_message(table->storage, journal, entry->latest_msg_extent, in);
 
@@ -419,8 +432,6 @@ bool hash_find_contact(HashTable *table, const char *phone, ContactBuffer *out)
         return false;
     }
 
-    uint16_t hash = hash_phone(phone);
-
     if (!hash_find_entry(table, phone, &entry))
     {
         return false;
@@ -450,14 +461,12 @@ bool hash_find_message(HashTable *table, const char *phone, MessageBuffer *out)
         return false;
     }
 
-    uint16_t hash = hash_phone(phone);
-
     if (!hash_find_entry(table, phone, &entry))
     {
         return false;
     }
 
-    if (entry->state != ENTRY_OCCUPIED)
+    if (entry->state != ENTRY_OCCUPIED || entry->latest_msg_extent == UINT16_MAX)
     {
         return false;
     }
@@ -483,14 +492,12 @@ int hash_find_n_message(HashTable *table, const char *phone, int n, MessageBuffe
         return false;
     }
 
-    uint16_t hash = hash_phone(phone);
-
     if (!hash_find_entry(table, phone, &entry))
     {
         return false;
     }
 
-    if (entry->state != ENTRY_OCCUPIED)
+    if (entry->state != ENTRY_OCCUPIED || entry->latest_msg_extent == UINT16_MAX)
     {
         return false;
     }
@@ -518,8 +525,6 @@ bool hash_remove_contact(HashTable *table, Journal *journal, const char *phone, 
         return false;
     }
 
-    uint16_t hash = hash_phone(phone);
-
     if (!hash_find_entry(table, phone, &entry) || entry->state != ENTRY_OCCUPIED)
     {
         return false;
@@ -531,11 +536,13 @@ bool hash_remove_contact(HashTable *table, Journal *journal, const char *phone, 
     }
 
     entry->sector = UINT16_MAX;
+    entry->state = ENTRY_DELETED;
+    table->num_elems--;
 
     return true;
 }
 
-bool hash_remove_message(HashTable *table, Journal *journal, const char *phone, int message_num, MessageBuffer *out)
+bool hash_remove_message(HashTable *table, Journal *journal, const char *phone, MessageBuffer *out)
 {
     HashEntry *entry;
 
@@ -545,14 +552,12 @@ bool hash_remove_message(HashTable *table, Journal *journal, const char *phone, 
         return false;
     }
 
-    uint16_t hash = hash_phone(phone);
-
     if (!hash_find_entry(table, phone, &entry) || entry->state != ENTRY_OCCUPIED)
     {
         return false;
     }
 
-    if (!remove_message_chat(table->storage, journal, table->message_allocator, entry->sector))
+    if (!remove_message_chat(table->storage, journal, table->message_allocator, entry->latest_msg_extent))
     {
         return false;
     }
@@ -567,30 +572,28 @@ bool hash_remove_message(HashTable *table, Journal *journal, const char *phone, 
   * @brief  Remove an entry from the hash table. That include removed the contact and message chat from the SD card
   * @param  table: Pointer to the hash table
   * @param  phone: phone number of entry that is being removed
-  * @param removed: removed entry
+  * @param removed: output, set to the removed entry (may be NULL if the caller doesn't need it)
   * @retval true if the entry, contact and message chat was removed, false if not found or not removed properly
   */
-bool hash_remove(HashTable *table, Journal *journal, const char *phone, HashEntry *removed)
+bool hash_remove(HashTable *table, Journal *journal, const char *phone, HashEntry **removed)
 {
     ContactBuffer cOut;
-
+    HashEntry *entry;
 
     if (table == NULL || table->htable == NULL || table->storage == NULL ||
         phone == NULL || table->size == 0) {
       return false;
     }
 
-    uint16_t hash = hash_phone(phone);
-
     // find hash entry that is being removed
-    if (!hash_find_entry(table, phone, &removed) || removed->state != ENTRY_OCCUPIED)
+    if (!hash_find_entry(table, phone, &entry) || entry->state != ENTRY_OCCUPIED)
     {
         return false;
     }
 
     // remove contacts
-    bool contact_removed = remove_contact(table->storage, journal, table->contact_allocator, removed->sector, &cOut);
-    bool message_chat_removal = remove_message_chat(table->storage, journal, table->message_allocator, removed->sector);
+    bool contact_removed = remove_contact(table->storage, journal, table->contact_allocator, entry->sector, &cOut);
+    bool message_chat_removal = remove_message_chat(table->storage, journal, table->message_allocator, entry->latest_msg_extent);
 
     // check both contact and message change has been removed
     if (!contact_removed || !message_chat_removal) {
@@ -598,8 +601,14 @@ bool hash_remove(HashTable *table, Journal *journal, const char *phone, HashEntr
     }
 
     // decrease the number of hash entries in the table
-    removed->state = ENTRY_DELETED;
+    entry->state = ENTRY_DELETED;
     table->num_elems--;
+
+    if (removed != NULL)
+    {
+        *removed = entry;
+    }
+
     return true;
 }
 
@@ -667,6 +676,7 @@ bool insert_contacts_from_sector(HashTable *table, ContactSector cSector, uint16
         entry->state = ENTRY_OCCUPIED;
         entry->id = hash;
         entry->sector = slot_index;
+        entry->latest_msg_extent = UINT16_MAX; // no message chat yet; set by hash_reconstruct_message if one exists
         table->num_elems++;
         // Need to also increment free list used count (NOTE: should add
         // func to insert contact ptr to entry directly)
@@ -711,10 +721,8 @@ bool hash_reconstruct_contact(HashTable *table)
     int first_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(DATA_REGION_START_SECTOR - CONTACT_DATA_START_SECTOR);
     int first_contact_usage_bit = USAGE_BITMAP_FIND_BIT(DATA_REGION_START_SECTOR - CONTACT_DATA_START_SECTOR);
 
-    // Get the last uint32_t and bit in said word which stores a contact sector usage bit
-    int last_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(HASH_TABLE_SIZE);
-    int last_sector_usage_bit = USAGE_BITMAP_FIND_ELEMENT(HASH_TABLE_SIZE);
-
+    // Get the last uint32_t in the usage bitmap which stores a contact sector usage bit
+    int last_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(CONTACT_MEMORY_SECTOR_SIZE);
 
     // iterate over every uint32 in the usage bitmap
     for (uint32_t word = first_contact_usage_elem; word <= last_contact_usage_elem ; word++)
@@ -725,7 +733,7 @@ bool hash_reconstruct_contact(HashTable *table)
         // clear all non-contact bits that are in this work before contact usage sector bits start
         if (first_contact_usage_elem > 0)
         {
-            bits &= (~0) << (first_contact_usage_bit - 1);
+            bits &= (~0u) << (first_contact_usage_bit - 1);
         }
 
 
@@ -814,6 +822,7 @@ bool insert_message_from_sector(HashTable *table, Journal *journal, MessageSecto
         {
             return false;
         }
+    entry->sector = sector;
     entry->state = ENTRY_OCCUPIED;
     entry->id = hash;
     table->num_elems++;
@@ -836,9 +845,8 @@ bool hash_reconstruct_message(HashTable *table, Journal *journal)
     int first_message_usage_elem = USAGE_BITMAP_FIND_ELEMENT(DATA_REGION_START_SECTOR - MESSAGE_DATA_START_SECTOR);
     int first_message_usage_bit = USAGE_BITMAP_FIND_BIT(DATA_REGION_START_SECTOR - MESSAGE_DATA_START_SECTOR);
 
-    // Get the last uint32_t and bit in said word which stores a contact sector usage bit
+    // Get the last uint32_t which stores a message sector usage bit
     int last_message_usage_elem = USAGE_BITMAP_FIND_ELEMENT(MESSAGE_SECTOR_SIZE);
-    int last_message_usage_bit = USAGE_BITMAP_FIND_ELEMENT(MESSAGE_SECTOR_SIZE);
 
     for (uint32_t word = first_message_usage_elem; word <= last_message_usage_elem; word++)
     {
@@ -847,7 +855,7 @@ bool hash_reconstruct_message(HashTable *table, Journal *journal)
         // clear all non-contact bits that are in this work before contact usage sector bits start
         if (first_message_usage_elem > 0)
         {
-            bits &= (~0) << (first_message_usage_bit - 1);
+            bits &= (~0u) << (first_message_usage_bit - 1);
         }
 
         while (bits != 0)
@@ -855,7 +863,7 @@ bool hash_reconstruct_message(HashTable *table, Journal *journal)
             uint32_t bit = __builtin_ctz(bits);
 
             // check that the bit that we are on doesn't go past the total number of sectors allocated to contacts
-            if ((bit + word * BITS_PER_ELEMENT) >= CONTACT_MEMORY_SECTOR_SIZE )
+            if ((bit + word * BITS_PER_ELEMENT) >= MESSAGE_SECTOR_SIZE)
             {
                 break;
             }
@@ -863,7 +871,7 @@ bool hash_reconstruct_message(HashTable *table, Journal *journal)
             // get the physical sector in the message data memory block
             uint16_t phys_sector = (uint16_t)(word * BITS_PER_ELEMENT + bit);
 
-            free_list_free_range(table->contact_allocator, (uint16_t)last_free_sector, phys_sector);
+            free_list_free_range(table->message_allocator, (uint16_t)last_free_sector, phys_sector);
 
             // read the message sector and determine if it is the latest message
             STRG_RET ret = read_message_sector(table->storage, phys_sector, &mSector);

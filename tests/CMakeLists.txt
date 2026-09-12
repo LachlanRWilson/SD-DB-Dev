@@ -31,20 +31,22 @@ include_directories(
 
 add_executable(test_hash_table
     test_hash_table.cpp
-    #test_hash_table_edge.cpp
+    test_hash_table_edge.cpp
 )
 
 add_executable(test_free_list
     test_free_list_stack.cpp
+    test_free_list_stack_edge.cpp
 )
 
 add_executable(test_usage_bitmap
     test_usage_bitmap.cpp
+    test_usage_bitmap_edge.cpp
 )
 
 add_executable(test_journal
     test_journal.cpp
-    #    test_journal_edge.cpp
+    test_journal_edge.cpp
 )
 
 foreach(test

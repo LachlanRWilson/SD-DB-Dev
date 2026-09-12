@@ -61,6 +61,17 @@ void free_list_free(FreeList *self, uint16_t sector);
 void free_list_free_range(FreeList *self, uint16_t startSector, uint16_t endSector);
 
 /**
+ * @brief Frees every contact slot belonging to a range of physical
+ *        contact sectors [startSector, endSector), e.g. after
+ *        discovering those sectors are unused via the usage bitmap.
+ *
+ * @param self free list stack instance (tracks contact slot indices)
+ * @param startSector inclusive start physical sector index
+ * @param endSector exclusive end physical sector index
+ */
+void free_list_free_sector_range(FreeList *self, uint16_t startSector, uint16_t endSector);
+
+/**
  * @brief Returns number of available sectors.
  */
 size_t free_list_available(FreeList *self);

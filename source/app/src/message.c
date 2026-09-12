@@ -173,8 +173,8 @@ STRG_RET point_message_sector_to_next(Storage *storage, Journal *journal, uint16
         return STRG_FAIL;
     }
 
-    // Add to journal (storing usage_bitmap, mSector content is irrelivant)
-    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, next, mSector.buffer);
+    // Add to journal (storing the old prev-sector content for rollback)
+    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, prev, mSector.buffer);
 
     if (!journal_add_success)
     {
@@ -183,7 +183,7 @@ STRG_RET point_message_sector_to_next(Storage *storage, Journal *journal, uint16
 
     mSector.var.header.next = next;
 
-    bool write_success = write_message_sector(storage, next, &mSector);
+    bool write_success = write_message_sector(storage, prev, &mSector);
 
     if (write_success == STRG_FAIL)
     {
@@ -230,7 +230,7 @@ STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const cha
     // check the current full index is actually being used
     is_used = check_usage_bit(prev);
 
-    if (is_used)
+    if (!is_used)
     {
         return STRG_EMPTY;
     }
@@ -326,6 +326,12 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
         return STRG_FAIL;
     }
 
+    // pos indexes back from the newest message; anything at or past msg_count doesn't exist
+    if (pos >= msg_count)
+    {
+        return STRG_FAIL;
+    }
+
     // write message from sd card to output
     memcpy(out->buffer, mSector.var.messages[msg_count - pos - 1].buffer, sizeof(Message));
 
@@ -371,7 +377,7 @@ int read_n_messages(Storage *storage, uint16_t startIndex, int n, MessageBuffer 
     {
         // Copy message to array
         memcpy(out[msg_read].buffer,
-            curMSector.var.messages[msg_count - (msg_read % MESSAGE_BLOCK_CAPACITY) - 1].buffer,
+            curMSector.var.messages[msg_count - 1].buffer,
             sizeof(Message));
     }
 
@@ -402,7 +408,7 @@ int read_n_messages(Storage *storage, uint16_t startIndex, int n, MessageBuffer 
 
         // Copy message to array
         memcpy(out[msg_read].buffer,
-            curMSector.var.messages[msg_count - (msg_read % MESSAGE_BLOCK_CAPACITY) - 1].buffer,
+            curMSector.var.messages[msg_count - 1].buffer,
             sizeof(Message));
 
         // decrement message sector count and increment number of messages read
@@ -483,7 +489,7 @@ bool remove_message_chat(Storage *storage, Journal *journal, FreeList *msg_alloc
     while (curIndex != UINT16_MAX)
     {
         // Remove the message sector
-        ret = remove_message_sector(storage, journal, msg_allocator, startIndex, &mSector);
+        ret = remove_message_sector(storage, journal, msg_allocator, curIndex, &mSector);
         if (ret != STRG_OK)
         {
             return false;
@@ -500,14 +506,20 @@ MessageBuffer create_message(uint16_t timestamp, bool direction, char *str)
 {
     MessageBuffer newMsg = {0};
 
-    if (timestamp > 0 || str == NULL)
+    if (timestamp == 0 || str == NULL)
     {
         return newMsg;
     }
 
+    size_t len = strlen(str);
+    if (len >= SMS_MAX_MESSAGE_LENGTH)
+    {
+        len = SMS_MAX_MESSAGE_LENGTH - 1;
+    }
+
     newMsg.msg.timestamp= timestamp;
     newMsg.msg.direction = direction;
-    memcpy(newMsg.msg.str, str, SMS_MAX_MESSAGE_LENGTH);
+    memcpy(newMsg.msg.str, str, len);
 
 
     return newMsg;

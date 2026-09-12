@@ -99,7 +99,7 @@ uint16_t hash_insert(HashTable *table, uint16_t id);
  *
  * @param table Pointer to the hash table.
  * @param contact Contact to insert.
- * @retval Sector index if insertion successful, otherwise UINT16_MAX.
+ * @retval true if insertion successful, otherwise false.
  */
 bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *contact);
 
@@ -154,10 +154,10 @@ int hash_find_n_message(HashTable *table, const char *phone, int n, MessageBuffe
   * @brief  Remove an entry from the hash table. That include removed the contact and message chat from the SD card
   * @param  table: Pointer to the hash table
   * @param  phone: phone number of entry that is being removed
-  * @param removed: removed entry
+  * @param removed: output, set to the removed entry (may be NULL if the caller doesn't need it)
   * @retval true if the contact was removed, false if it was not found
   */
-bool hash_remove(HashTable *table, Journal *journal, const char *phone, HashEntry *removed);
+bool hash_remove(HashTable *table, Journal *journal, const char *phone, HashEntry **removed);
 
 /**
  * @brief Remove a contact from the hash table.
@@ -177,7 +177,7 @@ bool hash_remove_contact(HashTable *table, Journal *journal, const char *phone, 
  * @param out: pointer to message buffer which is filled with removed message buffer
  * @retval true if the contact was removed, otherwise false.
  */
-bool hash_remove_message(HashTable *table, Journal *journal, const char *phone, int message_num, MessageBuffer *out);
+bool hash_remove_message(HashTable *table, Journal *journal, const char *phone, MessageBuffer *out);
 
 
 /**
