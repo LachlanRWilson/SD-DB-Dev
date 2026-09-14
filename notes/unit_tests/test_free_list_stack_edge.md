@@ -8,26 +8,26 @@ three edge suites).
 
 ## Checklist
 
-- [ ] InitRejectsZeroCapacity
-- [ ] EmptyInitRejectsZeroCapacity
-- [ ] EmptyInitRejectsNullPool
-- [ ] EmptyInitRejectsNullSelf
-- [ ] InitSoftwareRejectsZeroCapacity
-- [ ] SingleSlotAllocatorAllocatesThenExhausts
-- [ ] AllocateOnNullSelfReturnsMax
-- [ ] AllocateOnZeroInitialisedAllocatorReturnsMax
-- [ ] FreeOnFullyFreeAllocatorDoesNotOvergrowOrUnderflow
-- [ ] DoubleFreeDoesNotDuplicateSector
-- [ ] FreeRangeEmptyRangeIsNoOp
-- [ ] FreeRangeInvertedRangeIsNoOp
-- [ ] FreeRangeClampsAtCapacity
-- [ ] FreeRangePartialOverlapFreesOnlyInRange
-- [ ] FreeSectorRangeTerminatesAndFreesExpectedSlotCount
-- [ ] FreeSectorRangeFreesExactSlotWindow
-- [ ] FreeSectorRangeEmptyRangeIsNoOp
-- [ ] ResetOnNeverInitialisedAllocatorIsSafeNoOp
-- [ ] ResetAfterFullExhaustionRestoresEverything
-- [ ] InterleavedAllocateFreeStaysLifo
+- [X] InitRejectsZeroCapacity
+- [X] EmptyInitRejectsZeroCapacity
+- [X] EmptyInitRejectsNullPool
+- [X] EmptyInitRejectsNullSelf
+- [X] InitSoftwareRejectsZeroCapacity
+- [X] SingleSlotAllocatorAllocatesThenExhausts
+- [X] AllocateOnNullSelfReturnsMax
+- [X] AllocateOnZeroInitialisedAllocatorReturnsMax
+- [X] FreeOnFullyFreeAllocatorDoesNotOvergrowOrUnderflow
+- [X] DoubleFreeDoesNotDuplicateSector
+- [X] FreeRangeEmptyRangeIsNoOp
+- [X] FreeRangeInvertedRangeIsNoOp
+- [X] FreeRangeClampsAtCapacity
+- [X] FreeRangePartialOverlapFreesOnlyInRange
+- [X] FreeSectorRangeTerminatesAndFreesExpectedSlotCount
+- [X] FreeSectorRangeFreesExactSlotWindow
+- [X] FreeSectorRangeEmptyRangeIsNoOp
+- [X] ResetOnNeverInitialisedAllocatorIsSafeNoOp
+- [X] ResetAfterFullExhaustionRestoresEverything
+- [X] InterleavedAllocateFreeStaysLifo
 
 ---
 

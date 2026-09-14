@@ -73,6 +73,8 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
     // bit in uint32_t element
     uint32_t bit = USAGE_BITMAP_FIND_BIT(index);
 
+    // check if the bit has actually changed
+    bool changed = ((write_sector[element]) & (uint32_t)(1U << bit)) ? true : false;
 
     if (used_state) {
         // Set bit
@@ -82,7 +84,25 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
         write_sector[element] &= ~(1U << bit);
     }
 
-    return storage->write_block( storage->context, USAGE_BITMAP_START_SECTOR + bitmap_sector,
-            (uint8_t *)write_sector
-    );
+
+    STRG_RET ret = storage->write_block( storage->context, USAGE_BITMAP_START_SECTOR + bitmap_sector,
+            (uint8_t *)write_sector);
+
+    // If the write fails, return the bit back to what it was before
+    if (ret != STRG_OK)
+    {
+        // if the bit has changed, change back
+        if (changed)
+        {
+            if (!used_state) {
+                // Set bit
+                write_sector[element] |= (1U << bit);
+            } else {
+                // Unset bit
+                write_sector[element] &= ~(1U << bit);
+            }
+        }
+        return ret;
+    }
+    return STRG_OK;
 }

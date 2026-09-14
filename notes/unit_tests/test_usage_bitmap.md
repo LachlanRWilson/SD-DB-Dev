@@ -9,19 +9,19 @@ whether it's currently allocated. This is the structure `hash_reconstruct_contac
 
 ## Checklist
 
-- [ ] ReadUsageBitmap
-- [ ] CheckUnusedBit
-- [ ] SetUsageBit
-- [ ] ClearUsageBit
-- [ ] AllBitsInWord
-- [ ] BitmapSectorBoundary
-- [ ] EveryBitmapSectorBoundary
-- [ ] DoesNotModifyNeighbouringBits
-- [ ] MultipleBitmapSectors
-- [ ] LastDataSector
-- [ ] RepeatedSetClear
-- [ ] WordBoundary
-- [ ] EveryDataSector
+- [X] ReadUsageBitmap
+- [X] CheckUnusedBit
+- [X] SetUsageBit
+- [X] ClearUsageBit
+- [X] AllBitsInWord
+- [X] BitmapSectorBoundary
+- [X] EveryBitmapSectorBoundary
+- [X] DoesNotModifyNeighbouringBits
+- [X] MultipleBitmapSectors
+- [X] LastDataSector
+- [X] RepeatedSetClear
+- [X] WordBoundary
+- [X] EveryDataSector
 
 ---
 

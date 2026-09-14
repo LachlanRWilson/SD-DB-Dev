@@ -7,12 +7,12 @@ allocator used to hand out contact/message sector indices. 6 tests, all passing
 
 ## Checklist
 
-- [ ] AllocateSequentially
-- [ ] AllocationIsLIFO
-- [ ] FreeReusesSector
-- [ ] FullCycleAllocateFreeAllocate
-- [ ] CountersTrackCorrectly
-- [ ] ResetRestoresAllSectors
+- [X] AllocateSequentially
+- [X] AllocationIsLIFO
+- [X] FreeReusesSector
+- [X] FullCycleAllocateFreeAllocate
+- [X] CountersTrackCorrectly
+- [X] ResetRestoresAllSectors
 
 ---
 

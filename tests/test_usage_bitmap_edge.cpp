@@ -126,24 +126,16 @@ TEST_F(UsageBitmapEdgeTest, UpdatePropagatesStorageWriteFailure)
 }
 
 /**
- * @brief Characterisation test: update_usage_bit() mutates the global RAM
- *        bitmap *before* attempting the storage write. If that write
- *        fails, RAM and storage are left disagreeing -- check_usage_bit()
- *        reports the new state even though storage still has the old
- *        one. This isn't asserting that's *correct* (a caller relying on
- *        RAM/storage staying in sync across a failed write would be
- *        wrong to), just pinning down what actually happens today so a
- *        future change to the ordering is a deliberate decision, not an
- *        accident.
+ * @brief Ensures that the if there is a write failure the RAM is not out of sync of the sd card usage bitmap
  */
-TEST_F(UsageBitmapEdgeTest, FailedWriteLeavesRamAheadOfStorage)
+TEST_F(UsageBitmapEdgeTest, FailedWriteDoesNotLeaveRamAheadOfStorage)
 {
     ctx.fail_after_write = 1;
 
     EXPECT_EQ(update_usage_bit(&storage, 3, true), STRG_FAIL);
 
     // RAM already reflects "set"...
-    EXPECT_TRUE(check_usage_bit(3));
+    EXPECT_FALSE(check_usage_bit(3));
 
     // ...but storage was never actually written.
     uint8_t sector0[SECTOR_SIZE]{};

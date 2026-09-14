@@ -13,14 +13,21 @@ if (BUILD_STM32)
 add_library(app_logic
     # Add App Source Files
     #
-    # db_main.c runs the phone-keyed DB hardware tests (journalling +
-    # hash-table reconstruction), so the STM32 build now links the same
-    # phone-keyed implementation the host tests use, plus the journal /
-    # usage-bitmap / storage helpers it depends on.
+    # db_main.c runs the phone-keyed contact + message DB hardware tests
+    # (journalling + hash-table reconstruction), so the STM32 build links
+    # the same hash_table.c/message.c implementation the host tests use,
+    # plus the journal / usage-bitmap / storage helpers it depends on.
+    #
+    # hash_table_phone.c is legacy (contact-only, no messages) and is no
+    # longer linked here -- it also no longer compiles against the current
+    # contact.c API (remove_contact() gained a FreeList* parameter it never
+    # picked up), so keep it out of both build configs until/unless it's
+    # updated or removed outright.
     app/src/free_list_stack.c
-    app/src/hash_table_phone.c
+    app/src/hash_table.c
     app/src/storage.c
     app/src/contact.c
+    app/src/message.c
     app/src/journal.c
     app/src/usage_bitmap.c
     app/src/crc.c
@@ -48,9 +55,12 @@ else ()
 add_library(app_logic
     # Add App Source Files
     app/src/free_list_stack.c
-    # hash_table.c (ID-keyed) and hash_table_phone.c (phone-keyed) define
-    # the same symbols (hash_init, hash_size, hash_phone, ...). The host
-    # build / tests use the phone-keyed implementation only.
+    # hash_table.c is the phone-keyed, message-capable implementation used
+    # by both the host tests and (as of this build config) the STM32
+    # firmware. hash_table_phone.c is an older, contact-only variant kept
+    # around as legacy reference; it defines the same symbols
+    # (hash_init, hash_size, hash_phone, ...) so the two must never be
+    # linked together.
     app/src/hash_table.c
     app/src/storage.c
     app/src/heap_storage.c

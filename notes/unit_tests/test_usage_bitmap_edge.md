@@ -8,17 +8,17 @@ passing (`ctest -R UsageBitmapEdgeTest`). Uses the shared
 
 ## Checklist
 
-- [ ] InitClearsPreviouslySetBitsInRamAndStorage
-- [ ] InitPropagatesStorageWriteFailure
-- [ ] ReadPropagatesStorageReadFailure
-- [ ] FailedReadLeavesExistingRamBitsIntact
-- [ ] UpdatePropagatesStorageWriteFailure
-- [ ] FailedWriteLeavesRamAheadOfStorage
-- [ ] SettingAlreadySetBitIsIdempotent
-- [ ] ClearingAlreadyClearBitIsNoOp
-- [ ] FirstPaddingBitAfterLastDataSectorIsUsable
-- [ ] LastAddressableArrayBitIsUsable
-- [ ] UpdateFailsWhenTargetSectorExceedsStorageCapacity
+- [X] InitClearsPreviouslySetBitsInRamAndStorage
+- [X] InitPropagatesStorageWriteFailure
+- [X] ReadPropagatesStorageReadFailure
+- [X] FailedReadLeavesExistingRamBitsIntact (Fixed to FailedReadDoesNotLeaveExistingRamBitsIntact)
+- [X] UpdatePropagatesStorageWriteFailure
+- [X] FailedWriteLeavesRamAheadOfStorage
+- [X] SettingAlreadySetBitIsIdempotent
+- [X] ClearingAlreadyClearBitIsNoOp
+- [X] FirstPaddingBitAfterLastDataSectorIsUsable
+- [X] LastAddressableArrayBitIsUsable
+- [X] UpdateFailsWhenTargetSectorExceedsStorageCapacity
 
 ---
 
