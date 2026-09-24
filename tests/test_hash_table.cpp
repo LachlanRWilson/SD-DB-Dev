@@ -939,6 +939,193 @@ TEST_F(HashTableTest, GetContactListReturnsSecondTenContacts)
     EXPECT_EQ(returned_phones, phones);
 }
 
+/* ============================================================================
+ * Scale tests
+ * ========================================================================== */
+
+/**
+ * @brief Inserting a large number of contacts (5000) succeeds, and every
+ *        one of them remains independently findable by phone number
+ *        afterwards.
+ *
+ * Also reports the probing-collision cost of that load, using
+ * HashTable::collision_count (set by hash_find_entry() to the
+ * probe-chain length of its most recent lookup - see hash_table.c).
+ * Since it is overwritten per call rather than accumulated, the test
+ * samples it after every single insert to build up a total/average/max
+ * across all 5000 inserts.
+ */
+TEST_F(HashTableTest, InsertFiveThousandContacts)
+{
+    constexpr int kNumContacts = 5000;
+
+    std::vector<std::string> phones;
+    phones.reserve(kNumContacts);
+
+    size_t total_probes = 0;
+    size_t max_probes = 0;
+
+    for (int i = 0; i < kNumContacts; i++)
+    {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "04%08d", i);
+        std::string phone(buf);
+        ASSERT_TRUE(insert("Contact " + std::to_string(i), phone))
+            << "failed inserting contact " << i;
+        phones.push_back(phone);
+
+        total_probes += htable.collision_count;
+        max_probes = std::max(max_probes, htable.collision_count);
+    }
+
+    std::printf("[ INFO ] InsertFiveThousandContacts: total probe hops = %zu, "
+                "average = %.3f, max = %zu (load factor = %.1f%%)\n",
+                total_probes, static_cast<double>(total_probes) / kNumContacts,
+                max_probes, 100.0 * kNumContacts / HASH_TABLE_SIZE);
+
+    EXPECT_EQ(hash_size(&htable), static_cast<size_t>(kNumContacts));
+
+    for (int i = 0; i < kNumContacts; i++)
+    {
+        ContactBuffer result{};
+        ASSERT_TRUE(hash_find_contact(&htable, phones[i].c_str(), &result))
+            << "missing contact " << i;
+        EXPECT_STREQ(result.contact.name, ("Contact " + std::to_string(i)).c_str());
+        EXPECT_STREQ(result.contact.phone, phones[i].c_str());
+    }
+}
+
+/**
+ * @brief Inserting 10000 contacts - close to HASH_TABLE_SIZE's (14293)
+ *        75% hash_cleanup() threshold - succeeds, and every one of them
+ *        remains independently findable by phone number afterwards.
+ *
+ * Also reports probing-collision cost at this higher load factor (see
+ * InsertFiveThousandContacts for how collision_count is sampled).
+ */
+TEST_F(HashTableTest, InsertTenThousandContacts)
+{
+    constexpr int kNumContacts = 10000;
+    static_assert(kNumContacts < HASH_TABLE_SIZE,
+                  "test assumes the table is not filled to capacity");
+
+    std::vector<std::string> phones;
+    phones.reserve(kNumContacts);
+
+    size_t total_probes = 0;
+    size_t max_probes = 0;
+
+    for (int i = 0; i < kNumContacts; i++)
+    {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "04%08d", i);
+        std::string phone(buf);
+        ASSERT_TRUE(insert("Contact " + std::to_string(i), phone))
+            << "failed inserting contact " << i;
+        phones.push_back(phone);
+
+        total_probes += htable.collision_count;
+        max_probes = std::max(max_probes, htable.collision_count);
+    }
+
+    std::printf("[ INFO ] InsertTenThousandContacts: total probe hops = %zu, "
+                "average = %.3f, max = %zu (load factor = %.1f%%)\n",
+                total_probes, static_cast<double>(total_probes) / kNumContacts,
+                max_probes, 100.0 * kNumContacts / HASH_TABLE_SIZE);
+
+    EXPECT_EQ(hash_size(&htable), static_cast<size_t>(kNumContacts));
+
+    for (int i = 0; i < kNumContacts; i++)
+    {
+        ContactBuffer result{};
+        ASSERT_TRUE(hash_find_contact(&htable, phones[i].c_str(), &result))
+            << "missing contact " << i;
+        EXPECT_STREQ(result.contact.name, ("Contact " + std::to_string(i)).c_str());
+        EXPECT_STREQ(result.contact.phone, phones[i].c_str());
+    }
+}
+
+/**
+ * @brief Sending a large number of messages (5000) to a single contact
+ *        succeeds, rolling the chat over across many linked sectors, and
+ *        hash_find_n_message() still returns every message in the
+ *        correct newest-first order.
+ */
+TEST_F(HashTableTest, FiveThousandMessagesForSingleContact)
+{
+    constexpr int kNumMessages = 5000;
+    const char *phone = "0412345678";
+
+    for (int i = 0; i < kNumMessages; i++)
+    {
+        ASSERT_TRUE(send(phone, static_cast<uint16_t>(1 + i), true, "msg " + std::to_string(i)))
+            << "failed sending message " << i;
+    }
+
+    MessageBuffer latest{};
+    ASSERT_TRUE(hash_find_message(&htable, phone, &latest));
+    EXPECT_EQ(latest.msg.timestamp, kNumMessages);
+
+    std::vector<MessageBuffer> results(kNumMessages);
+    int n = hash_find_n_message(&htable, phone, kNumMessages, results.data());
+
+    ASSERT_EQ(n, kNumMessages);
+    for (int i = 0; i < kNumMessages; i++)
+    {
+        // Newest first: message (kNumMessages - i) was the i-th most recent.
+        uint16_t expected_ts = static_cast<uint16_t>(kNumMessages - i);
+        EXPECT_EQ(results[i].msg.timestamp, expected_ts) << "at position " << i;
+    }
+}
+
+/**
+ * @brief Interleaving 5000 messages between two different contacts keeps
+ *        each contact's chat isolated: every message lands in the right
+ *        chat, in the right newest-first order, with none crossing over
+ *        into the other contact's chat.
+ */
+TEST_F(HashTableTest, FiveThousandMessagesBetweenTwoContacts)
+{
+    constexpr int kTotalMessages = 5000;
+    constexpr int kPerContact = kTotalMessages / 2;
+    const char *phone_a = "0411111111";
+    const char *phone_b = "0422222222";
+
+    for (int i = 0; i < kPerContact; i++)
+    {
+        ASSERT_TRUE(send(phone_a, static_cast<uint16_t>(1 + i), true, "a" + std::to_string(i)))
+            << "failed sending message " << i << " to phone_a";
+        ASSERT_TRUE(send(phone_b, static_cast<uint16_t>(1 + i), false, "b" + std::to_string(i)))
+            << "failed sending message " << i << " to phone_b";
+    }
+
+    EXPECT_EQ(hash_size(&htable), 2u);
+
+    std::vector<MessageBuffer> results_a(kPerContact);
+    int n_a = hash_find_n_message(&htable, phone_a, kPerContact, results_a.data());
+    ASSERT_EQ(n_a, kPerContact);
+
+    std::vector<MessageBuffer> results_b(kPerContact);
+    int n_b = hash_find_n_message(&htable, phone_b, kPerContact, results_b.data());
+    ASSERT_EQ(n_b, kPerContact);
+
+    for (int i = 0; i < kPerContact; i++)
+    {
+        // Newest first: message (kPerContact - i) was the i-th most recent.
+        uint16_t expected_ts = static_cast<uint16_t>(kPerContact - i);
+
+        EXPECT_EQ(results_a[i].msg.timestamp, expected_ts) << "phone_a at position " << i;
+        EXPECT_TRUE(results_a[i].msg.direction) << "phone_a at position " << i;
+        EXPECT_EQ(std::string(results_a[i].msg.str), "a" + std::to_string(expected_ts - 1))
+            << "phone_a at position " << i;
+
+        EXPECT_EQ(results_b[i].msg.timestamp, expected_ts) << "phone_b at position " << i;
+        EXPECT_FALSE(results_b[i].msg.direction) << "phone_b at position " << i;
+        EXPECT_EQ(std::string(results_b[i].msg.str), "b" + std::to_string(expected_ts - 1))
+            << "phone_b at position " << i;
+    }
+}
+
 /**
  * @brief Create a ContactBuffer from a name and phone number.
  */
