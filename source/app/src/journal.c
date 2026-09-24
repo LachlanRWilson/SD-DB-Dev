@@ -233,7 +233,7 @@ bool journal_rollback(Journal *journal)
 
 
     // write journal content back to sd card (TODO: SDMMC callback for write confirmation)
-    if (!storage->write_block(storage->context, header.data.var.sector, journal->content))
+    if (!storage->write_block(storage->context, header.data.var.sector + DATA_REGION_START_SECTOR, journal->content))
     {
         return false;
     }

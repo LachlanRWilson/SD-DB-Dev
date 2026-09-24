@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <cstdint>
 #include <string>
@@ -861,6 +863,80 @@ TEST_F(HashTableTest, ReconstructedTableAcceptsNewWrites)
     ASSERT_TRUE(hash_remove_contact(&rebuilt, &journal, "0411111111", &removed));
     EXPECT_STREQ(removed.contact.name, "Alice");
     EXPECT_EQ(hash_size(&rebuilt), 1u);
+}
+
+/* ============================================================================
+ * hash_get_contact_list()
+ * ========================================================================== */
+
+/**
+ * @brief hash_get_contact_list() fills an array with the first 10 contacts
+ *        stored in the hash table, matching (as a set) the contacts that
+ *        were inserted.
+ */
+TEST_F(HashTableTest, GetContactListReturnsFirstTenContacts)
+{
+    std::vector<std::string> phones;
+    for (int i = 0; i < 10; i++)
+    {
+        std::string phone = "04" + std::string(8, static_cast<char>('0' + i));
+        ASSERT_TRUE(insert("Contact " + std::to_string(i), phone));
+        phones.push_back(phone);
+    }
+
+    ContactBuffer results[10]{};
+    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, results), STRG_OK);
+
+    std::vector<std::string> returned_phones;
+    for (auto &r : results)
+    {
+        returned_phones.emplace_back(r.contact.phone, r.contact.phone_len);
+    }
+
+    std::sort(phones.begin(), phones.end());
+    std::sort(returned_phones.begin(), returned_phones.end());
+    EXPECT_EQ(returned_phones, phones);
+}
+
+/**
+ * @brief With 20 contacts stored, hash_get_contact_list() starting at
+ *        offset 10 returns the second 10 - disjoint from the first 10,
+ *        and together the two pages cover every inserted contact.
+ */
+TEST_F(HashTableTest, GetContactListReturnsSecondTenContacts)
+{
+    std::vector<std::string> phones;
+    for (int i = 0; i < 20; i++)
+    {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "04%08d", i);
+        std::string phone(buf);
+        ASSERT_TRUE(insert("Contact " + std::to_string(i), phone));
+        phones.push_back(phone);
+    }
+
+    ContactBuffer first_page[10]{};
+    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, first_page), STRG_OK);
+
+    ContactBuffer second_page[10]{};
+    ASSERT_EQ(hash_get_contact_list(&htable, 10, 10, second_page), STRG_OK);
+
+    std::vector<std::string> returned_phones;
+    for (auto &r : first_page)
+    {
+        returned_phones.emplace_back(r.contact.phone, r.contact.phone_len);
+    }
+    for (auto &r : second_page)
+    {
+        returned_phones.emplace_back(r.contact.phone, r.contact.phone_len);
+    }
+
+    std::sort(phones.begin(), phones.end());
+    std::sort(returned_phones.begin(), returned_phones.end());
+
+    // The two pages together must be a partition of every inserted contact:
+    // no duplicates between them and nothing missing.
+    EXPECT_EQ(returned_phones, phones);
 }
 
 /**

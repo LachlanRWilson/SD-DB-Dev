@@ -81,11 +81,11 @@ extern "C" {
  * ================================================================
  *
  *   SD Card
- *   +------------+---------------+---------+------------------------+
- *   | Superheader| Usage Bitmap  | Journal | Contact + Message data |
- *   | (1 sector) | (N sectors)   |(3 sect.)|                        |
- *   +------------+---------------+---------+------------------------+
- *   0            1               1+N       1+N+3
+ *   +-------------+-----------+--------------+------------------------+
+ *   | Superheader |  Journal  | Usage Bitmap | Contact + Message data |
+ *   | (1 sector)  | (3 sect.) | (N sectors)  |                        |
+ *   +-------------+-----------+--------------+------------------------+
+ *   0            1           1+3            N+4
  *
  * Every region's start is derived from the one before it, so there is
  * exactly one place that can get the offsets wrong.
@@ -98,8 +98,15 @@ extern "C" {
 #define SUPERHEADER_BYTES SECTOR_SIZE
 #define SUPERHEADER_SECTOR_SIZE 1
 
-/* ---- Usage bitmap — starts right after the superheader ----------------------------------------*/
-#define USAGE_BITMAP_START_SECTOR (SUPERHEADER_SECTOR + SUPERHEADER_SECTOR_SIZE)
+
+/* ---- Journal — starts right after the superheader ----------------------------------------*/
+#define JRNL_HEADER_SECTOR  (SUPERHEADER_SECTOR + SUPERHEADER_SECTOR_SIZE)
+#define JRNL_CONTENT_SECTOR (JRNL_HEADER_SECTOR + 1)
+#define JRNL_USAGE_SECTOR   (JRNL_HEADER_SECTOR + 2)
+#define JRNL_SECTOR_SIZE    3
+
+/* ---- Usage bitmap — starts right after the journal ----------------------------------------*/
+#define USAGE_BITMAP_START_SECTOR (JRNL_HEADER_SECTOR + JRNL_SECTOR_SIZE)
 
 #define BITS_PER_ELEMENT 32
 #define BYTES_PER_ELEMENT sizeof(uint32_t)
@@ -118,23 +125,20 @@ extern "C" {
     (USAGE_BITMAP_SECTOR_SIZE * ELEMENTS_PER_SECTOR)
 
 // Usage bitmap addressing helpers.
-#define USAGE_BITMAP_FIND_SECTOR(sectorInd)  ((sectorInd) / (SECTOR_SIZE * 8U))
-#define USAGE_BITMAP_FIND_ELEMENT(sectorInd) (((sectorInd) % (SECTOR_SIZE * 8U)) / BITS_PER_ELEMENT)
-#define USAGE_BITMAP_FIND_INDEX(sectorInd)   ((sectorInd) / BITS_PER_ELEMENT)
-#define USAGE_BITMAP_FIND_BIT(sectorInd)     ((sectorInd) % BITS_PER_ELEMENT)
+// (dataSecInd is the Data Sector Index (Not SD sector index), therefore DATA_REGION_START_SECTOR == dataSecInd 0)
+#define USAGE_BITMAP_FIND_SECTOR(dataSecInd)  ((dataSecInd) / (SECTOR_SIZE * 8U))
+#define USAGE_BITMAP_FIND_ELEMENT(dataSecInd) (((dataSecInd) % (SECTOR_SIZE * 8U)) / BITS_PER_ELEMENT)
+#define USAGE_BITMAP_FIND_INDEX(dataSecInd)   ((dataSecInd) / BITS_PER_ELEMENT)
+#define USAGE_BITMAP_FIND_BIT(dataSecInd)     ((dataSecInd) % BITS_PER_ELEMENT)
 
-/* ---- Journal — starts right after the usage bitmap ----------------------------------------*/
-#define JRNL_HEADER_SECTOR  (USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_SECTOR_SIZE)
-#define JRNL_CONTENT_SECTOR (JRNL_HEADER_SECTOR + 1)
-#define JRNL_USAGE_SECTOR   (JRNL_HEADER_SECTOR + 2)
-#define JRNL_SECTOR_SIZE    3
 
-// Data region (contacts, then messages) — starts right after the journal.
-// This is the offset contact.c / message_extent.c were missing, which
-// caused physical sector collisions with the superheader/bitmap/journal.
-#define DATA_REGION_START_SECTOR   (JRNL_HEADER_SECTOR + JRNL_SECTOR_SIZE)
-#define CONTACT_DATA_START_SECTOR  DATA_REGION_START_SECTOR
+/* ---- Data Regions — data type starting sectors ----------------------------------------*/
+#define DATA_REGION_START_SECTOR   (USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_SECTOR_SIZE)
+
+// Start sector FROM DATA_REGION START SECTOR
+#define CONTACT_DATA_START_SECTOR  0
 #define MESSAGE_DATA_START_SECTOR  (CONTACT_DATA_START_SECTOR + TOTAL_CONTACT_SECTOR_SIZE)
+#define CALLHISTORY_DATA_START_SECTOR (MESSAGE_DATA_START_SECTOR + TOTAL_MESSAGE_SECTOR_SIZE)
 
 #ifdef __cplusplus
 }

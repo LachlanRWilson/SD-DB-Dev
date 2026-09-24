@@ -45,7 +45,7 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
     MessageSectorBuffer mSector;
 
     // check if the sector is in use
-    bool is_used = check_usage_bit(index);
+    bool is_used = check_usage_bit(index + CONTACT_MEMORY_SECTOR_SIZE);
 
 
     // If the sector has not been used than don't need to read
@@ -72,7 +72,7 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
     }
 
     // Update the sector bit in bitmap to used (ram and sd)
-    bool update_success = update_usage_bit(storage, index, true);
+    bool update_success = update_usage_bit(storage, index + CONTACT_MEMORY_SECTOR_SIZE, true);
     if (update_success == STRG_FAIL)
     {
         return false;
@@ -114,7 +114,7 @@ STRG_RET write_new_message_sector(Storage *storage, Journal *journal, const char
     MessageSectorBuffer mSector;
 
     // check if the sector is in use
-    bool is_used = check_usage_bit(index);
+    bool is_used = check_usage_bit(index + CONTACT_MEMORY_SECTOR_SIZE);
 
     // If the sector has been used bad allocation
     if (is_used)
@@ -132,7 +132,7 @@ STRG_RET write_new_message_sector(Storage *storage, Journal *journal, const char
         return STRG_FAIL;
     }
     // Update the sector bit in bitmap to used (ram and sd)
-    bool update_success = update_usage_bit(storage, index, true);
+    bool update_success = update_usage_bit(storage, index + CONTACT_MEMORY_SECTOR_SIZE, true);
     if (update_success == STRG_FAIL)
     {
         return false;
@@ -219,7 +219,7 @@ STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const cha
     STRG_RET ret;
 
     // check if the sector is in use
-    bool is_used = check_usage_bit(next);
+    bool is_used = check_usage_bit(next + CONTACT_MEMORY_SECTOR_SIZE);
 
     // If the sector has been used bad allocation
     if (is_used)
@@ -228,7 +228,7 @@ STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const cha
     }
 
     // check the current full index is actually being used
-    is_used = check_usage_bit(prev);
+    is_used = check_usage_bit(prev + CONTACT_MEMORY_SECTOR_SIZE);
 
     if (!is_used)
     {
@@ -245,7 +245,7 @@ STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const cha
         return STRG_FAIL;
     }
     // Update the sector bit in bitmap to used (ram and sd)
-    bool update_success = update_usage_bit(storage, next, true);
+    bool update_success = update_usage_bit(storage, next + CONTACT_MEMORY_SECTOR_SIZE, true);
     if (update_success == STRG_FAIL)
     {
         return false;
@@ -302,7 +302,7 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
         return STRG_FAIL;
     }
 
-    bool is_used = check_usage_bit(index);
+    bool is_used = check_usage_bit(index + TOTAL_CONTACT_SECTOR_SIZE);
     // If sector is not used than it is an empty sector
     if (!is_used){
         return STRG_EMPTY;
@@ -355,7 +355,7 @@ int read_n_messages(Storage *storage, uint16_t startIndex, int n, MessageBuffer 
     int msg_count;
     int msg_read = 0;
 
-    bool is_used = check_usage_bit(startIndex);
+    bool is_used = check_usage_bit(startIndex + CONTACT_MEMORY_SECTOR_SIZE);
 
     if (!is_used)
     {
@@ -435,7 +435,7 @@ STRG_RET remove_message_sector(Storage *storage, Journal *journal, FreeList *msg
 {
     STRG_RET ret;
 
-    bool is_used = check_usage_bit(index);
+    bool is_used = check_usage_bit(index + CONTACT_MEMORY_SECTOR_SIZE);
     if (!is_used)
     {
         return STRG_EMPTY;
@@ -458,7 +458,7 @@ STRG_RET remove_message_sector(Storage *storage, Journal *journal, FreeList *msg
     }
 
     // Update usage bit vector to state the sector is no longer allocated
-    ret = update_usage_bit(storage, index, false);
+    ret = update_usage_bit(storage, index + CONTACT_MEMORY_SECTOR_SIZE, false);
 
     if (ret != STRG_OK)
     {

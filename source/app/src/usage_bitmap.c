@@ -74,7 +74,7 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
     uint32_t bit = USAGE_BITMAP_FIND_BIT(index);
 
     // check if the bit has actually changed
-    bool changed = ((write_sector[element]) & (uint32_t)(1U << bit)) ? true : false;
+    bool prev_bit_val = ((write_sector[element]) & (uint32_t)(1U << bit)) ? true : false;
 
     if (used_state) {
         // Set bit
@@ -92,7 +92,7 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
     if (ret != STRG_OK)
     {
         // if the bit has changed, change back
-        if (changed)
+        if (prev_bit_val != used_state)
         {
             if (!used_state) {
                 // Set bit
@@ -105,4 +105,27 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
         return ret;
     }
     return STRG_OK;
+}
+
+
+/**
+ * @brief Find the nth set bit in a bitmap
+ *
+ * @param bitmap bitmap being searched
+ * @param n the nth bit to find
+ * @retval True is successful write, else false
+ */
+uint16_t get_nth_set_bit(uint32_t bitmap, int n)
+{
+    while (bitmap) {
+        int bit = __builtin_ctz(bitmap);
+
+        if (n == 0)
+            return bit;
+
+        bitmap &= bitmap - 1;
+        n--;
+    }
+
+    return UINT16_MAX;
 }

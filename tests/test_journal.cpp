@@ -592,7 +592,7 @@ TEST_F(JournalTest, RollbackCorruptedContent)
      */
     uint8_t result[SECTOR_SIZE]{};
 
-    ASSERT_TRUE(storage->read_block(storage->context, target_sector, result));
+    ASSERT_TRUE(storage->read_block(storage->context, target_sector + DATA_REGION_START_SECTOR, result));
 
     uint8_t zero[SECTOR_SIZE]{};
 

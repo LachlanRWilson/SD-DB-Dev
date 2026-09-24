@@ -75,6 +75,17 @@ STATIC_ASSERT(sizeof(ContactSector) == SECTOR_SIZE, "ContactSector struct is not
 STRG_RET read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out);
 
 /**
+ * @brief Read the number of contacts in a sector using the sector header
+ *
+ * @param storage Pointer to the storage struct
+ * @param index base index of sector to be read
+ * @param cNum integer pointer to where the number of contacts value will be stored
+ * @retval True if successful write else false.
+ */
+STRG_RET read_contact_num(Storage *storage, uint16_t index, int *cNum);
+
+
+/**
  * @brief Write the contact sector that the contact in stored in on the sd card
  *
  * @param table Pointer to the hash table.
@@ -104,6 +115,16 @@ STRG_RET write_contact(Storage *storage, Journal *journal, uint16_t index, Conta
  * @retval True if successful write else false.
  */
 STRG_RET read_contact(Storage *storage, uint16_t index, ContactBuffer *out);
+
+/**
+ * @brief Read n contacts from contact sector
+ *
+ * @param storage Pointer to the storage struct
+ * @param cSector contact sector
+ * @param n number of contacts to be read from the sector
+ * @retval number of contacts read
+ */
+int read_n_contacts_in_sector(Storage *storage, ContactSector cSector, int n, ContactBuffer *out);
 
 /**
  * @brief Remove the contact to the sd card from the appropriate contact sector

@@ -14,7 +14,39 @@
  */
 STRG_RET read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *out)
 {
-    return read_sector(storage, (index / CONTACT_SECTOR_CAPACITY) + CONTACT_DATA_START_SECTOR, out->buffer);
+    uint16_t raw_sector_index =
+        (index) + CONTACT_DATA_START_SECTOR + DATA_REGION_START_SECTOR;
+
+    return read_sector(storage, raw_sector_index, out->buffer);
+}
+
+/**
+ * @brief Read the number of contacts in a sector using the sector header
+ *
+ * @param storage Pointer to the storage struct
+ * @param index base index of sector to be read
+ * @param cNum integer pointer to where the number of contacts value will be stored
+ * @retval True if successful write else false.
+ */
+STRG_RET read_contact_num(Storage *storage, uint16_t index, int *cNum)
+{
+
+    STRG_RET ret;
+    ContactSectorBuffer cSector;
+    ContactSectorHeader cHeader;
+
+    ret = read_contact_sector(storage, index, &cSector);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    cHeader = cSector.sector.header;
+
+    // count the number of set bits in the header
+    *cNum = __builtin_popcount(cHeader.used_bitmap);
+
+    return STRG_OK;
 }
 
 /**
@@ -27,7 +59,9 @@ STRG_RET read_contact_sector(Storage *storage, uint16_t index, ContactSectorBuff
  */
 STRG_RET write_contact_sector(Storage *storage, uint16_t index, ContactSectorBuffer *in)
 {
-    return write_sector(storage, (index / CONTACT_SECTOR_CAPACITY) + CONTACT_DATA_START_SECTOR, in->buffer);
+    uint16_t raw_sector_index =
+        (index) + CONTACT_DATA_START_SECTOR + DATA_REGION_START_SECTOR;
+    return write_sector(storage, raw_sector_index, in->buffer);
 }
 
 
@@ -57,7 +91,7 @@ STRG_RET write_contact(Storage *storage, Journal *journal, uint16_t index, Conta
     if (check_usage_bit(index / CONTACT_SECTOR_CAPACITY)) {
 
         // Read contact sector
-        if (!read_contact_sector(storage, index, &cSector))
+        if (!read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector))
         {
             return STRG_FAIL;
         }
@@ -94,7 +128,7 @@ STRG_RET write_contact(Storage *storage, Journal *journal, uint16_t index, Conta
 
     // Write contact sector to SD card, if sector write doesn't fail free journal. If either fail
     // return false
-    if (!write_contact_sector(storage, index, &cSector) || !journal_free(journal))
+    if (!write_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector) || !journal_free(journal))
     {
         return STRG_FAIL;
     }
@@ -128,7 +162,7 @@ STRG_RET read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
     }
 
     // read contact sector
-    if(!read_contact_sector(storage, index, &cSector))
+    if(!read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector))
     {
         return STRG_FAIL;
     }
@@ -147,6 +181,40 @@ STRG_RET read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
 
    return STRG_OK;
 }
+
+
+/**
+ * @brief Read n contacts from contact sector
+ *
+ * @param storage Pointer to the storage struct
+ * @param cSector contact sector
+ * @param n number of contacts to be read from the sector
+ * @retval number of contacts read
+ */
+int read_n_contacts_in_sector(Storage *storage, ContactSector cSector, int n, ContactBuffer *out)
+{
+    uint8_t cBitmap = cSector.header.used_bitmap;
+    int contact_count = 0;
+
+    while (cBitmap != 0)
+    {
+        if (contact_count >= n)
+        {
+            break;
+        }
+
+        uint8_t index = __builtin_ctz(cBitmap);
+
+        memcpy(out[contact_count].buffer, cSector.contacts[index].buffer, sizeof(Contact));
+
+        cBitmap &= cBitmap - 1;
+        contact_count++;
+    }
+
+    return contact_count;
+}
+
+
 
 /**
  * @brief Remove the contact to the sd card from the appropriate contact sector
@@ -168,7 +236,7 @@ bool remove_contact(Storage *storage, Journal *journal, FreeList *contact_alloca
     }
 
     // read contact sector
-    if(!read_contact_sector(storage, index, &cSector))
+    if(!read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector))
     {
         return false;
     }
@@ -203,12 +271,11 @@ bool remove_contact(Storage *storage, Journal *journal, FreeList *contact_alloca
     } else {
 
         // Write updated sector back to SD card
-        if (!write_contact_sector(storage, index, &cSector)) {return false;}
+        if (!write_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector)) {return false;}
     }
 
     // Free the active journal
-    if (!journal_free(journal))
-    {
+    if (!journal_free(journal)) {
         return false;
     }
 
@@ -239,5 +306,4 @@ ContactBuffer create_contact(const char *name, const char *phone)
     memcpy(contact.contact.phone, phone, contact.contact.phone_len);
 
     return contact;
-
 }

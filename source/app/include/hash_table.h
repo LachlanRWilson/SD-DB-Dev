@@ -143,6 +143,27 @@ bool hash_find_message(HashTable *table, const char *phone, MessageBuffer *out);
 
 
 /**
+ * @brief Get the sector index of the nth contact in the hash table
+ *
+ * @param table Pointer to the hash table.
+ * @param n number of contacts to be read
+ * @retval contact index number
+ * @retval UINT16_MAX if error.
+ */
+uint16_t get_nth_contact_index(HashTable *table, int n);
+
+/**
+ * @brief Get a contiguous list of contacts from the hash table.
+ *
+ * @param table Pointer to the hash table.
+ * @param start start contact number
+ * @param n number of contacts to be read
+ * @param out Pointer to array of contacts (must hold at least n entries)
+ * @retval STRG_OK if the read completed successfully.
+ */
+STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer *out);
+
+/**
   * @brief  Find n number of messages from a contact
   * @param  table: Pointer to the hash table
   * @param  phone: phone number the message is associated with
