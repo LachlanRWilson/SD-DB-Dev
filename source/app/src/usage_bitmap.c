@@ -107,6 +107,82 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
     return STRG_OK;
 }
 
+/**
+ * @brief return the index of the next bit set in the bitmap
+ *
+ * @param curInd the current bit index
+ * @retval UINT16_MAX if fail, else the bit index
+ */
+uint16_t get_next_bit(uint16_t curInd, uint16_t limInd)
+{
+    // The starting word for message sector
+    int first_usage_elem = USAGE_BITMAP_FIND_ELEMENT(curInd);
+    int first_usage_bit = USAGE_BITMAP_FIND_BIT(curInd);
+
+    // Get the last uint32_t which stores a message sector usage bit
+    int last_usage_elem = USAGE_BITMAP_FIND_ELEMENT(limInd);
+
+
+
+    for (uint32_t word = first_usage_elem; word <= last_usage_elem; word++)
+    {
+        uint32_t bits = usage_bitmap[word];
+
+        // if the first bit of the work is not a message, clear bits that are not messages
+        if ((word == first_usage_elem) && (first_usage_bit > 0))
+        {
+            clear_bits_to_n_u32(&bits, first_usage_bit);
+        }
+
+        while (bits != 0)
+        {
+            uint32_t bit = __builtin_ctz(bits);
+            return (uint16_t)(word * BITS_PER_ELEMENT + bit);
+        }
+    }
+    return UINT16_MAX;
+}
+
+/**
+ * @brief return the index of the next bit set in the bitmap
+ *
+ * @param curInd the current bit index
+ * @retval UINT16_MAX if fail, else the bit index
+ */
+uint16_t get_previous_bit(uint16_t curInd, uint16_t limInd)
+{
+    int first_usage_elem = USAGE_BITMAP_FIND_ELEMENT(limInd);
+    int first_usage_bit = USAGE_BITMAP_FIND_BIT(limInd);
+
+    int last_usage_elem = USAGE_BITMAP_FIND_ELEMENT(curInd);
+    int last_usage_bit = USAGE_BITMAP_FIND_BIT(curInd);
+
+    for (int word = first_usage_elem; word >= last_usage_elem; word--)
+    {
+        uint32_t bits = usage_bitmap[word];
+
+        // For the first word, only consider bits <= first_usage_bit
+        if (word == first_usage_elem)
+        {
+            bits &= (1u << (first_usage_bit + 1)) - 1;
+        }
+
+        // For the last word, only consider bits >= last_usage_bit
+        if (word == last_usage_elem && last_usage_bit > 0)
+        {
+            bits &= ~((1u << last_usage_bit) - 1);
+        }
+
+        if (bits != 0)
+        {
+            uint32_t bit = 31u - __builtin_clz(bits);
+
+            return (uint16_t)(word * BITS_PER_ELEMENT + bit);
+        }
+    }
+
+    return UINT16_MAX;
+}
 
 /**
  * @brief Find the nth set bit in a bitmap
@@ -129,3 +205,4 @@ uint16_t get_nth_set_bit(uint32_t bitmap, int n)
 
     return UINT16_MAX;
 }
+

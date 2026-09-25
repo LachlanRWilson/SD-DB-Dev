@@ -34,6 +34,7 @@ extern "C" {
 
 // Number of contacts / hash table slots the system supports
 #define HASH_TABLE_SIZE 14293
+#define HASH_TABLE_ENTRIES 10000
 
 // Raw byte size of one on-disk Contact record.
 // Kept in sync with sizeof(Contact) via STATIC_ASSERT in contact.h.
@@ -72,6 +73,18 @@ extern "C" {
  */
 #define TOTAL_MESSAGE_SECTOR_SIZE (HASH_TABLE_SIZE * 2)
 
+
+/* ---- Message History region sizing --------------------------------------
+ * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock
+ * struct layout itself stays in message_extent.h.
+ */
+#define TOTAL_MESSAGE_HISTORY_SECTOR_SIZE 0 // TO BE SET
+/* ---- Call History region sizing --------------------------------------
+ * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock
+ * struct layout itself stays in message_extent.h.
+ */
+#define TOTAL_CALL_HISTORY_SECTOR_SIZE 0 // TO BE SET
+
 /* ---- Overall data region ----------------------------------------*/
 #define TOTAL_CONTACT_SECTOR_SIZE CONTACT_MEMORY_SECTOR_SIZE
 #define TOTAL_DATA_SECTOR_SIZE (TOTAL_CONTACT_SECTOR_SIZE + TOTAL_MESSAGE_SECTOR_SIZE)
@@ -81,10 +94,10 @@ extern "C" {
  * ================================================================
  *
  *   SD Card
- *   +-------------+-----------+--------------+------------------------+
- *   | Superheader |  Journal  | Usage Bitmap | Contact + Message data |
- *   | (1 sector)  | (3 sect.) | (N sectors)  |                        |
- *   +-------------+-----------+--------------+------------------------+
+ *   +-------------+-----------+--------------+------------------------+-----------------+-----------------+
+ *   | Superheader |  Journal  | Usage Bitmap | Contact + Message data | Message History |    Call History |
+ *   | (1 sector)  | (3 sect.) | (N sectors)  |                        |    Ring Buffer  |    Ring Buffer  |
+ *   +-------------+-----------+--------------+------------------------+-----------------+-----------------+
  *   0            1           1+3            N+4
  *
  * Every region's start is derived from the one before it, so there is
@@ -138,7 +151,8 @@ extern "C" {
 // Start sector FROM DATA_REGION START SECTOR
 #define CONTACT_DATA_START_SECTOR  0
 #define MESSAGE_DATA_START_SECTOR  (CONTACT_DATA_START_SECTOR + TOTAL_CONTACT_SECTOR_SIZE)
-#define CALLHISTORY_DATA_START_SECTOR (MESSAGE_DATA_START_SECTOR + TOTAL_MESSAGE_SECTOR_SIZE)
+#define MESSAGE_HISTORY_DATA_START_SECTOR (MESSAGE_DATA_START_SECTOR + TOTAL_MESSAGE_SECTOR_SIZE)
+#define CALL_HISTORY_DATA_START_SECTOR (MESSAGE_HISTORY_DATA_START_SECTOR + TOTAL_MESSAGE_HISTORY_SECTOR_SIZE)
 
 #ifdef __cplusplus
 }

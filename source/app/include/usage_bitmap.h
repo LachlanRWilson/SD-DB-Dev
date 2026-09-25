@@ -50,6 +50,22 @@ bool check_usage_bit(uint16_t index);
 STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state);
 
 /**
+ * @brief return the index of the next bit set in the bitmap
+ *
+ * @param curInd the current bit index
+ * @retval UINT16_MAX if fail, else the bit index
+ */
+uint16_t get_next_bit(uint16_t curInd, uint16_t limInd);
+
+/**
+ * @brief return the index of the next bit set in the bitmap
+ *
+ * @param curInd the current bit index
+ * @retval UINT16_MAX if fail, else the bit index
+ */
+uint16_t get_prev_bit(uint16_t curInd, uint16_t limInd);
+
+/**
  * @brief Find the nth set bit in a bitmap
  *
  * @param bitmap bitmap being searched
