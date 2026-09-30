@@ -5,11 +5,18 @@
 #include <stdbool.h>
 #include "storage.h"
 #include "mem_layout.h"
+#include "iterator.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+// Usage Bitmap Iterator Structure
+typedef struct {
+    uint16_t currBit;       // Current Bit the Iterator is on
+    uint16_t total_bits;    // Total Bits in the usage map
+    uint16_t total_elems;   // total number of elements usage bitmap array
+} UsageBitmapIteratorCtx;
 
 // Give other files access to usage bitmap vector
 extern uint32_t usage_bitmap[USAGE_BITMAP_STORAGE_SIZE];
@@ -74,6 +81,40 @@ uint16_t get_prev_bit(uint16_t curInd, uint16_t limInd);
  */
 uint16_t get_nth_set_bit(uint32_t bitmap, int n);
 
+/**
+ * @brief Initialise a usage bitmap iterator over [0, total_bits)
+ *
+ * @param it_ctx context storage owned by the caller, populated by this call
+ * @param total_bits number of valid bit indices the iterator may visit
+ * @param total_elems number of uint32_t elements backing the bitmap
+ * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
+ */
+Iterator usage_bitmap_iterator_init(UsageBitmapIteratorCtx *it_ctx, uint16_t total_bits, uint16_t total_elems);
+
+/**
+ * @brief Advance a usage bitmap iterator to the next set bit
+ *
+ * @param it pointer to iterator struct
+ * @retval True if a next set bit was found, else false
+ */
+bool usage_bitmap_iterator_next(Iterator *it);
+
+/**
+ * @brief Move a usage bitmap iterator to the previous set bit
+ *
+ * @param it pointer to iterator struct
+ * @retval True if a previous set bit was found, else false
+ */
+bool usage_bitmap_iterator_prev(Iterator *it);
+
+/**
+ * @brief Get the bit index a usage bitmap iterator currently points to
+ *
+ * @param it pointer to iterator struct
+ * @param out receives the current bit index (uint16_t)
+ * @retval True if the iterator has a current position, else false
+ */
+bool usage_bitmap_iterator_get(Iterator *it, void *out);
 
 /**
  * @brief Clear the first n bits in a bitmap

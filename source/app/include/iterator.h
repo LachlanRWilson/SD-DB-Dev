@@ -8,12 +8,12 @@ extern "C" {
 #if defined(__cplusplus)
     #define STATIC_ASSERT static_assert
 #else
-    #define STATIC_ASSERT _Static_assert
+#define STATIC_ASSERT _Static_assert
 #endif
 
 #include <stddef.h>
-#include <stdbool.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef struct Iterator Iterator;
 
@@ -44,6 +44,14 @@ bool iterator_next_fn(Iterator *it);
  * @retval True if move successful, else false
  */
 bool iterator_prev_fn(Iterator *it);
+/**
+
+ * @brief Get current value iterator is on
+ *
+ * @param it pointer to iterator struct
+ * @retval True if move successful, else false
+ */
+bool iterator_get_fn(Iterator *it, void *out);
 
 #ifdef __cplusplus
 }

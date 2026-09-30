@@ -30,6 +30,7 @@ add_library(app_logic
     app/src/message.c
     app/src/journal.c
     app/src/usage_bitmap.c
+    app/src/iterator.c
     app/src/crc.c
     app/src/crc_stm32.c
     app/src/sd_storage.c
@@ -68,6 +69,7 @@ add_library(app_logic
     app/src/crc.c
     app/src/superheader.c
     app/src/usage_bitmap.c
+    app/src/iterator.c
     app/src/contact.c
     app/src/message.c
     #app/src/database.c

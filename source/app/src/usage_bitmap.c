@@ -1,4 +1,5 @@
 #include "usage_bitmap.h"
+#include "iterator.h"
 #include <string.h>
 
 #ifndef HOST_BUILD
@@ -149,7 +150,7 @@ uint16_t get_next_bit(uint16_t curInd, uint16_t limInd)
  * @param curInd the current bit index
  * @retval UINT16_MAX if fail, else the bit index
  */
-uint16_t get_previous_bit(uint16_t curInd, uint16_t limInd)
+uint16_t get_prev_bit(uint16_t curInd, uint16_t limInd)
 {
     int first_usage_elem = USAGE_BITMAP_FIND_ELEMENT(limInd);
     int first_usage_bit = USAGE_BITMAP_FIND_BIT(limInd);
@@ -162,7 +163,9 @@ uint16_t get_previous_bit(uint16_t curInd, uint16_t limInd)
         uint32_t bits = usage_bitmap[word];
 
         // For the first word, only consider bits <= first_usage_bit
-        if (word == first_usage_elem)
+        // (when first_usage_bit is the word's top bit, every bit already qualifies,
+        // and shifting a uint32_t left by 32 is undefined behaviour)
+        if (word == first_usage_elem && first_usage_bit < (int)BITS_PER_ELEMENT - 1)
         {
             bits &= (1u << (first_usage_bit + 1)) - 1;
         }
@@ -179,10 +182,11 @@ uint16_t get_previous_bit(uint16_t curInd, uint16_t limInd)
 
             return (uint16_t)(word * BITS_PER_ELEMENT + bit);
         }
-    }
 
+    }
     return UINT16_MAX;
 }
+
 
 /**
  * @brief Find the nth set bit in a bitmap
@@ -206,3 +210,128 @@ uint16_t get_nth_set_bit(uint32_t bitmap, int n)
     return UINT16_MAX;
 }
 
+
+/* Iterator Funtions */
+
+/**
+ * @brief Find the nth set bit in a bitmap
+ *
+ * @param bitmap bitmap being searched
+ * @param n the nth bit to find
+ * @retval True is successful write, else false
+ */
+bool usage_bitmap_iterator_get(Iterator *it, void* out)
+{
+    if (it == NULL || out == NULL)
+    {
+        return false;
+    }
+
+    // Dereference Context
+    UsageBitmapIteratorCtx ctx = *(UsageBitmapIteratorCtx*) it->context;
+
+    // No current position (iteration not started, or exhausted)
+    if (ctx.currBit == UINT16_MAX)
+    {
+        return false;
+    }
+
+    *(uint16_t *)out = ctx.currBit;
+    return true;
+}
+
+/**
+ * @brief Find the nth set bit in a bitmap
+ *
+ * @param bitmap bitmap being searched
+ * @param n the nth bit to find
+ * @retval True is successful write, else false
+ */
+bool usage_bitmap_iterator_next(Iterator *it)
+{
+    if (it == NULL)
+    {
+        return false;
+    }
+
+    UsageBitmapIteratorCtx *ctx = (UsageBitmapIteratorCtx*) it->context;
+
+    if (ctx->total_bits == 0)
+    {
+        ctx->currBit = UINT16_MAX;
+        return false;
+    }
+
+    // Search strictly after the current position, or from the start if not yet positioned
+    uint16_t start = (ctx->currBit == UINT16_MAX) ? 0 : (uint16_t)(ctx->currBit + 1);
+
+    if (start >= ctx->total_bits)
+    {
+        ctx->currBit = UINT16_MAX;
+        return false;
+    }
+
+    uint16_t found = get_next_bit(start, (uint16_t)(ctx->total_bits - 1));
+
+    ctx->currBit = found;
+    return found != UINT16_MAX;
+}
+
+/**
+ * @brief Find the nth set bit in a bitmap
+ *
+ * @param bitmap bitmap being searched
+ * @param n the nth bit to find
+ * @retval True is successful write, else false
+ */
+bool usage_bitmap_iterator_prev(Iterator *it)
+{
+    if (it == NULL)
+    {
+        return false;
+    }
+
+    UsageBitmapIteratorCtx *ctx = (UsageBitmapIteratorCtx*) it->context;
+
+    if (ctx->total_bits == 0)
+    {
+        ctx->currBit = UINT16_MAX;
+        return false;
+    }
+
+    // Search strictly before the current position, or from the end if not yet positioned
+    if (ctx->currBit == 0)
+    {
+        ctx->currBit = UINT16_MAX;
+        return false;
+    }
+
+    uint16_t end = (ctx->currBit == UINT16_MAX) ? (uint16_t)(ctx->total_bits - 1) : (uint16_t)(ctx->currBit - 1);
+
+    uint16_t found = get_prev_bit(0, end);
+
+    ctx->currBit = found;
+    return found != UINT16_MAX;
+}
+
+/**
+ * @brief Initialise a Usage bitmap iterator with appropriate context and function pointers
+ *
+ * @param bitmap bitmap being searched
+ * @param n the nth bit to find
+ * @retval True is successful write, else false
+ */
+Iterator usage_bitmap_iterator_init(UsageBitmapIteratorCtx *it_ctx,uint16_t total_bits, uint16_t total_elems)
+{
+    it_ctx->currBit = UINT16_MAX;
+    it_ctx->total_bits = total_bits;
+    it_ctx->total_elems = total_elems;
+
+    Iterator it = {0};
+    it.context = (void *)it_ctx;
+    it.next = usage_bitmap_iterator_next;
+    it.prev = usage_bitmap_iterator_prev;
+    it.get = usage_bitmap_iterator_get;
+    return it;
+
+}
