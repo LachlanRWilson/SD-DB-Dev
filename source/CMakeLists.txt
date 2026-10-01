@@ -31,10 +31,15 @@ add_library(app_logic
     app/src/journal.c
     app/src/usage_bitmap.c
     app/src/iterator.c
+    app/src/ring_buffer.c
     app/src/crc.c
     app/src/crc_stm32.c
     app/src/sd_storage.c
     app/src/db_main.c
+    # AFR240320A0-2.0INTM LCD driver (over the FMC bus) + its on-hardware
+    # smoke test -- see fmc_func.c / test_fmc.c.
+    app/src/fmc_func.c
+    app/src/test_fmc.c
 )
 
 # Use the portable software CRC-32 on-device too: the STM32 CRC peripheral
@@ -70,6 +75,7 @@ add_library(app_logic
     app/src/superheader.c
     app/src/usage_bitmap.c
     app/src/iterator.c
+    app/src/ring_buffer.c
     app/src/contact.c
     app/src/message.c
     #app/src/database.c

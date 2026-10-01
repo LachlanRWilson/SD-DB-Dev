@@ -30,6 +30,7 @@
 /* USER CODE BEGIN Includes */
 #include "db_extent_main.h"
 #include "db_main.h"
+#include "test_fmc.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -110,6 +111,9 @@ int main(void)
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
   MX_FREERTOS_Init();
     DB_Init();
+    /* NOTE: shares the PB0 LED with DB_Init()'s test report -- comment one
+     * out if running the other test standalone. */
+    FMC_Test_Init();
 
   /* Start scheduler */
   osKernelStart();

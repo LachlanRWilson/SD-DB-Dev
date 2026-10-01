@@ -61,12 +61,12 @@ typedef union {
 // Message Struct (24B)
 typedef struct
 {
-    uint16_t next; // Next Extent (2B)
-    uint16_t prev; // Previous Extent (2B)
-    uint16_t msg_count; // Number of messages in the block (2B)
-    char phone[MAX_PHONE_LEN]; // Phone number (15B)
-    uint8_t phone_len;         // Length of phone number (1B)
-    EXTENT_STATE state; // Extent State (1B) (This can be removed)
+    uint16_t next;              // Next Extent (2B)
+    uint16_t prev;              // Previous Extent (2B)
+    uint16_t msg_count;         // Number of messages in the block (2B)
+    char phone[MAX_PHONE_LEN];  // Phone number (15B)
+    uint8_t phone_len;          // Length of phone number (1B)
+    EXTENT_STATE state;         // Extent State (1B) (This can be removed)
     uint8_t padding;
 } MessageSectorHeader;
 

@@ -11,8 +11,7 @@ extern "C" {
 #include <stdint.h>
 #include "mem_layout.h"
 #include "storage.h"
-
-typedef struct Iterator Iterator;
+#include "iterator.h"
 
 #if defined(__cplusplus)
     #define STATIC_ASSERT static_assert
@@ -41,6 +40,17 @@ typedef struct {
  * @retval True if successful write else false.
  */
 bool init_ring_buffer(RingBuffer *rb, uint16_t size, uint16_t startIndex);
+
+/**
+ * @brief Initialise an iterator over a ring buffer's occupied index range
+ *        [0, occupancy], independent of the ring buffer's own read/write
+ *        cursor (rb->current_index).
+ *
+ * @param ctx context storage owned by the caller, populated by this call
+ * @param rb ring buffer to iterate over
+ * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
+ */
+Iterator ring_buffer_iterator_init(RBIteratorCtx *ctx, RingBuffer *rb);
 
 /**
  * @brief move to the next index in the ring buffer

@@ -32,6 +32,7 @@ include_directories(
 add_executable(test_hash_table
     test_hash_table.cpp
     test_hash_table_edge.cpp
+    test_hash_table_iterator.cpp
 )
 
 add_executable(test_free_list
@@ -49,11 +50,16 @@ add_executable(test_journal
     test_journal_edge.cpp
 )
 
+add_executable(test_ring_buffer
+    test_ring_buffer.cpp
+)
+
 foreach(test
     test_hash_table
     test_free_list
     test_usage_bitmap
     test_journal
+    test_ring_buffer
 )
     target_link_libraries(${test}
         gtest

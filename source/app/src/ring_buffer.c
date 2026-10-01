@@ -21,6 +21,29 @@ bool init_ring_buffer(RingBuffer *rb, uint16_t size, uint16_t startIndex)
 }
 
 /**
+ * @brief Initialise an iterator over a ring buffer's occupied index range
+ *        [0, occupancy], independent of the ring buffer's own read/write
+ *        cursor (rb->current_index).
+ *
+ * @param ctx context storage owned by the caller, populated by this call
+ * @param rb ring buffer to iterate over
+ * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
+ */
+Iterator ring_buffer_iterator_init(RBIteratorCtx *ctx, RingBuffer *rb)
+{
+    ctx->lower_lim = 0;
+    ctx->upper_lim = rb->occupancy;
+    ctx->current = rb->current_index;
+
+    Iterator it = {0};
+    it.context = (void *)ctx;
+    it.next = ring_iterator_next;
+    it.prev = ring_iterator_prev;
+    it.get = ring_iterator_get;
+    return it;
+}
+
+/**
  * @brief move to the next index in the ring buffer
  *
  * @param curInd current index to move from
@@ -74,7 +97,7 @@ bool move_prev_ring_buffer(RingBuffer *rb)
  */
 bool ring_iterator_get(Iterator *it, void* out)
 {
-    if (it == NULL)
+    if (it == NULL || out == NULL)
     {
         return false;
     }

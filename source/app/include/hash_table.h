@@ -18,6 +18,7 @@ extern "C" {
 #include <stdint.h>
 #include "contact.h"
 #include "message.h"
+#include "iterator.h"
 
 // Struct Sizes
 #define HASH_ENTRY_BYTES 8
@@ -66,6 +67,12 @@ typedef struct
     size_t collision_count; // for benchmarking hash functions
 #endif
 } HashTable;
+
+// Hash Table Iterator Context: walks occupied slots in table->htable
+typedef struct {
+    HashTable *table;   // table being iterated over
+    uint16_t current;   // current slot index, UINT16_MAX if not positioned / exhausted
+} HashTableIteratorCtx;
 
 
 /**
@@ -164,6 +171,18 @@ uint16_t get_nth_contact_index(HashTable *table, int n);
 STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer *out);
 
 /**
+ * @brief Get a list of contacts from the hash table using a hash table iterator.
+ *        Contacts are returned in hash slot order rather than storage order.
+ *
+ * @param table Pointer to the hash table.
+ * @param start start contact number
+ * @param n number of contacts to be read
+ * @param out Pointer to array of contacts (must hold at least n entries)
+ * @retval STRG_OK if the read completed successfully.
+ */
+STRG_RET hash_get_contact_list_iter(HashTable *table, int start, int n, ContactBuffer *out);
+
+/**
   * @brief  Find n number of messages from a contact
   * @param  table: Pointer to the hash table
   * @param  phone: phone number the message is associated with
@@ -249,6 +268,41 @@ bool hash_cleanup(HashTable* table);
   * @retval Number of contacts in the hash table
   */
 size_t hash_size(const HashTable *table);
+
+/**
+ * @brief Initialise an iterator over the occupied slots of a hash table's
+ *        in-RAM entry array (table->htable), in index order.
+ *
+ * @param ctx context storage owned by the caller, populated by this call
+ * @param table hash table to iterate over
+ * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
+ */
+Iterator hash_table_iterator_init(HashTableIteratorCtx *ctx, HashTable *table);
+
+/**
+ * @brief Advance a hash table iterator to the next occupied slot
+ *
+ * @param it pointer to iterator struct
+ * @retval True if a next occupied slot was found, else false
+ */
+bool hash_table_iterator_next(Iterator *it);
+
+/**
+ * @brief Move a hash table iterator to the previous occupied slot
+ *
+ * @param it pointer to iterator struct
+ * @retval True if a previous occupied slot was found, else false
+ */
+bool hash_table_iterator_prev(Iterator *it);
+
+/**
+ * @brief Get the slot index a hash table iterator currently points to
+ *
+ * @param it pointer to iterator struct
+ * @param out receives the current slot index (uint16_t)
+ * @retval True if the iterator has a current position, else false
+ */
+bool hash_table_iterator_get(Iterator *it, void *out);
 
 /**
   * @brief  Remove all contacts from the hash table

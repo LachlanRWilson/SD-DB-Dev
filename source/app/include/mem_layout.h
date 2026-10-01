@@ -49,6 +49,9 @@ extern "C" {
 // here for layout math — the struct itself still lives in hash_table.h.
 #define HASH_ENTRY_BYTES 8
 
+// Byte size of the
+#define MESSAGE_HISTORY_SECTOR_BYTES SECTOR_SIZE
+
 /* ---- Contact sector layout ------------------------------------- */
 
 // How many Contact records fit in one 512B sector, after the sector
@@ -66,6 +69,13 @@ extern "C" {
 // Total sectors required to store HASH_TABLE_SIZE contacts.
 #define CONTACT_MEMORY_SECTOR_SIZE \
     CONTACT_MEMORY_SECTORS(HASH_TABLE_SIZE, CONTACT_SECTOR_CAPACITY)
+
+/* ---- Message region sizing --------------------------------------
+ * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock
+ * struct layout itself stays in message_extent.h.
+ */
+#define MESSAGE_HISTORY_SECTOR_CAPACITY \
+    ((SECTOR_SIZE - sizeof(uint32_t)) / sizeof(uint16_t))
 
 /* ---- Message region sizing --------------------------------------
  * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock

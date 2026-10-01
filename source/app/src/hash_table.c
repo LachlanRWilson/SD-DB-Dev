@@ -600,7 +600,6 @@ STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer
     return STRG_OK;
 }
 
-
 /**
   * @brief  Find a contacts latest message
   * @param  table: Pointer to the hash table
@@ -797,6 +796,7 @@ void hash_clear(HashTable *table)
 
     table->num_elems = 0;
 }
+
 
 
 /**
@@ -1066,6 +1066,197 @@ bool hash_cleanup(HashTable *table) {
     return true;
 }
 
+
+/* Iterator Functions */
+
+
+/**
+ * @brief Advance a hash table iterator to the next occupied slot
+ *
+ * @param it pointer to iterator struct
+ * @retval True if a next occupied slot was found, else false
+ */
+bool hash_table_iterator_next(Iterator *it)
+{
+    if (it == NULL)
+    {
+        return false;
+    }
+
+    HashTableIteratorCtx *ctx = (HashTableIteratorCtx *)it->context;
+
+    if (ctx->table == NULL || ctx->table->size == 0)
+    {
+        ctx->current = UINT16_MAX;
+        return false;
+    }
+
+    size_t start = (ctx->current == UINT16_MAX) ? 0 : (size_t)ctx->current + 1;
+
+    for (size_t i = start; i < ctx->table->size; i++)
+    {
+        if (ctx->table->htable[i].state == ENTRY_OCCUPIED)
+        {
+            ctx->current = (uint16_t)i;
+            return true;
+        }
+    }
+
+    ctx->current = UINT16_MAX;
+    return false;
+}
+
+/**
+ * @brief Move a hash table iterator to the previous occupied slot
+ *
+ * @param it pointer to iterator struct
+ * @retval True if a previous occupied slot was found, else false
+ */
+bool hash_table_iterator_prev(Iterator *it)
+{
+    if (it == NULL)
+    {
+        return false;
+    }
+
+    HashTableIteratorCtx *ctx = (HashTableIteratorCtx *)it->context;
+
+    if (ctx->table == NULL || ctx->table->size == 0)
+    {
+        ctx->current = UINT16_MAX;
+        return false;
+    }
+
+    size_t start;
+
+    if (ctx->current == UINT16_MAX)
+    {
+        start = ctx->table->size - 1;
+    }
+    else if (ctx->current == 0)
+    {
+        ctx->current = UINT16_MAX;
+        return false;
+    }
+    else
+    {
+        start = (size_t)ctx->current - 1;
+    }
+
+    for (size_t i = start; ; i--)
+    {
+        if (ctx->table->htable[i].state == ENTRY_OCCUPIED)
+        {
+            ctx->current = (uint16_t)i;
+            return true;
+        }
+
+        if (i == 0)
+        {
+            break;
+        }
+    }
+
+    ctx->current = UINT16_MAX;
+    return false;
+}
+
+/**
+ * @brief Get the slot index a hash table iterator currently points to
+ *
+ * @param it pointer to iterator struct
+ * @param out receives the current slot index (uint16_t)
+ * @retval True if the iterator has a current position, else false
+ */
+bool hash_table_iterator_get(Iterator *it, void *out)
+{
+    if (it == NULL || out == NULL)
+    {
+        return false;
+    }
+
+    HashTableIteratorCtx *ctx = (HashTableIteratorCtx *)it->context;
+
+    if (ctx->current == UINT16_MAX)
+    {
+        return false;
+    }
+
+    *(uint16_t *)out = ctx->current;
+    return true;
+}
+
+/**
+ * @brief Initialise an iterator over the occupied slots of a hash table's
+ *        in-RAM entry array (table->htable), in index order.
+ *
+ * @param ctx context storage owned by the caller, populated by this call
+ * @param table hash table to iterate over
+ * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
+ */
+Iterator hash_table_iterator_init(HashTableIteratorCtx *ctx, HashTable *table)
+{
+    ctx->table = table;
+    ctx->current = UINT16_MAX;
+
+    Iterator it = {0};
+    it.context = (void *)ctx;
+    it.next = hash_table_iterator_next;
+    it.prev = hash_table_iterator_prev;
+    it.get = hash_table_iterator_get;
+    return it;
+}
+
+/**
+ * @brief Get a list of contacts from the hash table by walking its occupied
+ *        slots with a hash table iterator (slot order, not storage order).
+ *
+ * @param table Pointer to the hash table.
+ * @param start start contact number
+ * @param n number of contacts to be read
+ * @param out Pointer to array of contacts (must hold at least n entries)
+ * @retval STRG_OK if the read completed successfully.
+ */
+STRG_RET hash_get_contact_list_iter(HashTable *table, int start, int n, ContactBuffer *out)
+{
+    if (table == NULL || table->htable == NULL || table->storage == NULL ||
+            out == NULL || start < 0 || n < 0)
+    {
+        return STRG_FAIL;
+    }
+
+    HashTableIteratorCtx ctx;
+    Iterator it = hash_table_iterator_init(&ctx, table);
+    uint16_t slot;
+    int skipped = 0;
+    int contact_count = 0;
+
+    while (contact_count < n && iterator_next_fn(&it))
+    {
+        // skip the first start contacts
+        if (skipped < start)
+        {
+            skipped++;
+            continue;
+        }
+
+        if (!iterator_get_fn(&it, &slot))
+        {
+            return STRG_FAIL;
+        }
+
+        STRG_RET ret = read_contact(table->storage, table->htable[slot].sector, &out[contact_count]);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+        contact_count++;
+    }
+
+    return STRG_OK;
+}
+
+/* Software Hash Table Building */
 #if defined (HOST_BUILD)
 
 HashEntry* hash_create_software(void)

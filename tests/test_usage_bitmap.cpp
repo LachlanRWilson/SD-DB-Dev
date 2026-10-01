@@ -1150,3 +1150,173 @@ TEST_F(UsageBitmapTest, IteratorRespectsTotalBitsLimit)
     // Bit 40 is outside [0, 32) and must not be visited.
     EXPECT_FALSE(iterator_next_fn(&it));
 }
+
+/**
+ * @brief The iterator functions reject a NULL iterator, and get() rejects
+ *        a NULL output pointer, without crashing.
+ */
+TEST_F(UsageBitmapTest, IteratorRejectsNullArguments)
+{
+    EXPECT_FALSE(usage_bitmap_iterator_next(nullptr));
+    EXPECT_FALSE(usage_bitmap_iterator_prev(nullptr));
+
+    uint16_t value = 0;
+    EXPECT_FALSE(usage_bitmap_iterator_get(nullptr, &value));
+
+    ASSERT_TRUE(update_usage_bit(storage, 7, true));
+
+    UsageBitmapIteratorCtx ctx;
+    Iterator it = usage_bitmap_iterator_init(&ctx, 64, 2);
+    ASSERT_TRUE(iterator_next_fn(&it));
+    EXPECT_FALSE(iterator_get_fn(&it, nullptr));
+}
+
+/**
+ * @brief An iterator with total_bits == 0 has nothing to visit, even if
+ *        bits are set in the underlying bitmap.
+ */
+TEST_F(UsageBitmapTest, IteratorWithZeroTotalBitsFindsNothing)
+{
+    ASSERT_TRUE(update_usage_bit(storage, 0, true));
+
+    UsageBitmapIteratorCtx ctx;
+    Iterator it = usage_bitmap_iterator_init(&ctx, 0, 0);
+
+    EXPECT_FALSE(iterator_next_fn(&it));
+    EXPECT_FALSE(iterator_prev_fn(&it));
+
+    uint16_t value = 0;
+    EXPECT_FALSE(iterator_get_fn(&it, &value));
+}
+
+/**
+ * @brief The last valid bit (total_bits - 1) is visited by both next() and
+ *        prev(), and the first bit outside the range (total_bits) is not.
+ */
+TEST_F(UsageBitmapTest, IteratorIncludesLastBitBeforeLimit)
+{
+    ASSERT_TRUE(update_usage_bit(storage, 39, true));
+    ASSERT_TRUE(update_usage_bit(storage, 40, true));
+
+    UsageBitmapIteratorCtx ctx;
+    uint16_t value = 0;
+
+    Iterator fwd = usage_bitmap_iterator_init(&ctx, 40, 2);
+    ASSERT_TRUE(iterator_next_fn(&fwd));
+    ASSERT_TRUE(iterator_get_fn(&fwd, &value));
+    EXPECT_EQ(value, 39);
+    EXPECT_FALSE(iterator_next_fn(&fwd));
+
+    Iterator back = usage_bitmap_iterator_init(&ctx, 40, 2);
+    ASSERT_TRUE(iterator_prev_fn(&back));
+    ASSERT_TRUE(iterator_get_fn(&back, &value));
+    EXPECT_EQ(value, 39);
+    EXPECT_FALSE(iterator_prev_fn(&back));
+}
+
+/**
+ * @brief prev() starting from an unpositioned iterator begins at the end of
+ *        the range when total_bits is not a multiple of 32, skipping set
+ *        bits beyond the limit in the same uint32_t word.
+ */
+TEST_F(UsageBitmapTest, IteratorPrevRespectsTotalBitsLimitMidWord)
+{
+    ASSERT_TRUE(update_usage_bit(storage, 33, true));
+    ASSERT_TRUE(update_usage_bit(storage, 45, true));
+
+    UsageBitmapIteratorCtx ctx;
+    Iterator it = usage_bitmap_iterator_init(&ctx, 40, 2);
+
+    uint16_t value = 0;
+    ASSERT_TRUE(iterator_prev_fn(&it));
+    ASSERT_TRUE(iterator_get_fn(&it, &value));
+    EXPECT_EQ(value, 33);
+}
+
+/**
+ * @brief Mixing next() and prev() moves back and forth between neighbouring
+ *        set bits without skipping or repeating any.
+ */
+TEST_F(UsageBitmapTest, IteratorNextThenPrevReturnsToPreviousBit)
+{
+    const std::vector<uint16_t> set_bits = {2, 31, 32, 50};
+    for (uint16_t bit : set_bits)
+    {
+        ASSERT_TRUE(update_usage_bit(storage, bit, true));
+    }
+
+    UsageBitmapIteratorCtx ctx;
+    Iterator it = usage_bitmap_iterator_init(&ctx, 64, 2);
+    uint16_t value = 0;
+
+    // Advance to bit 32 (third set bit).
+    for (int i = 0; i < 3; i++)
+    {
+        ASSERT_TRUE(iterator_next_fn(&it));
+    }
+    ASSERT_TRUE(iterator_get_fn(&it, &value));
+    ASSERT_EQ(value, 32);
+
+    // Back across the word boundary to 31.
+    ASSERT_TRUE(iterator_prev_fn(&it));
+    ASSERT_TRUE(iterator_get_fn(&it, &value));
+    EXPECT_EQ(value, 31);
+
+    // Forward again to 32, then on to 50.
+    ASSERT_TRUE(iterator_next_fn(&it));
+    ASSERT_TRUE(iterator_get_fn(&it, &value));
+    EXPECT_EQ(value, 32);
+
+    ASSERT_TRUE(iterator_next_fn(&it));
+    ASSERT_TRUE(iterator_get_fn(&it, &value));
+    EXPECT_EQ(value, 50);
+}
+
+/**
+ * @brief prev() from bit 0 reports there is no previous bit and leaves the
+ *        iterator without a current position.
+ */
+TEST_F(UsageBitmapTest, IteratorPrevFromBitZeroIsExhausted)
+{
+    ASSERT_TRUE(update_usage_bit(storage, 0, true));
+
+    UsageBitmapIteratorCtx ctx;
+    Iterator it = usage_bitmap_iterator_init(&ctx, 64, 2);
+
+    uint16_t value = 0;
+    ASSERT_TRUE(iterator_next_fn(&it));
+    ASSERT_TRUE(iterator_get_fn(&it, &value));
+    ASSERT_EQ(value, 0);
+
+    EXPECT_FALSE(iterator_prev_fn(&it));
+    EXPECT_FALSE(iterator_get_fn(&it, &value));
+}
+
+/**
+ * @brief Iterating over a large range visits exactly the set bits, across
+ *        many uint32_t words, in ascending order.
+ */
+TEST_F(UsageBitmapTest, IteratorVisitsEverySetBitOverLargeRange)
+{
+    constexpr uint16_t kTotalBits = 1024;
+
+    std::vector<uint16_t> set_bits;
+    for (uint16_t bit = 0; bit < kTotalBits; bit += 7)
+    {
+        ASSERT_TRUE(update_usage_bit(storage, bit, true));
+        set_bits.push_back(bit);
+    }
+
+    UsageBitmapIteratorCtx ctx;
+    Iterator it = usage_bitmap_iterator_init(&ctx, kTotalBits, kTotalBits / BITS_PER_ELEMENT);
+
+    std::vector<uint16_t> visited;
+    while (iterator_next_fn(&it))
+    {
+        uint16_t value = 0;
+        ASSERT_TRUE(iterator_get_fn(&it, &value));
+        visited.push_back(value);
+    }
+
+    EXPECT_EQ(visited, set_bits);
+}
