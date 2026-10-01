@@ -84,8 +84,9 @@ protected:
         storage->context = &storage_ctx;
 
         // check_usage_bit()/update_usage_bit() operate on the global
-        // in-RAM bitmap, so clear it between tests.
-        std::memset(usage_bitmap, 0, USAGE_BITMAP_STORAGE_SIZE * sizeof(uint32_t));
+        // in-RAM bitmap, so clear it between tests. Formatting it on storage
+        // too gives every bitmap sector a valid CRC trailer for rebuild().
+        ASSERT_TRUE(init_usage_bitmap(storage));
 
         // The journal must be initialised before any contact/message write/remove.
         std::memset(&journal, 0, sizeof(Journal));

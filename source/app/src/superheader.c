@@ -19,6 +19,20 @@ bool read_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf)
 }
 
 /**
+  * @brief  Calculate the superheader CRC and write it to the SD Card
+  * @param  storage storage access struct
+  * @param  superHeaderBuf superheader to write (superheader_crc is overwritten)
+  * @retval True if successful write else false.
+  */
+bool write_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf)
+{
+    superHeaderBuf->var.superheader_crc = crc32_calculate(superHeaderBuf->var.data.buffer,
+            sizeof(SuperHeaderData));
+
+    return storage->write_block(storage->context, SUPERHEADER_SECTOR, superHeaderBuf->buffer);
+}
+
+/**
   * @brief  Determine the status of the super header
   * @param  superHeaderBuf superheader to get the status of
   * @retval SUPR_HEAD_STATUS status code of the superheader
@@ -36,7 +50,7 @@ SUPR_HEAD_STATUS get_superheader_status(SuperHeaderBuffer* superHeaderBuf)
     }
 
     // Calculate CRC
-    uint32_t crc = crc32_calculate(buffer, sizeof(SUPR_HEAD_DATA));
+    uint32_t crc = crc32_calculate(buffer, sizeof(SuperHeaderData));
 
     // Check CRC
     if (crc != superheader.superheader_crc)

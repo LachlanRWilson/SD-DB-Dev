@@ -161,6 +161,9 @@ TEST_F(UsageBitmapTest, ReadUsageBitmap)
         sizeof(pattern)
     );
 
+    // Bitmap sectors are CRC protected, so the pattern needs a valid trailer
+    sector_crc_stamp(pattern);
+
     for (uint32_t sector = 0;
          sector < USAGE_BITMAP_SECTOR_SIZE;
          sector++)
@@ -184,12 +187,17 @@ TEST_F(UsageBitmapTest, ReadUsageBitmap)
     );
 
     /*
-     * Every uint32_t should now contain 0xAAAAAAAA.
+     * Every usage word (not the CRC trailers) should now contain 0xAAAAAAAA.
      */
     for (uint32_t i = 0;
          i < USAGE_BITMAP_STORAGE_SIZE;
          i++)
     {
+        if (USAGE_BITMAP_IS_CRC_WORD(i))
+        {
+            continue;
+        }
+
         EXPECT_EQ(
             usage_bitmap[i],
             0xAAAAAAAAu
@@ -412,22 +420,22 @@ TEST_F(UsageBitmapTest, AllBitsInWord)
 
 
 /**
- * @brief Verify bitmap sector boundary at sector 4096.
+ * @brief Verify bitmap sector boundary at sector 4064.
  *
- * One 512-byte bitmap sector contains:
+ * One 512-byte bitmap sector contains 127 usage words and a CRC trailer:
  *
- *   512 * 8 = 4096 bits
+ *   127 * 32 = 4064 bits
  *
  * Therefore:
  *
- *   data sector 4095 -> bitmap sector 0
- *   data sector 4096 -> bitmap sector 1
+ *   data sector 4063 -> bitmap sector 0
+ *   data sector 4064 -> bitmap sector 1
  */
 TEST_F(UsageBitmapTest, BitmapSectorBoundary)
 {
     const uint32_t first_sector_index = 0;
-    const uint32_t last_index_sector_0 = 4095;
-    const uint32_t first_index_sector_1 = 4096;
+    const uint32_t last_index_sector_0 = USAGE_BITS_PER_SECTOR - 1;
+    const uint32_t first_index_sector_1 = USAGE_BITS_PER_SECTOR;
 
     /*
      * Set the final bit represented by bitmap sector 0.
@@ -458,14 +466,14 @@ TEST_F(UsageBitmapTest, BitmapSectorBoundary)
     ASSERT_TRUE( storage->read_block( storage->context, USAGE_BITMAP_START_SECTOR, sector0));
 
     /*
-     * Bit 4095 is:
+     * Bit 4063 is:
      *
-     * word = 127
+     * word = 126 (word 127 is the CRC trailer)
      * bit  = 31
      */
     uint32_t word0 = 0;
 
-    memcpy( &word0, &sector0[127 * sizeof(uint32_t)], sizeof(uint32_t));
+    memcpy( &word0, &sector0[(USAGE_WORDS_PER_SECTOR - 1) * sizeof(uint32_t)], sizeof(uint32_t));
 
     EXPECT_EQ( word0, 0x80000000u);
 
@@ -478,7 +486,7 @@ TEST_F(UsageBitmapTest, BitmapSectorBoundary)
     ASSERT_TRUE( storage->read_block( storage->context, USAGE_BITMAP_START_SECTOR + 1, sector1));
 
     /*
-     * Bit 4096 is:
+     * Bit 4064 is:
      *
      * word = 0
      * bit  = 0
@@ -497,7 +505,7 @@ TEST_F(UsageBitmapTest, BitmapSectorBoundary)
 TEST_F(UsageBitmapTest, EveryBitmapSectorBoundary)
 {
     const uint32_t sectors_per_bitmap_sector =
-        SECTOR_SIZE * 8;
+        USAGE_BITS_PER_SECTOR;
 
     for (uint32_t bitmap_sector = 0;
          bitmap_sector < USAGE_BITMAP_SECTOR_SIZE;
@@ -594,7 +602,7 @@ TEST_F(UsageBitmapTest, EveryBitmapSectorBoundary)
 
         memcpy(
             &last_word,
-            &result[127 * sizeof(uint32_t)],
+            &result[(USAGE_WORDS_PER_SECTOR - 1) * sizeof(uint32_t)],
             sizeof(uint32_t)
         );
 
@@ -602,7 +610,7 @@ TEST_F(UsageBitmapTest, EveryBitmapSectorBoundary)
          * If this is a complete bitmap sector,
          * the last bit should be bit 31.
          */
-        if (last_index - first_index == 4095)
+        if (last_index - first_index == USAGE_BITS_PER_SECTOR - 1)
         {
             EXPECT_NE(
                 last_word & 0x80000000u,
@@ -666,8 +674,8 @@ TEST_F(UsageBitmapTest, DoesNotModifyNeighbouringBits)
 TEST_F(UsageBitmapTest, MultipleBitmapSectors)
 {
     const uint32_t index0 = 0;
-    const uint32_t index1 = 4096;
-    const uint32_t index2 = 8192;
+    const uint32_t index1 = USAGE_BITS_PER_SECTOR;
+    const uint32_t index2 = 2 * USAGE_BITS_PER_SECTOR;
 
     ASSERT_TRUE(
         update_usage_bit(

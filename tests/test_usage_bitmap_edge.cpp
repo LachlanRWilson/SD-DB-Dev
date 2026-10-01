@@ -64,8 +64,10 @@ TEST_F(UsageBitmapEdgeTest, InitClearsPreviouslySetBitsInRamAndStorage)
     uint8_t sector0[SECTOR_SIZE]{};
     ASSERT_TRUE(storage.read_block(storage.context, USAGE_BITMAP_START_SECTOR, sector0));
 
+    // Usage words are all zero and the CRC trailer is valid
     uint8_t zero[SECTOR_SIZE]{};
-    EXPECT_EQ(memcmp(sector0, zero, SECTOR_SIZE), 0);
+    EXPECT_EQ(memcmp(sector0, zero, SECTOR_PAYLOAD_BYTES), 0);
+    EXPECT_TRUE(sector_crc_valid(sector0));
 }
 
 /**

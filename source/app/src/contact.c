@@ -91,7 +91,7 @@ STRG_RET write_contact(Storage *storage, Journal *journal, uint16_t index, Conta
     if (check_usage_bit(index / CONTACT_SECTOR_CAPACITY)) {
 
         // Read contact sector
-        if (!read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector))
+        if (read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector) != STRG_OK)
         {
             return STRG_FAIL;
         }
@@ -106,7 +106,7 @@ STRG_RET write_contact(Storage *storage, Journal *journal, uint16_t index, Conta
     }
 
     // Add to journal for rollback and update usage bit on SD card
-    if (!journal_add(journal, JRNL_CONTACT, index, cSector.buffer))
+    if (!journal_add(journal, JRNL_CONTACT, CONTACT_DATA_SECTOR(index), cSector.buffer))
     {
         return STRG_FAIL;
     }
@@ -162,9 +162,10 @@ STRG_RET read_contact(Storage *storage, uint16_t index, ContactBuffer *out)
     }
 
     // read contact sector
-    if(!read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector))
+    STRG_RET ret = read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector);
+    if (ret != STRG_OK)
     {
-        return STRG_FAIL;
+        return ret;
     }
 
     // Get the position in the contact sector
@@ -236,13 +237,13 @@ bool remove_contact(Storage *storage, Journal *journal, FreeList *contact_alloca
     }
 
     // read contact sector
-    if(!read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector))
+    if (read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector) != STRG_OK)
     {
         return false;
     }
 
     // Add contact to jounral
-    if (!journal_add(journal, JRNL_CONTACT, index, cSector.buffer))
+    if (!journal_add(journal, JRNL_CONTACT, CONTACT_DATA_SECTOR(index), cSector.buffer))
     {
         return false;
     }

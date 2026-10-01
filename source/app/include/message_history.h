@@ -17,16 +17,23 @@ extern "C" {
 #include "mem_layout.h"
 #include "storage.h"
 #include "message.h"
-#include "ring_buffer.h"
 
 typedef uint16_t MessageIndex;
+typedef struct RingBuffer RingBuffer;
 
 typedef struct {
     MessageIndex messageIndex[MESSAGE_HISTORY_SECTOR_CAPACITY];
     uint32_t sector_crc;
 } MessageHistorySector;
 
+typedef union {
+    MessageHistorySector sector;
+    uint8_t buffer[sizeof(MessageHistorySector)];
+} MessageHistorySectorB;
+
 STATIC_ASSERT(sizeof(MessageHistorySector) == MESSAGE_HISTORY_SECTOR_BYTES, "Unexpected MessageHistorySector size");
+STATIC_ASSERT(offsetof(MessageHistorySector, sector_crc) == SECTOR_PAYLOAD_BYTES, "MessageHistorySector CRC is not the sector trailer");
+STATIC_ASSERT(MESSAGE_HISTORY_SECTOR_CAPACITY == 254, "CRC trailer changed the message history sector capacity");
 
 /**
  * @brief Initialise MessageHistory and RingBuffer
@@ -44,7 +51,7 @@ bool message_history_init(RingBuffer *rb);
  * @param n number of latest message to be read
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_get_range(RingBuffer *rb, size_t start, size_t n, Message *out);
+STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t start, size_t n, Message *out);
 
 /**
  * @brief Add new latest message index to the ring buffer
@@ -53,7 +60,7 @@ STRG_RET message_history_get_range(RingBuffer *rb, size_t start, size_t n, Messa
  * @param messageInd message sector index of the latest message
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_add(RingBuffer *rb, uint16_t messageInd);
+STRG_RET message_history_add(RingBuffer *rb, Storage *storage, uint16_t messageInd);
 
 
 

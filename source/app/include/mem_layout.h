@@ -14,6 +14,10 @@ extern "C" {
  * ================================================================ */
 #define SECTOR_SIZE 512
 
+// Every data sector ends in a CRC-32 trailer covering bytes [0, SECTOR_PAYLOAD_BYTES)
+#define SECTOR_CRC_BYTES 4
+#define SECTOR_PAYLOAD_BYTES (SECTOR_SIZE - SECTOR_CRC_BYTES)
+
 #define SECTORS_REQUIRED(bytes) \
     (((bytes) + SECTOR_SIZE - 1) / SECTOR_SIZE)
 ;
@@ -55,12 +59,12 @@ extern "C" {
 /* ---- Contact sector layout ------------------------------------- */
 
 // How many Contact records fit in one 512B sector, after the sector
-// type tag and the ContactSectorHeader.
+// type tag, the ContactSectorHeader and the CRC trailer.
 #define CONTACT_SECTOR_CAPACITY \
-    ((SECTOR_SIZE - CONTACT_SECTOR_HEADER_BYTES - sizeof(SECTOR_TYPE)) / CONTACT_RECORD_BYTES)
+    ((SECTOR_PAYLOAD_BYTES - CONTACT_SECTOR_HEADER_BYTES - sizeof(SECTOR_TYPE)) / CONTACT_RECORD_BYTES)
 
 #define CONTACT_SECTOR_PADDING \
-    (SECTOR_SIZE - CONTACT_SECTOR_HEADER_BYTES - sizeof(SECTOR_TYPE) - \
+    (SECTOR_PAYLOAD_BYTES - CONTACT_SECTOR_HEADER_BYTES - sizeof(SECTOR_TYPE) - \
      (CONTACT_SECTOR_CAPACITY * CONTACT_RECORD_BYTES))
 
 #define CONTACT_MEMORY_SECTORS(numContacts, contactSecCapacity) \
@@ -75,7 +79,7 @@ extern "C" {
  * struct layout itself stays in message_extent.h.
  */
 #define MESSAGE_HISTORY_SECTOR_CAPACITY \
-    ((SECTOR_SIZE - sizeof(uint32_t)) / sizeof(uint16_t))
+    (SECTOR_PAYLOAD_BYTES / sizeof(uint16_t))
 
 /* ---- Message region sizing --------------------------------------
  * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock
@@ -117,7 +121,7 @@ extern "C" {
 /* ---- Superheader — sector 0 ----------------------------------------*/
 #define SUPERHEADER_SECTOR 0
 #define SUPERHEADER_DATA_BYTES 12
-#define SUPERHEADER_PADDING (SUPERHEADER_BYTES - SUPERHEADER_DATA_BYTES - 2 * sizeof(uint32_t))
+#define SUPERHEADER_PADDING (SUPERHEADER_BYTES - SUPERHEADER_DATA_BYTES - sizeof(uint32_t))
 #define SUPERHEADER_BYTES SECTOR_SIZE
 #define SUPERHEADER_SECTOR_SIZE 1
 
@@ -135,24 +139,42 @@ extern "C" {
 #define BYTES_PER_ELEMENT sizeof(uint32_t)
 #define ELEMENTS_PER_SECTOR (SECTOR_SIZE / BYTES_PER_ELEMENT)
 
-// Number of uint32_t elements needed to hold one bit per data sector.
-#define USAGE_BITMAP_SIZE \
-    ((TOTAL_DATA_SECTOR_SIZE + BITS_PER_ELEMENT - 1) / BITS_PER_ELEMENT)
+// The last word of every bitmap sector is its CRC trailer, so only the
+// words before it hold usage bits.
+#define USAGE_WORDS_PER_SECTOR (ELEMENTS_PER_SECTOR - SECTOR_CRC_BYTES / BYTES_PER_ELEMENT)
+#define USAGE_BITS_PER_SECTOR  (USAGE_WORDS_PER_SECTOR * BITS_PER_ELEMENT)
 
 // Number of 512B sectors needed to persist the usage bitmap.
 #define USAGE_BITMAP_SECTOR_SIZE \
-    ((USAGE_BITMAP_SIZE + ELEMENTS_PER_SECTOR - 1) / ELEMENTS_PER_SECTOR)
+    ((TOTAL_DATA_SECTOR_SIZE + USAGE_BITS_PER_SECTOR - 1) / USAGE_BITS_PER_SECTOR)
 
-// Total words allocated for the in-RAM usage bitmap array (sector-rounded).
+// Number of uint32_t elements holding usage bits (excludes CRC trailers).
+#define USAGE_BITMAP_SIZE \
+    (USAGE_BITMAP_SECTOR_SIZE * USAGE_WORDS_PER_SECTOR)
+
+// Total words allocated for the in-RAM usage bitmap array (sector-rounded, includes CRC trailers).
 #define USAGE_BITMAP_STORAGE_SIZE \
     (USAGE_BITMAP_SECTOR_SIZE * ELEMENTS_PER_SECTOR)
 
+// Total number of addressable usage bits
+#define USAGE_BITMAP_TOTAL_BITS \
+    (USAGE_BITMAP_SECTOR_SIZE * USAGE_BITS_PER_SECTOR)
+
 // Usage bitmap addressing helpers.
 // (dataSecInd is the Data Sector Index (Not SD sector index), therefore DATA_REGION_START_SECTOR == dataSecInd 0)
-#define USAGE_BITMAP_FIND_SECTOR(dataSecInd)  ((dataSecInd) / (SECTOR_SIZE * 8U))
-#define USAGE_BITMAP_FIND_ELEMENT(dataSecInd) (((dataSecInd) % (SECTOR_SIZE * 8U)) / BITS_PER_ELEMENT)
-#define USAGE_BITMAP_FIND_INDEX(dataSecInd)   ((dataSecInd) / BITS_PER_ELEMENT)
+// FIND_ELEMENT is the word within its bitmap sector, FIND_INDEX is the word in the flat RAM array.
+#define USAGE_BITMAP_FIND_SECTOR(dataSecInd)  ((dataSecInd) / USAGE_BITS_PER_SECTOR)
+#define USAGE_BITMAP_FIND_ELEMENT(dataSecInd) (((dataSecInd) % USAGE_BITS_PER_SECTOR) / BITS_PER_ELEMENT)
+#define USAGE_BITMAP_FIND_INDEX(dataSecInd) \
+    (USAGE_BITMAP_FIND_SECTOR(dataSecInd) * ELEMENTS_PER_SECTOR + USAGE_BITMAP_FIND_ELEMENT(dataSecInd))
 #define USAGE_BITMAP_FIND_BIT(dataSecInd)     ((dataSecInd) % BITS_PER_ELEMENT)
+
+// Inverse of FIND_INDEX: data sector index of bit 0 of a flat RAM array word
+#define USAGE_BITMAP_WORD_TO_INDEX(word) \
+    (((word) / ELEMENTS_PER_SECTOR) * USAGE_BITS_PER_SECTOR + ((word) % ELEMENTS_PER_SECTOR) * BITS_PER_ELEMENT)
+
+// True if a flat RAM array word is a sector CRC trailer rather than usage bits
+#define USAGE_BITMAP_IS_CRC_WORD(word) (((word) % ELEMENTS_PER_SECTOR) >= USAGE_WORDS_PER_SECTOR)
 
 
 /* ---- Data Regions — data type starting sectors ----------------------------------------*/
@@ -163,6 +185,16 @@ extern "C" {
 #define MESSAGE_DATA_START_SECTOR  (CONTACT_DATA_START_SECTOR + TOTAL_CONTACT_SECTOR_SIZE)
 #define MESSAGE_HISTORY_DATA_START_SECTOR (MESSAGE_DATA_START_SECTOR + TOTAL_MESSAGE_SECTOR_SIZE)
 #define CALL_HISTORY_DATA_START_SECTOR (MESSAGE_HISTORY_DATA_START_SECTOR + TOTAL_MESSAGE_HISTORY_SECTOR_SIZE)
+
+/* ---- Index conversions ----------------------------------------
+ * Three index spaces exist:
+ *   - record index:  contact slot (hash entry sector) or message sector index (latest_msg_extent)
+ *   - data sector:   index from DATA_REGION_START_SECTOR, used by the usage bitmap and the journal
+ *   - raw sector:    SD card block address
+ */
+#define CONTACT_DATA_SECTOR(slot)   (CONTACT_DATA_START_SECTOR + (slot) / CONTACT_SECTOR_CAPACITY)
+#define MESSAGE_DATA_SECTOR(msgInd) (MESSAGE_DATA_START_SECTOR + (msgInd))
+#define DATA_SECTOR_TO_RAW(dataSec) (DATA_REGION_START_SECTOR + (dataSec))
 
 #ifdef __cplusplus
 }

@@ -54,12 +54,22 @@ add_executable(test_ring_buffer
     test_ring_buffer.cpp
 )
 
+add_executable(test_sector_crc
+    test_sector_crc.cpp
+)
+
+add_executable(test_db_recovery
+    test_db_recovery.cpp
+)
+
 foreach(test
     test_hash_table
     test_free_list
     test_usage_bitmap
     test_journal
     test_ring_buffer
+    test_sector_crc
+    test_db_recovery
 )
     target_link_libraries(${test}
         gtest

@@ -14,7 +14,7 @@
  */
 STRG_RET read_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *out)
 {
-    return read_sector(storage, index + MESSAGE_DATA_START_SECTOR, out->buffer);
+    return read_sector(storage, DATA_SECTOR_TO_RAW(MESSAGE_DATA_SECTOR(index)), out->buffer);
 }
 
 /**
@@ -27,7 +27,7 @@ STRG_RET read_message_sector(Storage *storage, uint16_t index, MessageSectorBuff
  */
 STRG_RET write_message_sector(Storage *storage, uint16_t index, MessageSectorBuffer *in)
 {
-    return write_sector(storage, index + MESSAGE_DATA_START_SECTOR, in->buffer);
+    return write_sector(storage, DATA_SECTOR_TO_RAW(MESSAGE_DATA_SECTOR(index)), in->buffer);
 }
 
 
@@ -45,7 +45,7 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
     MessageSectorBuffer mSector;
 
     // check if the sector is in use
-    bool is_used = check_usage_bit(index + CONTACT_MEMORY_SECTOR_SIZE);
+    bool is_used = check_usage_bit(MESSAGE_DATA_SECTOR(index));
 
 
     // If the sector has not been used than don't need to read
@@ -53,18 +53,29 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
     {
 
         // read message sector out off the SD card
-        bool read_success = read_message_sector(storage, index, &mSector);
-        // Read failure
-        if (!read_success)
+        STRG_RET read_ret = read_message_sector(storage, index, &mSector);
+        // Read failure or corrupt sector
+        if (read_ret != STRG_OK)
         {
-            return STRG_FAIL;
+            return read_ret;
         }
 
     } else {
         return STRG_EMPTY;
     }
+
+    // get the message count to know where to put the message
+    uint16_t msg_count = mSector.var.header.msg_count;
+
+    // if sector full then need to allocate a new sector (checked before journalling
+    // so a full sector doesn't leave an active journal behind)
+    if (msg_count >= MESSAGE_BLOCK_CAPACITY)
+    {
+        return STRG_FULL;
+    }
+
     // Add message sector to journal
-    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, index, mSector.buffer);
+    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, MESSAGE_DATA_SECTOR(index), mSector.buffer);
 
     if (!journal_add_success)
     {
@@ -72,19 +83,10 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
     }
 
     // Update the sector bit in bitmap to used (ram and sd)
-    bool update_success = update_usage_bit(storage, index + CONTACT_MEMORY_SECTOR_SIZE, true);
+    bool update_success = update_usage_bit(storage, MESSAGE_DATA_SECTOR(index), true);
     if (update_success == STRG_FAIL)
     {
         return false;
-    }
-
-    // get the message count to know where to put the message
-    uint16_t msg_count = mSector.var.header.msg_count;
-
-    // if sector full then need to allocate a new sector
-    if (msg_count >= MESSAGE_BLOCK_CAPACITY)
-    {
-        return STRG_FULL;
     }
 
     // Write message to sector
@@ -114,7 +116,7 @@ STRG_RET write_new_message_sector(Storage *storage, Journal *journal, const char
     MessageSectorBuffer mSector;
 
     // check if the sector is in use
-    bool is_used = check_usage_bit(index + CONTACT_MEMORY_SECTOR_SIZE);
+    bool is_used = check_usage_bit(MESSAGE_DATA_SECTOR(index));
 
     // If the sector has been used bad allocation
     if (is_used)
@@ -125,14 +127,14 @@ STRG_RET write_new_message_sector(Storage *storage, Journal *journal, const char
     create_new_message_sector(&mSector, phone, UINT16_MAX);
 
     // Add to journal (storing usage_bitmap, mSector content is irrelivant)
-    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, index, mSector.buffer);
+    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, MESSAGE_DATA_SECTOR(index), mSector.buffer);
 
     if (!journal_add_success)
     {
         return STRG_FAIL;
     }
     // Update the sector bit in bitmap to used (ram and sd)
-    bool update_success = update_usage_bit(storage, index + CONTACT_MEMORY_SECTOR_SIZE, true);
+    bool update_success = update_usage_bit(storage, MESSAGE_DATA_SECTOR(index), true);
     if (update_success == STRG_FAIL)
     {
         return false;
@@ -174,7 +176,7 @@ STRG_RET point_message_sector_to_next(Storage *storage, Journal *journal, uint16
     }
 
     // Add to journal (storing the old prev-sector content for rollback)
-    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, prev, mSector.buffer);
+    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, MESSAGE_DATA_SECTOR(prev), mSector.buffer);
 
     if (!journal_add_success)
     {
@@ -219,7 +221,7 @@ STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const cha
     STRG_RET ret;
 
     // check if the sector is in use
-    bool is_used = check_usage_bit(next + CONTACT_MEMORY_SECTOR_SIZE);
+    bool is_used = check_usage_bit(MESSAGE_DATA_SECTOR(next));
 
     // If the sector has been used bad allocation
     if (is_used)
@@ -228,7 +230,7 @@ STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const cha
     }
 
     // check the current full index is actually being used
-    is_used = check_usage_bit(prev + CONTACT_MEMORY_SECTOR_SIZE);
+    is_used = check_usage_bit(MESSAGE_DATA_SECTOR(prev));
 
     if (!is_used)
     {
@@ -238,14 +240,14 @@ STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const cha
     create_new_message_sector(&mSector, phone, prev);
 
     // Add to journal (storing usage_bitmap, mSector content is irrelivant)
-    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, next, mSector.buffer);
+    bool journal_add_success = journal_add(journal, JRNL_MESSAGE, MESSAGE_DATA_SECTOR(next), mSector.buffer);
 
     if (!journal_add_success)
     {
         return STRG_FAIL;
     }
     // Update the sector bit in bitmap to used (ram and sd)
-    bool update_success = update_usage_bit(storage, next + CONTACT_MEMORY_SECTOR_SIZE, true);
+    bool update_success = update_usage_bit(storage, MESSAGE_DATA_SECTOR(next), true);
     if (update_success == STRG_FAIL)
     {
         return false;
@@ -302,7 +304,7 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
         return STRG_FAIL;
     }
 
-    bool is_used = check_usage_bit(index + TOTAL_CONTACT_SECTOR_SIZE);
+    bool is_used = check_usage_bit(MESSAGE_DATA_SECTOR(index));
     // If sector is not used than it is an empty sector
     if (!is_used){
         return STRG_EMPTY;
@@ -311,10 +313,10 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
     // Read message sector
     ret = read_message_sector(storage, index, &mSector);
 
-    // exit if read failure
-    if (ret == STRG_FAIL)
+    // exit if read failure or corrupt sector
+    if (ret != STRG_OK)
     {
-        return STRG_FAIL;
+        return ret;
     }
 
     // Get message count from header
@@ -355,7 +357,7 @@ int read_n_messages(Storage *storage, uint16_t startIndex, int n, MessageBuffer 
     int msg_count;
     int msg_read = 0;
 
-    bool is_used = check_usage_bit(startIndex + CONTACT_MEMORY_SECTOR_SIZE);
+    bool is_used = check_usage_bit(MESSAGE_DATA_SECTOR(startIndex));
 
     if (!is_used)
     {
@@ -435,7 +437,7 @@ STRG_RET remove_message_sector(Storage *storage, Journal *journal, FreeList *msg
 {
     STRG_RET ret;
 
-    bool is_used = check_usage_bit(index + CONTACT_MEMORY_SECTOR_SIZE);
+    bool is_used = check_usage_bit(MESSAGE_DATA_SECTOR(index));
     if (!is_used)
     {
         return STRG_EMPTY;
@@ -451,14 +453,14 @@ STRG_RET remove_message_sector(Storage *storage, Journal *journal, FreeList *msg
 
 
     // Add contact to jounral
-    ret = journal_add(journal, JRNL_MESSAGE, index, out->buffer);
+    ret = journal_add(journal, JRNL_MESSAGE, MESSAGE_DATA_SECTOR(index), out->buffer);
     if (ret != STRG_OK)
     {
         return ret;
     }
 
     // Update usage bit vector to state the sector is no longer allocated
-    ret = update_usage_bit(storage, index + CONTACT_MEMORY_SECTOR_SIZE, false);
+    ret = update_usage_bit(storage, MESSAGE_DATA_SECTOR(index), false);
 
     if (ret != STRG_OK)
     {
@@ -527,9 +529,21 @@ MessageBuffer create_message(uint16_t timestamp, bool direction, char *str)
 
 void create_new_message_sector(MessageSectorBuffer *mSector, const char* phone, uint16_t prev)
 {
+    // start from a clean sector so no stack garbage is persisted
+    memset(mSector, 0, sizeof(*mSector));
+
+    mSector->var.type = MESSAGE_SECTOR;
     mSector->var.header.prev = prev;
     mSector->var.header.next = UINT16_MAX;
     mSector->var.header.msg_count = 0;
-    mSector->var.header.next = UINT16_MAX;
+    mSector->var.header.state = EXTENT_OCCUPIED;
 
+    // phone number is needed to link the chat back to its contact on reconstruction
+    size_t phone_len = strlen(phone);
+    if (phone_len > MAX_PHONE_LEN)
+    {
+        phone_len = MAX_PHONE_LEN;
+    }
+    memcpy(mSector->var.header.phone, phone, phone_len);
+    mSector->var.header.phone_len = (uint8_t)phone_len;
 }

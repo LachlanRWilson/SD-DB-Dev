@@ -23,6 +23,12 @@ bool init_usage_bitmap(Storage *storage)
     // Zero-set entire bitmap
     memset(usage_bitmap, 0, sizeof(usage_bitmap));
 
+    // Stamp the CRC trailer of every bitmap sector
+    for (uint32_t sector = 0; sector < USAGE_BITMAP_SECTOR_SIZE; sector++)
+    {
+        sector_crc_stamp((uint8_t *)&usage_bitmap[sector * ELEMENTS_PER_SECTOR]);
+    }
+
     return storage->write_multiblock(storage->context, USAGE_BITMAP_START_SECTOR,
             USAGE_BITMAP_SECTOR_SIZE, (uint8_t *) usage_bitmap);
 }
@@ -32,12 +38,26 @@ bool init_usage_bitmap(Storage *storage)
  *
  * @param storage storage access struct
  * @param out read out usage bitmap sector
- * @retval True if successful read else false.
+ * @retval True if successful read and every sector CRC is valid else false.
  */
 bool read_usage_bitmap(Storage* storage)
 {
-    return storage->read_multiblock(storage->context, USAGE_BITMAP_START_SECTOR,
-            USAGE_BITMAP_SECTOR_SIZE, (uint8_t *)usage_bitmap);
+    if (!storage->read_multiblock(storage->context, USAGE_BITMAP_START_SECTOR,
+            USAGE_BITMAP_SECTOR_SIZE, (uint8_t *)usage_bitmap))
+    {
+        return false;
+    }
+
+    // Check the CRC trailer of every bitmap sector
+    for (uint32_t sector = 0; sector < USAGE_BITMAP_SECTOR_SIZE; sector++)
+    {
+        if (!sector_crc_valid((uint8_t *)&usage_bitmap[sector * ELEMENTS_PER_SECTOR]))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 
@@ -49,8 +69,7 @@ bool read_usage_bitmap(Storage* storage)
  */
 bool check_usage_bit(uint16_t index)
 {
-    return (usage_bitmap[USAGE_BITMAP_FIND_ELEMENT(index) + USAGE_BITMAP_FIND_SECTOR(index) *
-            ELEMENTS_PER_SECTOR] >> USAGE_BITMAP_FIND_BIT(index)) & 0x1;
+    return (usage_bitmap[USAGE_BITMAP_FIND_INDEX(index)] >> USAGE_BITMAP_FIND_BIT(index)) & 0x1;
 }
 
 
@@ -85,6 +104,8 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
         write_sector[element] &= ~(1U << bit);
     }
 
+    // Update the sector CRC trailer in RAM so it matches what is written
+    sector_crc_stamp((uint8_t *)write_sector);
 
     STRG_RET ret = storage->write_block( storage->context, USAGE_BITMAP_START_SECTOR + bitmap_sector,
             (uint8_t *)write_sector);
@@ -102,6 +123,7 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
                 // Unset bit
                 write_sector[element] &= ~(1U << bit);
             }
+            sector_crc_stamp((uint8_t *)write_sector);
         }
         return ret;
     }
@@ -117,16 +139,22 @@ STRG_RET update_usage_bit(Storage *storage, uint16_t index, bool used_state)
 uint16_t get_next_bit(uint16_t curInd, uint16_t limInd)
 {
     // The starting word for message sector
-    int first_usage_elem = USAGE_BITMAP_FIND_ELEMENT(curInd);
+    int first_usage_elem = USAGE_BITMAP_FIND_INDEX(curInd);
     int first_usage_bit = USAGE_BITMAP_FIND_BIT(curInd);
 
     // Get the last uint32_t which stores a message sector usage bit
-    int last_usage_elem = USAGE_BITMAP_FIND_ELEMENT(limInd);
+    int last_usage_elem = USAGE_BITMAP_FIND_INDEX(limInd);
 
 
 
     for (uint32_t word = first_usage_elem; word <= last_usage_elem; word++)
     {
+        // skip sector CRC trailers
+        if (USAGE_BITMAP_IS_CRC_WORD(word))
+        {
+            continue;
+        }
+
         uint32_t bits = usage_bitmap[word];
 
         // if the first bit of the work is not a message, clear bits that are not messages
@@ -138,7 +166,7 @@ uint16_t get_next_bit(uint16_t curInd, uint16_t limInd)
         while (bits != 0)
         {
             uint32_t bit = __builtin_ctz(bits);
-            return (uint16_t)(word * BITS_PER_ELEMENT + bit);
+            return (uint16_t)(USAGE_BITMAP_WORD_TO_INDEX(word) + bit);
         }
     }
     return UINT16_MAX;
@@ -152,14 +180,20 @@ uint16_t get_next_bit(uint16_t curInd, uint16_t limInd)
  */
 uint16_t get_prev_bit(uint16_t curInd, uint16_t limInd)
 {
-    int first_usage_elem = USAGE_BITMAP_FIND_ELEMENT(limInd);
+    int first_usage_elem = USAGE_BITMAP_FIND_INDEX(limInd);
     int first_usage_bit = USAGE_BITMAP_FIND_BIT(limInd);
 
-    int last_usage_elem = USAGE_BITMAP_FIND_ELEMENT(curInd);
+    int last_usage_elem = USAGE_BITMAP_FIND_INDEX(curInd);
     int last_usage_bit = USAGE_BITMAP_FIND_BIT(curInd);
 
     for (int word = first_usage_elem; word >= last_usage_elem; word--)
     {
+        // skip sector CRC trailers
+        if (USAGE_BITMAP_IS_CRC_WORD(word))
+        {
+            continue;
+        }
+
         uint32_t bits = usage_bitmap[word];
 
         // For the first word, only consider bits <= first_usage_bit
@@ -180,7 +214,7 @@ uint16_t get_prev_bit(uint16_t curInd, uint16_t limInd)
         {
             uint32_t bit = 31u - __builtin_clz(bits);
 
-            return (uint16_t)(word * BITS_PER_ELEMENT + bit);
+            return (uint16_t)(USAGE_BITMAP_WORD_TO_INDEX(word) + bit);
         }
 
     }

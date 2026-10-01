@@ -42,7 +42,8 @@ typedef enum {
     STRG_OK,
     STRG_EMPTY,
     STRG_FULL,
-    STRG_NEXT // need to move to the next storage sector
+    STRG_NEXT, // need to move to the next storage sector
+    STRG_CORRUPT // sector read successfully but its CRC trailer does not match
 } STRG_RET;
 
 
@@ -59,17 +60,42 @@ typedef struct
 
 
 /**
- * @brief Read sector to the sd card
+ * @brief Calculate and store the CRC trailer of a sector
+ *
+ * @param sector SECTOR_SIZE byte buffer, last SECTOR_CRC_BYTES are overwritten
+ */
+void sector_crc_stamp(uint8_t *sector);
+
+/**
+ * @brief Check the CRC trailer of a sector
+ *
+ * @param sector SECTOR_SIZE byte buffer
+ * @retval True if the stored CRC matches the payload else false.
+ */
+bool sector_crc_valid(const uint8_t *sector);
+
+/**
+ * @brief Read sector from the sd card without checking its CRC trailer
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param index sector index on the SD Card
+ * @param out sector being read from the SD Card
+ * @retval STRG_OK if successful read else STRG_FAIL.
+ */
+STRG_RET read_sector_raw(Storage *storage, uint16_t index, uint8_t *out);
+
+/**
+ * @brief Read sector to the sd card and check its CRC trailer
  *
  * @param storage Pointer to the storage abstraction.
  * @param index sector index on the SD Card
  * @param in sector being read from the SD Card
- * @retval True if successful read else false.
+ * @retval STRG_OK if successful read, STRG_CORRUPT if the CRC trailer mismatches, else STRG_FAIL.
  */
 STRG_RET read_sector(Storage *storage, uint16_t index, uint8_t *out);
 
 /**
- * @brief Write to the sd card
+ * @brief Stamp the CRC trailer and write to the sd card
  *
  * @param storage Pointer to the storage abstraction.
  * @param index memory index of the contact.

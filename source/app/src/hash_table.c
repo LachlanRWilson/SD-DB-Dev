@@ -127,7 +127,8 @@ PHONE_CHECK check_contact_phone(Storage *storage, const char* phone, HashEntry *
     ContactBuffer contact;
 
     // read contact where this entry points
-    if (!read_contact(storage, entry->sector, &contact))
+    STRG_RET ret = read_contact(storage, entry->sector, &contact);
+    if (ret == STRG_FAIL || ret == STRG_CORRUPT)
     {
        return CONTACT_READ_ERROR;
     }
@@ -198,7 +199,8 @@ bool hash_find_entry(HashTable *table, const char *phone, HashEntry **entry)
         // ENTRY_OCCUPIED
         if (cur->id == target_hash)
         {
-            if (!read_contact(table->storage, cur->sector, &contact))
+            STRG_RET ret = read_contact(table->storage, cur->sector, &contact);
+            if (ret == STRG_FAIL || ret == STRG_CORRUPT)
             {
                 continue; // couldn't verify - treat as a miss and keep probing
             }
@@ -458,9 +460,9 @@ uint16_t get_nth_contact_index(HashTable *table, int n)
     ContactSectorBuffer cSector;
     ContactSectorHeader cHeader;
     int contact_count = 0;
-    int first_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(CONTACT_DATA_START_SECTOR);
+    int first_contact_usage_elem = USAGE_BITMAP_FIND_INDEX(CONTACT_DATA_START_SECTOR);
     int first_contact_usage_bit = USAGE_BITMAP_FIND_BIT(CONTACT_DATA_START_SECTOR);
-    int last_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE);
+    int last_contact_usage_elem = USAGE_BITMAP_FIND_INDEX(CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE);
     uint32_t bits = usage_bitmap[first_contact_usage_elem];
 
     // if the first bit of the work is not a message, clear bits that are not contacts
@@ -472,6 +474,12 @@ uint16_t get_nth_contact_index(HashTable *table, int n)
     // iterate over every uint32 in the usage bitmap
     for (uint32_t word = first_contact_usage_elem; word <= last_contact_usage_elem ; word++)
     {
+        // skip usage bitmap sector CRC trailers
+        if (USAGE_BITMAP_IS_CRC_WORD(word))
+        {
+            continue;
+        }
+
         uint32_t bits = usage_bitmap[word];
 
         while (bits != 0)
@@ -480,13 +488,13 @@ uint16_t get_nth_contact_index(HashTable *table, int n)
             uint32_t bit = __builtin_ctz(bits);
 
             // if bit is larger than contact sector indexes
-            if ((bit + word * BITS_PER_ELEMENT) >= (CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE))
+            if ((USAGE_BITMAP_WORD_TO_INDEX(word) + bit) >= (CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE))
             {
                 break;
             }
 
             // need to get physical sector and the slot in the sector
-            uint16_t phys_sector = (uint16_t)(word * BITS_PER_ELEMENT + bit);
+            uint16_t phys_sector = (uint16_t)(USAGE_BITMAP_WORD_TO_INDEX(word) + bit);
             uint16_t slot_base = (uint16_t)(phys_sector * CONTACT_SECTOR_CAPACITY);
 
             ret = read_contact_sector(table->storage, phys_sector, &cSector);
@@ -549,13 +557,19 @@ STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer
 
     uint8_t start_pos_in_sector = start_contact_index % CONTACT_SECTOR_CAPACITY;
 
-    int start_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT((CONTACT_DATA_START_SECTOR + start_contact_index) / CONTACT_SECTOR_CAPACITY);
+    int start_contact_usage_elem = USAGE_BITMAP_FIND_INDEX((CONTACT_DATA_START_SECTOR + start_contact_index) / CONTACT_SECTOR_CAPACITY);
     int start_contact_usage_bit = USAGE_BITMAP_FIND_BIT((CONTACT_DATA_START_SECTOR + start_contact_index) / CONTACT_SECTOR_CAPACITY);
-    int last_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE);
+    int last_contact_usage_elem = USAGE_BITMAP_FIND_INDEX(CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE);
 
 
     for (uint32_t word = start_contact_usage_elem; word <= last_contact_usage_elem; word++)
     {
+        // skip usage bitmap sector CRC trailers
+        if (USAGE_BITMAP_IS_CRC_WORD(word))
+        {
+            continue;
+        }
+
         // copy bits to another variable
         uint32_t bits = usage_bitmap[word];
 
@@ -570,12 +584,12 @@ STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer
         {
             uint32_t bit = __builtin_ctz(bits);
 
-            if ((bit + word * BITS_PER_ELEMENT) >= CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE)
+            if ((USAGE_BITMAP_WORD_TO_INDEX(word) + bit) >= CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE)
             {
                 break;
             }
 
-            ret = read_contact_sector(table->storage, (bit + word * BITS_PER_ELEMENT), &cSector);
+            ret = read_contact_sector(table->storage, (USAGE_BITMAP_WORD_TO_INDEX(word) + bit), &cSector);
             if (ret != STRG_OK)
             {
                 return ret;
@@ -876,16 +890,22 @@ bool hash_reconstruct_contact(HashTable *table)
     uint32_t last_free_index = 0;
 
     // The starting word for contact sector
-    int first_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(CONTACT_DATA_START_SECTOR);
+    int first_contact_usage_elem = USAGE_BITMAP_FIND_INDEX(CONTACT_DATA_START_SECTOR);
     int first_contact_usage_bit = USAGE_BITMAP_FIND_BIT(CONTACT_DATA_START_SECTOR);
 
     // Get the last uint32_t in the usage bitmap which stores a contact sector usage bit
-    int last_contact_usage_elem = USAGE_BITMAP_FIND_ELEMENT(CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE);
+    int last_contact_usage_elem = USAGE_BITMAP_FIND_INDEX(CONTACT_DATA_START_SECTOR + CONTACT_MEMORY_SECTOR_SIZE);
 
 
     // iterate over every uint32 in the usage bitmap
     for (uint32_t word = first_contact_usage_elem; word <= last_contact_usage_elem ; word++)
     {
+        // skip usage bitmap sector CRC trailers
+        if (USAGE_BITMAP_IS_CRC_WORD(word))
+        {
+            continue;
+        }
+
 
         uint32_t bits = usage_bitmap[word];
 
@@ -901,13 +921,13 @@ bool hash_reconstruct_contact(HashTable *table)
             uint32_t bit = __builtin_ctz(bits);
 
             // check that the bit that we are on doesn't go past the total number of sectors allocated to contacts
-            if ((bit + word * BITS_PER_ELEMENT) >= CONTACT_MEMORY_SECTOR_SIZE )
+            if ((USAGE_BITMAP_WORD_TO_INDEX(word) + bit) >= CONTACT_MEMORY_SECTOR_SIZE )
             {
                 break;
             }
 
             // need to get physical sector and the slot in the sector
-            uint16_t phys_sector = (uint16_t)(word * BITS_PER_ELEMENT + bit);
+            uint16_t phys_sector = (uint16_t)(USAGE_BITMAP_WORD_TO_INDEX(word) + bit);
             uint16_t slot_base = (uint16_t)(phys_sector * CONTACT_SECTOR_CAPACITY);
 
             free_list_free_range(table->contact_allocator, (uint16_t)last_free_index, slot_base);
@@ -918,6 +938,14 @@ bool hash_reconstruct_contact(HashTable *table)
             if (ret == STRG_FAIL)
             {
                 return false;
+            }
+
+            // Corrupt sector: skip it (and don't free its slots) rather than abort the rebuild
+            if (ret == STRG_CORRUPT)
+            {
+                bits &= bits - 1;
+                last_free_index = slot_base + CONTACT_SECTOR_CAPACITY;
+                continue;
             }
 
 
@@ -943,7 +971,15 @@ bool hash_reconstruct_contact(HashTable *table)
 
 bool insert_message_from_sector(HashTable *table, Journal *journal, MessageSectorBuffer *mSector, uint16_t index)
 {
-    const char* phone = mSector->var.header.phone;
+    // header phone isn't NUL terminated when it is MAX_PHONE_LEN long
+    char phone[MAX_PHONE_LEN + 1] = {0};
+    uint8_t phone_len = mSector->var.header.phone_len;
+    if (phone_len > MAX_PHONE_LEN)
+    {
+        phone_len = MAX_PHONE_LEN;
+    }
+    memcpy(phone, mSector->var.header.phone, phone_len);
+
     uint16_t hash = hash_phone(phone);
     STRG_RET ret;
 
@@ -980,75 +1016,78 @@ bool insert_message_from_sector(HashTable *table, Journal *journal, MessageSecto
     table->num_elems++;
     }
 
-    // Need to also increment free list used count (NOTE: should add
-    // func to insert contact ptr to entry directly)
+    // The message allocator starts with nothing free, so the used sector is
+    // already counted as used; only point the entry at it.
     entry->latest_msg_extent = index;
-    table->message_allocator->used_count++;
 
     return true;
 }
 
+/**
+ * @brief Rebuild every hash entry's latest message sector from the usage
+ *        bitmap and hand unused message sectors back to the message allocator.
+ *
+ * Must run after hash_reconstruct_contact(). The message allocator must be
+ * initialised with free_list_empty_init().
+ *
+ * @param table Pointer to the hash table.
+ * @param journal Pointer to the rollback journal (used if an orphan message needs a contact).
+ * @retval true Reconstruction completed successfully.
+ * @retval false A storage read failed or the hash table filled up mid-reconstruction.
+ */
 bool hash_reconstruct_message(HashTable *table, Journal *journal)
 {
-    MessageSectorBuffer mSector;
-    uint32_t last_free_sector = 0;
-
-    // The starting word for message sector
-    int first_message_usage_elem = USAGE_BITMAP_FIND_ELEMENT(MESSAGE_DATA_START_SECTOR);
-    int first_message_usage_bit = USAGE_BITMAP_FIND_BIT(MESSAGE_DATA_START_SECTOR);
-
-    // Get the last uint32_t which stores a message sector usage bit
-    int last_message_usage_elem = USAGE_BITMAP_FIND_ELEMENT(MESSAGE_SECTOR_SIZE + MESSAGE_SECTOR_SIZE);
-
-
-
-    for (uint32_t word = first_message_usage_elem; word <= last_message_usage_elem; word++)
+    if (table == NULL || table->storage == NULL || table->htable == NULL || table->message_allocator == NULL)
     {
-        uint32_t bits = usage_bitmap[word];
+        return false;
+    }
 
-        // if the first bit of the work is not a message, clear bits that are not messages
-        if ((word == first_message_usage_elem) && (first_message_usage_bit > 0))
+    MessageSectorBuffer mSector;
+    uint16_t last_free_index = 0;
+
+    // Usage bitmap (data sector) range covering the message region
+    const uint16_t first_data_sector = MESSAGE_DATA_SECTOR(0);
+    const uint16_t last_data_sector = MESSAGE_DATA_SECTOR(TOTAL_MESSAGE_SECTOR_SIZE - 1);
+
+    uint16_t data_sector = get_next_bit(first_data_sector, last_data_sector);
+
+    while (data_sector != UINT16_MAX && data_sector <= last_data_sector)
+    {
+        // message sector index (what latest_msg_extent and the allocator use)
+        uint16_t msg_index = (uint16_t)(data_sector - MESSAGE_DATA_START_SECTOR);
+
+        // everything between the previous used sector and this one is free
+        free_list_free_range(table->message_allocator, last_free_index, msg_index);
+        last_free_index = (uint16_t)(msg_index + 1);
+
+        STRG_RET ret = read_message_sector(table->storage, msg_index, &mSector);
+
+        if (ret == STRG_FAIL)
         {
-            clear_bits_to_n_u32(&bits, first_message_usage_bit);
+            return false;
         }
 
-        while (bits != 0)
+        // Corrupt sectors are skipped (and not freed) rather than aborting the rebuild.
+        // Only the latest sector of each chat (no next) is pointed to by the hash entry.
+        if (ret == STRG_OK && mSector.var.header.next == UINT16_MAX)
         {
-            uint32_t bit = __builtin_ctz(bits);
-
-            // check that the bit that we are on doesn't go past the total number of sectors allocated to contacts
-            if ((bit + word * BITS_PER_ELEMENT) >= (MESSAGE_SECTOR_SIZE + MESSAGE_DATA_START_SECTOR))
-            {
-                break;
-            }
-
-            // get the physical sector in the message data memory block
-            uint16_t phys_sector = (uint16_t)(word * BITS_PER_ELEMENT + bit);
-
-            free_list_free_range(table->message_allocator, (uint16_t)last_free_sector, phys_sector);
-
-            // read the message sector and determine if it is the latest message
-            STRG_RET ret = read_message_sector(table->storage, phys_sector, &mSector);
-
-            if (ret != STRG_OK)
+            if (!insert_message_from_sector(table, journal, &mSector, msg_index))
             {
                 return false;
             }
-
-            // Only add the latest message in the message linked list
-            if (mSector.var.header.next == UINT16_MAX)
-            {
-                // insert the latest message from message sector into hash entry
-               if (!insert_message_from_sector(table, journal, &mSector, phys_sector))
-                {
-                    return false;
-                }
-            }
         }
+
+        if (data_sector == last_data_sector)
+        {
+            break;
+        }
+        data_sector = get_next_bit((uint16_t)(data_sector + 1), last_data_sector);
     }
 
-    return true;
+    // Anything after the last used message sector is free
+    free_list_free_range(table->message_allocator, last_free_index, TOTAL_MESSAGE_SECTOR_SIZE);
 
+    return true;
 }
 
 bool hash_cleanup(HashTable *table) {

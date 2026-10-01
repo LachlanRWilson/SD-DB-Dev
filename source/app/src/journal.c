@@ -162,6 +162,9 @@ bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *cont
         }
     };
 
+    // Keep the active header in RAM so journal_free() commits this entry
+    journal->header = jHeadBuff;
+
     // Write to the journal
     return journal_write(journal, &jHeadBuff, content, (uint8_t*)usage_bitmap_sector);
 

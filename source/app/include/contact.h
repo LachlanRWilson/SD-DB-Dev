@@ -5,6 +5,7 @@
 extern "C" {
 #endif
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "mem_layout.h"
@@ -54,6 +55,7 @@ typedef struct
     ContactSectorHeader header; // Header MUST be first
     ContactBuffer contacts[CONTACT_SECTOR_CAPACITY];
     uint8_t padding[CONTACT_SECTOR_PADDING];
+    uint32_t crc; // CRC-32 trailer, stamped by write_sector() (4B)
 } ContactSector;
 
 typedef union {
@@ -63,6 +65,8 @@ typedef union {
 
 STATIC_ASSERT(sizeof(Contact) == CONTACT_RECORD_BYTES, "Unexpected Contact size");
 STATIC_ASSERT(sizeof(ContactSector) == SECTOR_SIZE, "ContactSector struct is not 512B");
+STATIC_ASSERT(offsetof(ContactSector, crc) == SECTOR_PAYLOAD_BYTES, "ContactSector CRC is not the sector trailer");
+STATIC_ASSERT(CONTACT_SECTOR_CAPACITY == 6, "CRC trailer changed the contact sector capacity");
 
 /**
  * @brief Read the contact sector that the contact in stored in on the sd card

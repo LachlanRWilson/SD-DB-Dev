@@ -57,12 +57,12 @@ typedef union
 } SuperHeaderDataB;
 
 
-// Superheader Struct (20B)
+// Superheader Struct (512B)
+// (usage bitmap sectors carry their own CRC trailers, see usage_bitmap.c)
 typedef struct
 {
     SuperHeaderDataB data; // crc protected data
     uint32_t superheader_crc; // CRC of superheader (4B)
-    uint32_t usage_bitmap_crc; // CRC of bitmap (4B)
     uint8_t padding[SUPERHEADER_PADDING];
 } SuperHeader;
 
@@ -76,6 +76,19 @@ typedef union
 
 STATIC_ASSERT(sizeof(SuperHeader) == SECTOR_SIZE, "Unexpected SuperHeader size");
 STATIC_ASSERT(sizeof(SuperHeaderData) == SUPR_HEAD_DATA, "Unexpected SuperHeaderData size");
+
+bool read_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf);
+
+/**
+  * @brief  Calculate the superheader CRC and write it to the SD Card
+  * @param  storage storage access struct
+  * @param  superHeaderBuf superheader to write (superheader_crc is overwritten)
+  * @retval True if successful write else false.
+  */
+bool write_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf);
+
+SUPR_HEAD_STATUS get_superheader_status(SuperHeaderBuffer* superHeaderBuf);
+bool superheader_init(Storage* storage, SuperHeaderBuffer* superheader);
 
 
 #ifdef __cplusplus

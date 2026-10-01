@@ -27,11 +27,11 @@ extern "C" {
 
 // Fit messages into a 512B block of memory
 #define MESSAGE_BLOCK_CAPACITY \
-    ((MESSAGE_BLOCK_BYTES - sizeof(MessageSectorHeader) - sizeof(SECTOR_TYPE) - sizeof(uint8_t)) / sizeof(Message))
+    ((MESSAGE_BLOCK_BYTES - SECTOR_CRC_BYTES - sizeof(MessageSectorHeader) - sizeof(SECTOR_TYPE) - sizeof(uint8_t)) / sizeof(Message))
 
 // Ensure padding is accounted for
 #define MESSAGE_BLOCK_PADDING \
-    MESSAGE_BLOCK_BYTES - sizeof(MessageSectorHeader) - sizeof(SECTOR_TYPE) - sizeof(uint8_t) - sizeof(Message) * MESSAGE_BLOCK_CAPACITY
+    (MESSAGE_BLOCK_BYTES - SECTOR_CRC_BYTES - sizeof(MessageSectorHeader) - sizeof(SECTOR_TYPE) - sizeof(uint8_t) - sizeof(Message) * MESSAGE_BLOCK_CAPACITY)
 
 // Ensure enum is 1 byte
 typedef uint8_t EXTENT_STATE;
@@ -79,6 +79,7 @@ typedef struct
     MessageSectorHeader header; // Header (24B)
     MessageBuffer messages[MESSAGE_BLOCK_CAPACITY]; // Array of chats
     uint8_t padding[MESSAGE_BLOCK_PADDING];
+    uint32_t crc; // CRC-32 trailer, stamped by write_sector() (4B)
 } MessageSector;
 
 typedef union
@@ -97,6 +98,10 @@ STATIC_ASSERT(sizeof(MessageSectorHeader) == MESSAGE_BLOCK_HEADER_BYTES, "Unexpe
         MessageSectorHeader size");
 
 STATIC_ASSERT(sizeof(MessageSector) == SECTOR_SIZE, "Unexpected MessageSector size");
+
+STATIC_ASSERT(offsetof(MessageSector, crc) == SECTOR_PAYLOAD_BYTES, "MessageSector CRC is not the sector trailer");
+
+STATIC_ASSERT(MESSAGE_BLOCK_CAPACITY == 2, "CRC trailer changed the message sector capacity");
 
 // Opaque Declaration of FreeList
 typedef struct FreeList FreeList;

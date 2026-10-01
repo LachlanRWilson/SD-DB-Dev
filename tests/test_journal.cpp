@@ -532,7 +532,7 @@ TEST_F(JournalTest, Rollback)
 
     uint8_t restored_content[SECTOR_SIZE]{};
 
-    ASSERT_TRUE(storage->read_block(storage->context, target_sector, restored_content));
+    ASSERT_TRUE(storage->read_block(storage->context, DATA_SECTOR_TO_RAW(target_sector), restored_content));
 
     EXPECT_EQ(memcmp(restored_content, original_content, SECTOR_SIZE), 0);
 
@@ -720,7 +720,7 @@ TEST_F(JournalTest, InitRollbackJournal)
 
     uint8_t restored_content[SECTOR_SIZE]{};
 
-    ASSERT_TRUE(storage->read_block(storage->context, target_sector, restored_content));
+    ASSERT_TRUE(storage->read_block(storage->context, DATA_SECTOR_TO_RAW(target_sector), restored_content));
 
     EXPECT_EQ(memcmp(restored_content, original_content, SECTOR_SIZE), 0);
 
@@ -774,7 +774,7 @@ TEST_F(JournalTest, CompleteRollbackLifecycle)
 
     uint8_t restored_content[SECTOR_SIZE]{};
 
-    ASSERT_TRUE(storage->read_block(storage->context, target_sector, restored_content));
+    ASSERT_TRUE(storage->read_block(storage->context, DATA_SECTOR_TO_RAW(target_sector), restored_content));
 
     EXPECT_EQ(memcmp(restored_content, original_content, SECTOR_SIZE), 0);
 
