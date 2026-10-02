@@ -1,148 +1,100 @@
 #include <gtest/gtest.h>
 #include <cstring>
 #include <cstdint>
+#include <vector>
 
 extern "C"
 {
 #include "journal.h"
-#include "crc.h"
 #include "storage.h"
-#include "heap_storage.h"
-#include "superheader.h"
 #include "usage_bitmap.h"
 #include "mem_layout.h"
 }
 
+#include "test_support/failable_storage.h"
+
+/**
+ * @brief Behaviour of the rollback journal (journal.c).
+ *
+ * Every journal sector (header, content copy, usage bitmap copy) carries the
+ * standard CRC-32 trailer. These tests use FailableStorage (which behaves as
+ * plain heap storage until a failure is armed) so tests can also simulate a
+ * power cut by failing a write. Failure-path coverage lives in
+ * test_journal_edge.cpp.
+ */
 class JournalTest : public ::testing::Test
 {
 protected:
     Journal journal{};
 
-    Storage *storage = &heap_storage;
-    HeapStorageContext storage_ctx;
+    FailableStorageCtx ctx{};
+    Storage storage{};
 
-    uint8_t *storage_mem = nullptr;
+    std::vector<uint8_t> storage_mem;
 
-    /*
-     * Storage layout:
-     *
-     *   Sector 0        ... Superheader
-     *   Sector 1..N     ... Usage bitmap
-     *   Sector N+1..N+3 ... Journal (header, content, usage backup)
-     *   Sector N+4..    ... Data
-     *
-     * Computed from mem_layout.h so this test tracks the real layout
-     * instead of hard-coding numbers that can silently go stale.
-     */
-    static constexpr uint16_t STORAGE_SECTOR_COUNT =
-        SUPERHEADER_SECTOR_SIZE +
-        USAGE_BITMAP_SECTOR_SIZE +
-        JRNL_SECTOR_SIZE +
-        TOTAL_DATA_SECTOR_SIZE;
+    static constexpr uint32_t STORAGE_SECTOR_COUNT =
+        DATA_REGION_START_SECTOR + TOTAL_DATA_SECTOR_SIZE;
 
     void SetUp() override
     {
-        storage_mem = new uint8_t[SECTOR_SIZE * STORAGE_SECTOR_COUNT];
-        ASSERT_NE(storage_mem, nullptr);
-        memset(storage_mem, 0, SECTOR_SIZE * STORAGE_SECTOR_COUNT);
+        storage_mem.assign(static_cast<size_t>(SECTOR_SIZE) * STORAGE_SECTOR_COUNT, 0);
+        ASSERT_TRUE(FailableStorage_Init(&ctx, storage_mem.data(), SECTOR_SIZE, STORAGE_SECTOR_COUNT));
+        storage = FailableStorage_Make(&ctx);
 
-        ASSERT_TRUE(HeapStorage_Init(&storage_ctx, storage_mem, SECTOR_SIZE, STORAGE_SECTOR_COUNT));
-        storage->context = &storage_ctx;
+        std::memset(&journal, 0, sizeof(Journal));
+        journal.storage = &storage;
 
-        memset(&journal, 0, sizeof(Journal));
-        journal.storage = storage;
-
-        /*
-         * journal_add() reads its usage-bitmap backup straight out of the
-         * global in-RAM bitmap (usage_bitmap.h), not out of a parameter,
-         * so it has to be reset between tests too.
-         */
-        memset(usage_bitmap, 0, USAGE_BITMAP_STORAGE_SIZE * sizeof(uint32_t));
+        // journal_add() copies the bitmap sector straight out of the global RAM bitmap
+        std::memset(usage_bitmap, 0, USAGE_BITMAP_STORAGE_SIZE * sizeof(uint32_t));
     }
 
-    void TearDown() override
+    /** @brief Raw view of one sector of the simulated card. */
+    uint8_t *raw(uint32_t sector)
     {
-        delete[] storage_mem;
-        storage_mem = nullptr;
+        return &storage_mem[static_cast<size_t>(sector) * SECTOR_SIZE];
     }
 
-    /**
-     * @brief Create a valid journal header.
-     */
-    JournalHeaderBuffer create_header(
-        uint8_t state,
-        uint8_t type = JRNL_CONTACT,
-        uint16_t sector = 0,
-        const uint8_t *content = nullptr,
-        const uint8_t *usage_bitmap_backup = nullptr)
+    /** @brief Header currently stored on the card. */
+    JournalHeaderBuffer stored_header()
     {
         JournalHeaderBuffer header{};
-
-        header.var.data.var.magic = JRNL_MAGIC;
-        header.var.data.var.state = state;
-        header.var.data.var.type = type;
-        header.var.data.var.sector = sector;
-
-        header.var.header_crc = crc32_calculate(header.var.data.buffer, sizeof(JournalHeaderData));
-
-        if (content != nullptr)
-        {
-            header.var.content_crc = crc32_calculate(content, SECTOR_SIZE);
-        }
-
-        if (usage_bitmap_backup != nullptr)
-        {
-            header.var.usage_bitmap_crc = crc32_calculate(usage_bitmap_backup, SECTOR_SIZE);
-        }
-
+        std::memcpy(header.buffer, raw(JRNL_HEADER_SECTOR), SECTOR_SIZE);
         return header;
     }
 
-    /**
-     * @brief Write a journal header directly to storage.
-     */
-    void write_header(JournalHeaderBuffer& header)
+    /** @brief Flip one bit of a raw sector, simulating card corruption. */
+    void corrupt(uint32_t sector, uint32_t byte)
     {
-        ASSERT_TRUE(storage->write_block(storage->context, JRNL_HEADER_SECTOR, header.buffer));
+        raw(sector)[byte] ^= 0x01;
     }
 
-    /**
-     * @brief Read the journal header from storage.
-     */
-    JournalHeaderBuffer read_header()
+    /** @brief Make the next n-th write fail (1 = the very next write). */
+    void fail_write_in(int n)
     {
-        JournalHeaderBuffer header{};
-        EXPECT_TRUE(storage->read_block(storage->context, JRNL_HEADER_SECTOR, header.buffer));
-        return header;
+        ctx.write_calls = 0;
+        ctx.fail_after_write = n;
     }
 
-    /**
-     * @brief Fill a sector-sized buffer with a specified value.
-     */
-    void fill_pattern(uint8_t *buffer, uint8_t value)
+    /** @brief A sector-sized buffer filled with a pattern and a valid trailer. */
+    static std::vector<uint8_t> stamped_sector(uint8_t value)
     {
-        ASSERT_NE(buffer, nullptr);
-
-        memset(buffer, value, SECTOR_SIZE);
+        std::vector<uint8_t> sector(SECTOR_SIZE, value);
+        sector_crc_stamp(sector.data());
+        return sector;
     }
 
-    /**
-     * @brief Get the slice of the global in-RAM usage bitmap that
-     *        journal_add() will back up for a given data sector index.
-     */
-    uint32_t *bitmap_slice_for_sector(uint16_t data_sector_index)
+    /** @brief The RAM usage bitmap sector journal_add() backs up for a data sector. */
+    static uint32_t *bitmap_sector_for(uint16_t data_sector)
     {
-        uint32_t bitmap_sector = USAGE_BITMAP_FIND_SECTOR(data_sector_index);
-        return &usage_bitmap[bitmap_sector * ELEMENTS_PER_SECTOR];
+        return &usage_bitmap[USAGE_BITMAP_FIND_SECTOR(data_sector) * ELEMENTS_PER_SECTOR];
     }
 
-    /**
-     * @brief Fill the global in-RAM usage bitmap slice that corresponds
-     *        to a given data sector index with a known byte pattern.
-     */
-    void fill_global_bitmap_slice(uint16_t data_sector_index, uint8_t value)
+    /** @brief Give the RAM bitmap sector for a data sector a recognisable, CRC-valid pattern. */
+    static void fill_bitmap_sector(uint16_t data_sector, uint8_t value)
     {
-        memset(bitmap_slice_for_sector(data_sector_index), value, SECTOR_SIZE);
+        uint8_t *sector = reinterpret_cast<uint8_t *>(bitmap_sector_for(data_sector));
+        std::memset(sector, value, SECTOR_SIZE);
+        sector_crc_stamp(sector);
     }
 };
 
@@ -151,24 +103,18 @@ protected:
  * ========================================================================== */
 
 /**
- * @brief Verify journal_header_init() creates a valid empty journal.
+ * @brief The initial header is EMPTY, carries the magic, and has a valid trailer.
  */
-TEST_F(JournalTest, HeaderInit)
+TEST_F(JournalTest, HeaderInitWritesEmptyHeaderWithValidTrailer)
 {
     ASSERT_TRUE(journal_header_init(&journal));
 
-    JournalHeaderBuffer header = read_header();
-
+    JournalHeaderBuffer header = stored_header();
     EXPECT_EQ(header.var.data.var.magic, JRNL_MAGIC);
     EXPECT_EQ(header.var.data.var.state, JRNL_EMPTY);
-    EXPECT_EQ(header.var.data.var.type, JRNL_CONTACT);
+    EXPECT_EQ(header.var.data.var.type, 0);
     EXPECT_EQ(header.var.data.var.sector, 0);
-
-    uint32_t expected_header_crc = crc32_calculate(header.var.data.buffer, sizeof(JournalHeaderData));
-
-    EXPECT_EQ(header.var.header_crc, expected_header_crc);
-    EXPECT_EQ(header.var.content_crc, 0);
-    EXPECT_EQ(header.var.usage_bitmap_crc, 0);
+    EXPECT_TRUE(sector_crc_valid(header.buffer));
 }
 
 /* ============================================================================
@@ -176,81 +122,108 @@ TEST_F(JournalTest, HeaderInit)
  * ========================================================================== */
 
 /**
- * @brief Verify an uninitialised journal is detected.
+ * @brief A never-written (all 0x00) header is uninitialised, not corrupted.
  */
-TEST_F(JournalTest, StatusUninitialized)
+TEST_F(JournalTest, StatusBlankZeroHeaderIsUninitialized)
 {
     EXPECT_EQ(get_journal_status(&journal), JRNL_UNINITIALIZED);
 }
 
 /**
- * @brief Verify a valid empty journal is detected.
+ * @brief An erased (all 0xFF) header is uninitialised, not corrupted.
  */
-TEST_F(JournalTest, StatusValid)
+TEST_F(JournalTest, StatusBlankErasedHeaderIsUninitialized)
 {
-    JournalHeaderBuffer header = create_header(JRNL_EMPTY);
-
-    write_header(header);
-
-    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
-
-    EXPECT_EQ(journal.header.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(journal.header.var.data.var.state, JRNL_EMPTY);
+    std::memset(raw(JRNL_HEADER_SECTOR), 0xFF, SECTOR_SIZE);
+    EXPECT_EQ(get_journal_status(&journal), JRNL_UNINITIALIZED);
 }
 
 /**
- * @brief Verify a committed journal is also reported as valid (does not
- *        require rollback).
+ * @brief A CRC-valid sector without the journal magic is uninitialised.
+ */
+TEST_F(JournalTest, StatusValidCrcWrongMagicIsUninitialized)
+{
+    std::vector<uint8_t> other = stamped_sector(0x5A);
+    std::memcpy(raw(JRNL_HEADER_SECTOR), other.data(), SECTOR_SIZE);
+
+    EXPECT_EQ(get_journal_status(&journal), JRNL_UNINITIALIZED);
+}
+
+/**
+ * @brief A freshly initialised (EMPTY) journal is valid.
+ */
+TEST_F(JournalTest, StatusEmptyIsValid)
+{
+    ASSERT_TRUE(journal_header_init(&journal));
+    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
+}
+
+/**
+ * @brief A committed journal is valid (no rollback needed).
  */
 TEST_F(JournalTest, StatusCommittedIsValid)
 {
-    JournalHeaderBuffer header = create_header(JRNL_COMMITTED, JRNL_CONTACT, 7);
-    write_header(header);
+    std::vector<uint8_t> content = stamped_sector(0x11);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, 3, content.data()));
+    ASSERT_EQ(journal_free(&journal), STRG_OK);
 
     EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
 }
 
 /**
- * @brief Verify an active journal requires rollback.
+ * @brief An active journal needs rollback, and the header is loaded into RAM.
  */
-TEST_F(JournalTest, StatusRollback)
+TEST_F(JournalTest, StatusActiveIsRollbackAndLoadsHeader)
 {
-    JournalHeaderBuffer header = create_header(JRNL_ACTIVE, JRNL_CONTACT, 2);
-    write_header(header);
+    std::vector<uint8_t> content = stamped_sector(0x11);
+    ASSERT_TRUE(journal_add(&journal, JRNL_MESSAGE, 42, content.data()));
 
+    std::memset(&journal.header, 0, sizeof(journal.header));
     EXPECT_EQ(get_journal_status(&journal), JRNL_ROLLBACK);
 
     EXPECT_EQ(journal.header.var.data.var.state, JRNL_ACTIVE);
-    EXPECT_EQ(journal.header.var.data.var.sector, 2);
+    EXPECT_EQ(journal.header.var.data.var.type, JRNL_MESSAGE);
+    EXPECT_EQ(journal.header.var.data.var.sector, 42);
 }
 
 /**
- * @brief Verify a corrupted journal header CRC is detected.
+ * @brief A bit flip in the header data (state) is corruption. The damaged
+ *        header must not be trusted or loaded into RAM.
  */
-TEST_F(JournalTest, StatusCorruptedHeader)
+TEST_F(JournalTest, StatusCorruptHeaderDataIsCorrupted)
 {
-    JournalHeaderBuffer header = create_header(JRNL_EMPTY);
+    std::vector<uint8_t> content = stamped_sector(0x11);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, 3, content.data()));
 
-    write_header(header);
+    corrupt(JRNL_HEADER_SECTOR, offsetof(JournalHeaderData, state));
 
-    header.var.header_crc ^= 0xFFFFFFFFu;
-    write_header(header);
+    std::memset(&journal.header, 0, sizeof(journal.header));
+    EXPECT_EQ(get_journal_status(&journal), JRNL_CORRUPTED);
+    EXPECT_EQ(journal.header.var.data.var.magic, 0u);
+}
+
+/**
+ * @brief A bit flip in the magic is corruption, not an uninitialised journal
+ *        (which would silently discard a pending rollback).
+ */
+TEST_F(JournalTest, StatusCorruptMagicIsCorrupted)
+{
+    std::vector<uint8_t> content = stamped_sector(0x11);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, 3, content.data()));
+
+    corrupt(JRNL_HEADER_SECTOR, offsetof(JournalHeaderData, magic));
 
     EXPECT_EQ(get_journal_status(&journal), JRNL_CORRUPTED);
 }
 
 /**
- * @brief Verify corruption of journal header data (without recomputing the
- *        CRC) is detected.
+ * @brief The trailer CRC also covers the header padding.
  */
-TEST_F(JournalTest, StatusCorruptedHeaderData)
+TEST_F(JournalTest, StatusCorruptPaddingIsCorrupted)
 {
-    JournalHeaderBuffer header = create_header(JRNL_EMPTY);
+    ASSERT_TRUE(journal_header_init(&journal));
 
-    write_header(header);
-
-    header.var.data.var.state = JRNL_ACTIVE;
-    write_header(header);
+    corrupt(JRNL_HEADER_SECTOR, offsetof(JournalHeader, padding) + 100);
 
     EXPECT_EQ(get_journal_status(&journal), JRNL_CORRUPTED);
 }
@@ -260,31 +233,17 @@ TEST_F(JournalTest, StatusCorruptedHeaderData)
  * ========================================================================== */
 
 /**
- * @brief Verify journal_data_init() populates every header data field.
+ * @brief journal_data_init() fills in an ACTIVE header for the given entry.
  */
-TEST_F(JournalTest, DataInit)
+TEST_F(JournalTest, DataInitFillsActiveHeader)
 {
     JournalHeaderDataB data{};
-
-    journal_data_init(&data, JRNL_MESSAGE, 42);
+    journal_data_init(&data, JRNL_MESSAGE, 1234);
 
     EXPECT_EQ(data.var.magic, JRNL_MAGIC);
     EXPECT_EQ(data.var.state, JRNL_ACTIVE);
     EXPECT_EQ(data.var.type, JRNL_MESSAGE);
-    EXPECT_EQ(data.var.sector, 42);
-}
-
-/**
- * @brief Verify journal_data_init() with the contact sector type.
- */
-TEST_F(JournalTest, DataInitContactType)
-{
-    JournalHeaderDataB data{};
-
-    journal_data_init(&data, JRNL_CONTACT, 0);
-
-    EXPECT_EQ(data.var.type, JRNL_CONTACT);
-    EXPECT_EQ(data.var.sector, 0);
+    EXPECT_EQ(data.var.sector, 1234);
 }
 
 /* ============================================================================
@@ -292,40 +251,55 @@ TEST_F(JournalTest, DataInitContactType)
  * ========================================================================== */
 
 /**
- * @brief Verify journal_write() writes the header, content and usage bitmap
- *        backup to their respective sectors.
+ * @brief journal_write() stores all three sectors, each with a valid trailer.
  */
-TEST_F(JournalTest, Write)
+TEST_F(JournalTest, WriteStoresAllSectorsWithValidTrailers)
 {
-    JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, JRNL_CONTACT, 2);
+    JournalHeaderBuffer header{};
+    journal_data_init(&header.var.data, JRNL_CONTACT, 7);
+    std::vector<uint8_t> content(SECTOR_SIZE, 0xAB);
+    std::vector<uint8_t> bitmap(SECTOR_SIZE, 0xCD);
 
-    uint8_t content[SECTOR_SIZE]{};
-    uint8_t bitmap_backup[SECTOR_SIZE]{};
+    ASSERT_EQ(journal_write(&journal, &header, content.data(), bitmap.data()), STRG_OK);
 
-    fill_pattern(content, 0x55);
-    fill_pattern(bitmap_backup, 0xAA);
+    uint8_t out[SECTOR_SIZE];
+    EXPECT_EQ(read_sector(&storage, JRNL_HEADER_SECTOR, out), STRG_OK);
+    EXPECT_EQ(read_sector(&storage, JRNL_CONTENT_SECTOR, out), STRG_OK);
+    EXPECT_EQ(std::memcmp(out, content.data(), SECTOR_PAYLOAD_BYTES), 0);
+    EXPECT_EQ(read_sector(&storage, JRNL_USAGE_SECTOR, out), STRG_OK);
+    EXPECT_EQ(std::memcmp(out, bitmap.data(), SECTOR_PAYLOAD_BYTES), 0);
+}
 
-    ASSERT_TRUE(journal_write(&journal, &header, content, bitmap_backup));
+/**
+ * @brief The header is written last: if the bitmap or content write fails
+ *        the header on the card is still the previous (committed) one.
+ */
+TEST_F(JournalTest, WriteHeaderIsWrittenLast)
+{
+    ASSERT_TRUE(journal_header_init(&journal));
 
-    JournalHeaderBuffer stored_header = read_header();
+    JournalHeaderBuffer header{};
+    journal_data_init(&header.var.data, JRNL_CONTACT, 7);
+    std::vector<uint8_t> content(SECTOR_SIZE, 0xAB);
+    std::vector<uint8_t> bitmap(SECTOR_SIZE, 0xCD);
 
-    EXPECT_EQ(stored_header.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(stored_header.var.data.var.state, JRNL_ACTIVE);
-    EXPECT_EQ(stored_header.var.data.var.type, JRNL_CONTACT);
-    EXPECT_EQ(stored_header.var.data.var.sector, 2);
+    // 1st write (bitmap) fails: nothing changes
+    fail_write_in(1);
+    EXPECT_NE(journal_write(&journal, &header, content.data(), bitmap.data()), STRG_OK);
+    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
 
-    uint8_t stored_content[SECTOR_SIZE]{};
+    // 2nd write (content) fails: bitmap copy written, header untouched
+    fail_write_in(2);
+    EXPECT_NE(journal_write(&journal, &header, content.data(), bitmap.data()), STRG_OK);
+    EXPECT_EQ(raw(JRNL_USAGE_SECTOR)[0], 0xCD);
+    EXPECT_EQ(raw(JRNL_CONTENT_SECTOR)[0], 0x00);
+    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
 
-    ASSERT_TRUE(storage->read_block(storage->context, JRNL_CONTENT_SECTOR, stored_content));
-
-    EXPECT_EQ(memcmp(stored_content, content, SECTOR_SIZE), 0);
-
-    uint8_t stored_bitmap[SECTOR_SIZE]{};
-
-    ASSERT_TRUE(storage->read_block(storage->context, JRNL_USAGE_SECTOR, stored_bitmap));
-
-    EXPECT_EQ(memcmp(stored_bitmap, bitmap_backup, SECTOR_SIZE), 0);
+    // 3rd write (header) fails: both copies written, header untouched
+    fail_write_in(3);
+    EXPECT_NE(journal_write(&journal, &header, content.data(), bitmap.data()), STRG_OK);
+    EXPECT_EQ(raw(JRNL_CONTENT_SECTOR)[0], 0xAB);
+    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
 }
 
 /* ============================================================================
@@ -333,302 +307,65 @@ TEST_F(JournalTest, Write)
  * ========================================================================== */
 
 /**
- * @brief Verify journal_add() writes a correct header (with all three CRCs),
- *        the given content, and a backup of the correct usage-bitmap slice
- *        pulled from the global in-RAM bitmap.
+ * @brief journal_add() writes an ACTIVE header, the content copy and the
+ *        matching usage bitmap sector, and keeps the header in RAM.
  */
-TEST_F(JournalTest, Add)
+TEST_F(JournalTest, AddWritesActiveEntry)
 {
-    const uint16_t target_sector = 5;
+    const uint16_t data_sector = 5;
+    std::vector<uint8_t> content = stamped_sector(0x3C);
+    fill_bitmap_sector(data_sector, 0x77);
 
-    uint8_t content[SECTOR_SIZE]{};
-    fill_pattern(content, 0x7A);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, data_sector, content.data()));
 
-    fill_global_bitmap_slice(target_sector, 0x3C);
-
-    uint32_t *bitmap_slice = bitmap_slice_for_sector(target_sector);
-
-    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, target_sector, content));
-
-    JournalHeaderBuffer header = read_header();
-
+    JournalHeaderBuffer header = stored_header();
+    EXPECT_TRUE(sector_crc_valid(header.buffer));
     EXPECT_EQ(header.var.data.var.magic, JRNL_MAGIC);
     EXPECT_EQ(header.var.data.var.state, JRNL_ACTIVE);
     EXPECT_EQ(header.var.data.var.type, JRNL_CONTACT);
-    EXPECT_EQ(header.var.data.var.sector, target_sector);
+    EXPECT_EQ(header.var.data.var.sector, data_sector);
 
-    EXPECT_EQ(header.var.header_crc, crc32_calculate(header.var.data.buffer, sizeof(JournalHeaderData)));
+    // RAM copy matches what was written, so journal_free() commits this entry
+    EXPECT_EQ(std::memcmp(journal.header.var.data.buffer, header.var.data.buffer,
+                          sizeof(JournalHeaderData)), 0);
 
-    EXPECT_EQ(header.var.content_crc, crc32_calculate(content, SECTOR_SIZE));
-
-    EXPECT_EQ(header.var.usage_bitmap_crc, crc32_calculate((uint8_t *)bitmap_slice, SECTOR_SIZE));
-
-    uint8_t stored_content[SECTOR_SIZE]{};
-
-    ASSERT_TRUE(storage->read_block(storage->context, JRNL_CONTENT_SECTOR, stored_content));
-
-    EXPECT_EQ(memcmp(stored_content, content, SECTOR_SIZE), 0);
-
-    uint8_t stored_bitmap[SECTOR_SIZE]{};
-
-    ASSERT_TRUE(storage->read_block(storage->context, JRNL_USAGE_SECTOR, stored_bitmap));
-
-    EXPECT_EQ(memcmp(stored_bitmap, bitmap_slice, SECTOR_SIZE), 0);
+    EXPECT_EQ(std::memcmp(raw(JRNL_CONTENT_SECTOR), content.data(), SECTOR_SIZE), 0);
+    EXPECT_EQ(std::memcmp(raw(JRNL_USAGE_SECTOR), bitmap_sector_for(data_sector), SECTOR_SIZE), 0);
 }
 
 /**
- * @brief Verify journal_add() picks the correct 512B slice of the global
- *        usage bitmap when the target sector maps to a bitmap sector other
- *        than 0.
- *
- * One bitmap sector covers 512 * 8 = 4096 data-sector indices, so index
- * 4096 is the first index backed by bitmap sector 1.
+ * @brief journal_add() backs up the bitmap sector that owns the data sector,
+ *        including across a bitmap sector boundary.
  */
 TEST_F(JournalTest, AddSelectsCorrectBitmapSector)
 {
-    const uint16_t sector_in_bitmap_0 = 10;
-    const uint16_t sector_in_bitmap_1 = 4096;
+    const uint16_t in_sector_0 = USAGE_BITS_PER_SECTOR - 1;
+    const uint16_t in_sector_1 = USAGE_BITS_PER_SECTOR;
+    std::vector<uint8_t> content = stamped_sector(0x00);
 
-    ASSERT_EQ(USAGE_BITMAP_FIND_SECTOR(sector_in_bitmap_0), 0u);
-    ASSERT_EQ(USAGE_BITMAP_FIND_SECTOR(sector_in_bitmap_1), 1u);
+    fill_bitmap_sector(in_sector_0, 0x11);
+    fill_bitmap_sector(in_sector_1, 0x22);
 
-    fill_global_bitmap_slice(sector_in_bitmap_0, 0x11);
-    fill_global_bitmap_slice(sector_in_bitmap_1, 0x22);
+    ASSERT_TRUE(journal_add(&journal, JRNL_MESSAGE, in_sector_0, content.data()));
+    EXPECT_EQ(raw(JRNL_USAGE_SECTOR)[0], 0x11);
 
-    uint8_t content[SECTOR_SIZE]{};
-    fill_pattern(content, 0x99);
-
-    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, sector_in_bitmap_1, content));
-
-    uint8_t stored_bitmap[SECTOR_SIZE]{};
-
-    ASSERT_TRUE(storage->read_block(storage->context, JRNL_USAGE_SECTOR, stored_bitmap));
-
-    /*
-     * The backup must match bitmap sector 1's pattern (0x22), not
-     * bitmap sector 0's pattern (0x11).
-     */
-    for (uint32_t i = 0; i < SECTOR_SIZE; i++)
-    {
-        EXPECT_EQ(stored_bitmap[i], 0x22);
-    }
+    ASSERT_TRUE(journal_add(&journal, JRNL_MESSAGE, in_sector_1, content.data()));
+    EXPECT_EQ(raw(JRNL_USAGE_SECTOR)[0], 0x22);
 }
 
 /**
- * @brief Verify journal_add() works for the message sector type.
+ * @brief A blank (never-used) sector can be journalled. write_sector()
+ *        stamps the caller's buffer, so the stored copy is CRC-valid.
  */
-TEST_F(JournalTest, AddMessageType)
+TEST_F(JournalTest, AddStampsBlankContent)
 {
-    const uint16_t target_sector = 3;
+    std::vector<uint8_t> blank(SECTOR_SIZE, 0x00);
 
-    uint8_t content[SECTOR_SIZE]{};
-    fill_pattern(content, 0x44);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, 0, blank.data()));
 
-    ASSERT_TRUE(journal_add(&journal, JRNL_MESSAGE, target_sector, content));
-
-    JournalHeaderBuffer header = read_header();
-
-    EXPECT_EQ(header.var.data.var.type, JRNL_MESSAGE);
-    EXPECT_EQ(header.var.data.var.sector, target_sector);
-}
-
-/* ============================================================================
- * journal_header_read()
- * ========================================================================== */
-
-/**
- * @brief Verify journal_header_read() reads back exactly what was written.
- */
-TEST_F(JournalTest, HeaderRead)
-{
-    uint8_t content[SECTOR_SIZE]{};
-    uint8_t bitmap_backup[SECTOR_SIZE]{};
-
-    fill_pattern(content, 0x11);
-    fill_pattern(bitmap_backup, 0x22);
-
-    JournalHeaderBuffer expected =
-        create_header(JRNL_ACTIVE, JRNL_MESSAGE, 2, content, bitmap_backup);
-
-    write_header(expected);
-
-    JournalHeaderBuffer result{};
-
-    ASSERT_TRUE(journal_header_read(&journal, &result));
-
-    EXPECT_EQ(memcmp(result.buffer, expected.buffer, sizeof(JournalHeader)), 0);
-}
-
-/* ============================================================================
- * journal_content_read()
- * ========================================================================== */
-
-/**
- * @brief Verify journal_content_read() reads the journal content sector
- *        into journal->content.
- */
-TEST_F(JournalTest, ContentRead)
-{
-    uint8_t expected[SECTOR_SIZE]{};
-
-    fill_pattern(expected, 0x5A);
-
-    ASSERT_TRUE(storage->write_block(storage->context, JRNL_CONTENT_SECTOR, expected));
-
-    ASSERT_TRUE(journal_content_read(&journal));
-
-    EXPECT_EQ(memcmp(journal.content, expected, SECTOR_SIZE), 0);
-}
-
-/* ============================================================================
- * journal_usage_read()
- * ========================================================================== */
-
-/**
- * @brief Verify journal_usage_read() reads the journal usage-bitmap backup
- *        sector into journal->usage_bitmap_sector.
- */
-TEST_F(JournalTest, UsageRead)
-{
-    uint8_t expected[SECTOR_SIZE]{};
-
-    fill_pattern(expected, 0x6B);
-
-    ASSERT_TRUE(storage->write_block(storage->context, JRNL_USAGE_SECTOR, expected));
-
-    ASSERT_TRUE(journal_usage_read(&journal));
-
-    EXPECT_EQ(memcmp(journal.usage_bitmap_sector, expected, SECTOR_SIZE), 0);
-}
-
-/* ============================================================================
- * journal_rollback()
- * ========================================================================== */
-
-/**
- * @brief Verify journal_rollback() restores both the data sector and the
- *        real usage-bitmap sector, then commits the journal.
- */
-TEST_F(JournalTest, Rollback)
-{
-    const uint16_t target_sector = 2;
-
-    uint8_t original_content[SECTOR_SIZE]{};
-    fill_pattern(original_content, 0xAB);
-
-    fill_global_bitmap_slice(target_sector, 0xCD);
-    uint32_t *bitmap_slice = bitmap_slice_for_sector(target_sector);
-
-    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, target_sector, original_content));
-
-    /*
-     * journal_add() only writes the journal itself; journal.header (in
-     * RAM) needs to reflect what get_journal_status()/journal_rollback()
-     * will read back, so re-read it like journal_init() would.
-     */
-    ASSERT_EQ(get_journal_status(&journal), JRNL_ROLLBACK);
-
-    ASSERT_TRUE(journal_rollback(&journal));
-
-    uint8_t restored_content[SECTOR_SIZE]{};
-
-    ASSERT_TRUE(storage->read_block(storage->context, DATA_SECTOR_TO_RAW(target_sector), restored_content));
-
-    EXPECT_EQ(memcmp(restored_content, original_content, SECTOR_SIZE), 0);
-
-    uint32_t bitmap_sector = USAGE_BITMAP_FIND_SECTOR(target_sector);
-
-    uint8_t restored_bitmap[SECTOR_SIZE]{};
-
-    uint32_t restored_bitmap_sector = USAGE_BITMAP_START_SECTOR + bitmap_sector;
-    ASSERT_TRUE(storage->read_block(storage->context, restored_bitmap_sector, restored_bitmap));
-
-    EXPECT_EQ(memcmp(restored_bitmap, bitmap_slice, SECTOR_SIZE), 0);
-
-    JournalHeaderBuffer final_header = read_header();
-
-    EXPECT_EQ(final_header.var.data.var.state, JRNL_COMMITTED);
-}
-
-/**
- * @brief Verify rollback fails when the journal content CRC is invalid,
- *        and does not touch the target sector.
- *
- * journal_rollback() re-reads journal.content/usage_bitmap_sector from
- * storage itself (via journal_content_read()/journal_usage_read()), so
- * the corruption has to be introduced in the actual JRNL_CONTENT_SECTOR
- * bytes, not just in the in-RAM Journal struct.
- */
-TEST_F(JournalTest, RollbackCorruptedContent)
-{
-    const uint16_t target_sector = 2;
-
-    uint8_t actual_content[SECTOR_SIZE]{};
-    uint8_t stamped_content[SECTOR_SIZE]{};
-    uint8_t bitmap_backup[SECTOR_SIZE]{};
-
-    fill_pattern(actual_content, 0x11);
-    fill_pattern(stamped_content, 0x22);
-    fill_pattern(bitmap_backup, 0x33);
-
-    /*
-     * The header's CRC is stamped for "stamped_content", but the content
-     * sector on storage actually holds "actual_content" -- simulating a
-     * torn/corrupted write.
-     */
-    JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, JRNL_CONTACT, target_sector, stamped_content, bitmap_backup);
-
-    journal.header = header;
-
-    ASSERT_TRUE(storage->write_block(storage->context, JRNL_CONTENT_SECTOR, actual_content));
-
-    ASSERT_TRUE(storage->write_block(storage->context, JRNL_USAGE_SECTOR, bitmap_backup));
-
-    EXPECT_FALSE(journal_rollback(&journal));
-
-    /*
-     * The target sector must be untouched (still zeroed from SetUp).
-     */
-    uint8_t result[SECTOR_SIZE]{};
-
-    ASSERT_TRUE(storage->read_block(storage->context, target_sector + DATA_REGION_START_SECTOR, result));
-
-    uint8_t zero[SECTOR_SIZE]{};
-
-    EXPECT_EQ(memcmp(result, zero, SECTOR_SIZE), 0);
-}
-
-/**
- * @brief Verify rollback fails when the journal usage-bitmap CRC is
- *        invalid.
- */
-TEST_F(JournalTest, RollbackCorruptedUsageBitmap)
-{
-    const uint16_t target_sector = 2;
-
-    uint8_t content[SECTOR_SIZE]{};
-    uint8_t actual_bitmap_backup[SECTOR_SIZE]{};
-    uint8_t stamped_bitmap_backup[SECTOR_SIZE]{};
-
-    fill_pattern(content, 0x11);
-    fill_pattern(actual_bitmap_backup, 0x22);
-    fill_pattern(stamped_bitmap_backup, 0x33);
-
-    /*
-     * The header's CRC is stamped for "stamped_bitmap_backup", but the
-     * usage-bitmap sector on storage actually holds "actual_bitmap_backup".
-     */
-    JournalHeaderBuffer header =
-        create_header(JRNL_ACTIVE, JRNL_CONTACT, target_sector, content, stamped_bitmap_backup);
-
-    journal.header = header;
-
-    ASSERT_TRUE(storage->write_block(storage->context, JRNL_CONTENT_SECTOR, content));
-
-    ASSERT_TRUE(storage->write_block(storage->context, JRNL_USAGE_SECTOR, actual_bitmap_backup));
-
-    EXPECT_FALSE(journal_rollback(&journal));
+    EXPECT_TRUE(sector_crc_valid(blank.data()));
+    uint8_t out[SECTOR_SIZE];
+    EXPECT_EQ(read_sector(&storage, JRNL_CONTENT_SECTOR, out), STRG_OK);
 }
 
 /* ============================================================================
@@ -636,22 +373,132 @@ TEST_F(JournalTest, RollbackCorruptedUsageBitmap)
  * ========================================================================== */
 
 /**
- * @brief Verify journal_free() marks the journal committed in RAM and on
- *        storage.
+ * @brief journal_free() commits the active entry, keeping its type and sector.
  */
-TEST_F(JournalTest, Free)
+TEST_F(JournalTest, FreeCommitsActiveEntry)
 {
-    JournalHeaderBuffer header = create_header(JRNL_ACTIVE, JRNL_CONTACT, 2);
-    journal.header = header;
-    write_header(header);
+    std::vector<uint8_t> content = stamped_sector(0x11);
+    ASSERT_TRUE(journal_add(&journal, JRNL_MESSAGE, 9, content.data()));
 
-    ASSERT_TRUE(journal_free(&journal));
+    ASSERT_EQ(journal_free(&journal), STRG_OK);
 
-    EXPECT_EQ(journal.header.var.data.var.state, JRNL_COMMITTED);
+    JournalHeaderBuffer header = stored_header();
+    EXPECT_TRUE(sector_crc_valid(header.buffer));
+    EXPECT_EQ(header.var.data.var.magic, JRNL_MAGIC);
+    EXPECT_EQ(header.var.data.var.state, JRNL_COMMITTED);
+    EXPECT_EQ(header.var.data.var.type, JRNL_MESSAGE);
+    EXPECT_EQ(header.var.data.var.sector, 9);
+}
 
-    JournalHeaderBuffer stored = read_header();
+/* ============================================================================
+ * journal_rollback()
+ * ========================================================================== */
 
-    EXPECT_EQ(stored.var.data.var.state, JRNL_COMMITTED);
+/**
+ * @brief Rollback restores the journalled data sector and its bitmap sector,
+ *        then commits the journal.
+ */
+TEST_F(JournalTest, RollbackRestoresSectorAndBitmap)
+{
+    const uint16_t data_sector = 2;
+    std::vector<uint8_t> original = stamped_sector(0xAB);
+    fill_bitmap_sector(data_sector, 0xCD);
+    std::vector<uint8_t> original_bitmap(SECTOR_SIZE);
+    std::memcpy(original_bitmap.data(), bitmap_sector_for(data_sector), SECTOR_SIZE);
+
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, data_sector, original.data()));
+
+    // the transaction then overwrites the data sector before power is lost
+    std::vector<uint8_t> modified = stamped_sector(0x99);
+    ASSERT_EQ(write_sector(&storage, DATA_SECTOR_TO_RAW(data_sector), modified.data()), STRG_OK);
+
+    ASSERT_EQ(get_journal_status(&journal), JRNL_ROLLBACK);
+    ASSERT_TRUE(journal_rollback(&journal));
+
+    EXPECT_EQ(std::memcmp(raw(DATA_SECTOR_TO_RAW(data_sector)), original.data(), SECTOR_SIZE), 0);
+    EXPECT_EQ(std::memcmp(raw(USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_FIND_SECTOR(data_sector)),
+                          original_bitmap.data(), SECTOR_SIZE), 0);
+    EXPECT_EQ(stored_header().var.data.var.state, JRNL_COMMITTED);
+}
+
+/**
+ * @brief The data sector index is a data-region index: rollback writes to
+ *        DATA_SECTOR_TO_RAW(sector) and nowhere else in the data region.
+ */
+TEST_F(JournalTest, RollbackTargetsDataRegionSector)
+{
+    const uint16_t data_sector = MESSAGE_DATA_SECTOR(4);
+    std::vector<uint8_t> original = stamped_sector(0xAB);
+
+    ASSERT_TRUE(journal_add(&journal, JRNL_MESSAGE, data_sector, original.data()));
+    ASSERT_EQ(get_journal_status(&journal), JRNL_ROLLBACK);
+    ASSERT_TRUE(journal_rollback(&journal));
+
+    EXPECT_EQ(raw(DATA_SECTOR_TO_RAW(data_sector))[0], 0xAB);
+    // the raw sector with the same number (the old, wrong target) is untouched
+    EXPECT_EQ(raw(data_sector)[0], 0x00);
+}
+
+/**
+ * @brief A corrupted journal content copy aborts rollback before the data
+ *        sector is touched, and the journal stays active.
+ */
+TEST_F(JournalTest, RollbackCorruptContentCopyFails)
+{
+    const uint16_t data_sector = 2;
+    std::vector<uint8_t> original = stamped_sector(0xAB);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, data_sector, original.data()));
+
+    std::vector<uint8_t> current = stamped_sector(0x99);
+    ASSERT_EQ(write_sector(&storage, DATA_SECTOR_TO_RAW(data_sector), current.data()), STRG_OK);
+
+    corrupt(JRNL_CONTENT_SECTOR, 10);
+
+    ASSERT_EQ(get_journal_status(&journal), JRNL_ROLLBACK);
+    EXPECT_FALSE(journal_rollback(&journal));
+
+    EXPECT_EQ(std::memcmp(raw(DATA_SECTOR_TO_RAW(data_sector)), current.data(), SECTOR_SIZE), 0);
+    EXPECT_EQ(stored_header().var.data.var.state, JRNL_ACTIVE);
+}
+
+/**
+ * @brief A corrupted bitmap copy fails rollback and leaves the journal active
+ *        (so the next boot retries), and the bitmap sector is not overwritten.
+ */
+TEST_F(JournalTest, RollbackCorruptBitmapCopyFails)
+{
+    const uint16_t data_sector = 2;
+    std::vector<uint8_t> original = stamped_sector(0xAB);
+    fill_bitmap_sector(data_sector, 0xCD);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, data_sector, original.data()));
+
+    corrupt(JRNL_USAGE_SECTOR, 10);
+
+    ASSERT_EQ(get_journal_status(&journal), JRNL_ROLLBACK);
+    EXPECT_FALSE(journal_rollback(&journal));
+
+    EXPECT_EQ(raw(USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_FIND_SECTOR(data_sector))[0], 0x00);
+    EXPECT_EQ(stored_header().var.data.var.state, JRNL_ACTIVE);
+}
+
+/**
+ * @brief Rolling back a message history entry restores the history sector,
+ *        leaves the usage bitmap alone (history has no usage bits), and
+ *        commits the journal.
+ */
+TEST_F(JournalTest, RollbackHistoryEntrySkipsBitmapAndCommits)
+{
+    const uint16_t data_sector = 100;
+    std::vector<uint8_t> original = stamped_sector(0xAB);
+    fill_bitmap_sector(data_sector, 0xCD);
+
+    ASSERT_TRUE(journal_add(&journal, JRNL_MSG_HIST, data_sector, original.data()));
+    ASSERT_EQ(get_journal_status(&journal), JRNL_ROLLBACK);
+    ASSERT_TRUE(journal_rollback(&journal));
+
+    EXPECT_EQ(raw(DATA_SECTOR_TO_RAW(data_sector))[0], 0xAB);
+    EXPECT_EQ(raw(USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_FIND_SECTOR(data_sector))[0], 0x00);
+    EXPECT_EQ(stored_header().var.data.var.state, JRNL_COMMITTED);
 }
 
 /* ============================================================================
@@ -659,135 +506,119 @@ TEST_F(JournalTest, Free)
  * ========================================================================== */
 
 /**
- * @brief Verify journal_init() initialises a fresh, uninitialised journal.
+ * @brief On a blank card journal_init() writes a fresh EMPTY header.
  */
-TEST_F(JournalTest, InitUninitializedJournal)
+TEST_F(JournalTest, InitBlankCardInitialisesHeader)
 {
-    ASSERT_TRUE(journal_init(&journal, storage));
+    ASSERT_TRUE(journal_init(&journal, &storage));
 
-    JournalHeaderBuffer header = read_header();
-
-    EXPECT_EQ(header.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(header.var.data.var.state, JRNL_EMPTY);
-
-    EXPECT_EQ(header.var.header_crc, crc32_calculate(header.var.data.buffer, sizeof(JournalHeaderData)));
-}
-
-/*
- * NOTE (known bug): journal_init()'s switch on get_journal_status() only
- * handles JRNL_CORRUPTED, JRNL_READ_ERROR, JRNL_UNINITIALIZED and
- * JRNL_ROLLBACK. There is no case (and no fallback `return`) for
- * JRNL_VALID, so when the journal is already valid/committed, control
- * falls off the end of a non-void function -- undefined behaviour in C.
- * A test asserting journal_init()'s return value for an already-valid
- * journal would therefore be asserting on UB, so it's left disabled here
- * pending a fix (an explicit `case JRNL_VALID: return true;`, or a
- * `default: return true;`).
- */
-TEST_F(JournalTest, InitValidJournal_BUG_MissingReturnForValidState)
-{
-    JournalHeaderBuffer header = create_header(JRNL_EMPTY);
-
-    write_header(header);
-
-    EXPECT_TRUE(journal_init(&journal, storage));
-
-    EXPECT_EQ(journal.header.var.data.var.state, JRNL_EMPTY);
+    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
+    EXPECT_EQ(stored_header().var.data.var.state, JRNL_EMPTY);
 }
 
 /**
- * @brief Verify journal_init() performs a rollback for an active journal.
+ * @brief On a valid, committed journal journal_init() writes nothing.
  */
-TEST_F(JournalTest, InitRollbackJournal)
+TEST_F(JournalTest, InitValidJournalWritesNothing)
 {
-    const uint16_t target_sector = 2;
+    ASSERT_TRUE(journal_header_init(&journal));
 
-    uint8_t original_content[SECTOR_SIZE]{};
-    fill_pattern(original_content, 0xAA);
-
-    fill_global_bitmap_slice(target_sector, 0x55);
-
-    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, target_sector, original_content));
-
-    /*
-     * Simulate a fresh boot: a brand new Journal struct that only knows
-     * about the storage, discovering the active journal for itself.
-     */
-    Journal recovered_journal{};
-    recovered_journal.storage = storage;
-
-    ASSERT_TRUE(journal_init(&recovered_journal, storage));
-
-    uint8_t restored_content[SECTOR_SIZE]{};
-
-    ASSERT_TRUE(storage->read_block(storage->context, DATA_SECTOR_TO_RAW(target_sector), restored_content));
-
-    EXPECT_EQ(memcmp(restored_content, original_content, SECTOR_SIZE), 0);
-
-    JournalHeaderBuffer final_header = read_header();
-
-    EXPECT_EQ(final_header.var.data.var.state, JRNL_COMMITTED);
+    ctx.write_calls = 0;
+    EXPECT_TRUE(journal_init(&journal, &storage));
+    EXPECT_EQ(ctx.write_calls, 0);
 }
 
-/* ============================================================================
- * Full lifecycle
- * ========================================================================== */
+/**
+ * @brief A corrupted header stops initialisation without writing anything.
+ */
+TEST_F(JournalTest, InitCorruptedHeaderFailsWithoutWriting)
+{
+    std::vector<uint8_t> content = stamped_sector(0x11);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, 3, content.data()));
+    corrupt(JRNL_HEADER_SECTOR, offsetof(JournalHeaderData, sector));
+
+    ctx.write_calls = 0;
+    EXPECT_FALSE(journal_init(&journal, &storage));
+    EXPECT_EQ(ctx.write_calls, 0);
+}
 
 /**
- * @brief Verify the complete journal lifecycle: uninitialised -> init ->
- *        add (simulating a write-in-progress) -> power-loss -> re-init on
- *        a fresh Journal struct performs rollback and restores state.
+ * @brief Power cut mid-transaction: journal_init() on the next boot rolls the
+ *        data sector back and commits the journal.
  */
-TEST_F(JournalTest, CompleteRollbackLifecycle)
+TEST_F(JournalTest, InitRollsBackInterruptedTransaction)
 {
-    const uint16_t target_sector = 2;
+    const uint16_t data_sector = 2;
+    std::vector<uint8_t> original = stamped_sector(0xAB);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, data_sector, original.data()));
 
-    uint8_t original_content[SECTOR_SIZE]{};
-    fill_pattern(original_content, 0xCC);
+    std::vector<uint8_t> modified = stamped_sector(0x99);
+    ASSERT_EQ(write_sector(&storage, DATA_SECTOR_TO_RAW(data_sector), modified.data()), STRG_OK);
 
-    fill_global_bitmap_slice(target_sector, 0xDD);
-    uint32_t *bitmap_slice = bitmap_slice_for_sector(target_sector);
+    // reboot
+    std::memset(&journal, 0, sizeof(Journal));
+    ASSERT_TRUE(journal_init(&journal, &storage));
 
-    EXPECT_EQ(get_journal_status(&journal), JRNL_UNINITIALIZED);
+    EXPECT_EQ(std::memcmp(raw(DATA_SECTOR_TO_RAW(data_sector)), original.data(), SECTOR_SIZE), 0);
+    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
+}
 
-    ASSERT_TRUE(journal_init(&journal, storage));
+/**
+ * @brief Power cut before the ACTIVE header is written: the previous header
+ *        is still committed, so no rollback happens on the next boot.
+ */
+TEST_F(JournalTest, InitDoesNotRollBackWhenHeaderWasNeverWritten)
+{
+    const uint16_t data_sector = 2;
 
-    JournalHeaderBuffer initial_header = read_header();
+    // a committed earlier transaction on a different sector
+    std::vector<uint8_t> earlier = stamped_sector(0x11);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, 7, earlier.data()));
+    ASSERT_EQ(journal_free(&journal), STRG_OK);
 
-    EXPECT_EQ(initial_header.var.data.var.magic, JRNL_MAGIC);
-    EXPECT_EQ(initial_header.var.data.var.state, JRNL_EMPTY);
+    std::vector<uint8_t> current = stamped_sector(0x55);
+    ASSERT_EQ(write_sector(&storage, DATA_SECTOR_TO_RAW(data_sector), current.data()), STRG_OK);
 
-    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, target_sector, original_content));
+    // the new journal_add loses power on its 3rd write (the header)
+    std::vector<uint8_t> original = stamped_sector(0xAB);
+    fail_write_in(3);
+    EXPECT_FALSE(journal_add(&journal, JRNL_CONTACT, data_sector, original.data()));
+    ctx.fail_after_write = -1;
 
-    JournalHeaderBuffer active_header = read_header();
+    // reboot
+    std::memset(&journal, 0, sizeof(Journal));
+    ctx.write_calls = 0;
+    ASSERT_TRUE(journal_init(&journal, &storage));
 
-    EXPECT_EQ(active_header.var.data.var.state, JRNL_ACTIVE);
+    EXPECT_EQ(ctx.write_calls, 0);
+    EXPECT_EQ(std::memcmp(raw(DATA_SECTOR_TO_RAW(data_sector)), current.data(), SECTOR_SIZE), 0);
+    EXPECT_EQ(raw(DATA_SECTOR_TO_RAW(7))[0], 0x00);
+}
 
-    /*
-     * Simulate a power-loss restart: a fresh Journal struct that has to
-     * discover the active journal purely from storage.
-     */
-    Journal recovered_journal{};
-    recovered_journal.storage = storage;
+/**
+ * @brief A rollback interrupted before its commit is safely repeated on the
+ *        next boot.
+ */
+TEST_F(JournalTest, InitRepeatsInterruptedRollback)
+{
+    const uint16_t data_sector = 2;
+    std::vector<uint8_t> original = stamped_sector(0xAB);
+    ASSERT_TRUE(journal_add(&journal, JRNL_CONTACT, data_sector, original.data()));
 
-    ASSERT_TRUE(journal_init(&recovered_journal, storage));
+    std::vector<uint8_t> modified = stamped_sector(0x99);
+    ASSERT_EQ(write_sector(&storage, DATA_SECTOR_TO_RAW(data_sector), modified.data()), STRG_OK);
 
-    uint8_t restored_content[SECTOR_SIZE]{};
+    // 1st boot: rollback writes sector (1) and bitmap (2), then loses power on the commit (3)
+    std::memset(&journal, 0, sizeof(Journal));
+    fail_write_in(3);
+    EXPECT_FALSE(journal_init(&journal, &storage));
+    ctx.fail_after_write = -1;
+    EXPECT_EQ(stored_header().var.data.var.state, JRNL_ACTIVE);
 
-    ASSERT_TRUE(storage->read_block(storage->context, DATA_SECTOR_TO_RAW(target_sector), restored_content));
+    // 2nd boot
+    std::memset(&journal, 0, sizeof(Journal));
+    ASSERT_TRUE(journal_init(&journal, &storage));
 
-    EXPECT_EQ(memcmp(restored_content, original_content, SECTOR_SIZE), 0);
-
-    uint32_t bitmap_sector = USAGE_BITMAP_FIND_SECTOR(target_sector);
-
-    uint8_t restored_bitmap[SECTOR_SIZE]{};
-
-    uint32_t restored_bitmap_sector = USAGE_BITMAP_START_SECTOR + bitmap_sector;
-    ASSERT_TRUE(storage->read_block(storage->context, restored_bitmap_sector, restored_bitmap));
-
-    EXPECT_EQ(memcmp(restored_bitmap, bitmap_slice, SECTOR_SIZE), 0);
-
-    JournalHeaderBuffer final_header = read_header();
-
-    EXPECT_EQ(final_header.var.data.var.state, JRNL_COMMITTED);
+    EXPECT_EQ(std::memcmp(raw(DATA_SECTOR_TO_RAW(data_sector)), original.data(), SECTOR_SIZE), 0);
+    EXPECT_EQ(get_journal_status(&journal), JRNL_VALID);
 }

@@ -867,7 +867,7 @@ TEST_F(HashTableTest, ReconstructedTableAcceptsNewWrites)
 }
 
 /* ============================================================================
- * hash_get_contact_list()
+ * hash_get_contact_list_by_usage()
  * ========================================================================== */
 
 /**
@@ -886,7 +886,7 @@ TEST_F(HashTableTest, GetContactListReturnsFirstTenContacts)
     }
 
     ContactBuffer results[10]{};
-    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, results), STRG_OK);
+    ASSERT_EQ(hash_get_contact_list_by_usage(&htable, 0, 10, results), STRG_OK);
 
     std::vector<std::string> returned_phones;
     for (auto &r : results)
@@ -917,10 +917,10 @@ TEST_F(HashTableTest, GetContactListReturnsSecondTenContacts)
     }
 
     ContactBuffer first_page[10]{};
-    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, first_page), STRG_OK);
+    ASSERT_EQ(hash_get_contact_list_by_usage(&htable, 0, 10, first_page), STRG_OK);
 
     ContactBuffer second_page[10]{};
-    ASSERT_EQ(hash_get_contact_list(&htable, 10, 10, second_page), STRG_OK);
+    ASSERT_EQ(hash_get_contact_list_by_usage(&htable, 10, 10, second_page), STRG_OK);
 
     std::vector<std::string> returned_phones;
     for (auto &r : first_page)
@@ -941,7 +941,7 @@ TEST_F(HashTableTest, GetContactListReturnsSecondTenContacts)
 }
 
 /* ============================================================================
- * hash_get_contact_list_iter()
+ * hash_get_contact_list()
  * ========================================================================== */
 
 /**
@@ -960,7 +960,7 @@ TEST_F(HashTableTest, GetContactListIterReturnsFirstTenContacts)
     }
 
     ContactBuffer results[10]{};
-    ASSERT_EQ(hash_get_contact_list_iter(&htable, 0, 10, results), STRG_OK);
+    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, results), STRG_OK);
 
     std::vector<std::string> returned_phones;
     for (auto &r : results)
@@ -991,10 +991,10 @@ TEST_F(HashTableTest, GetContactListIterReturnsSecondTenContacts)
     }
 
     ContactBuffer first_page[10]{};
-    ASSERT_EQ(hash_get_contact_list_iter(&htable, 0, 10, first_page), STRG_OK);
+    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, first_page), STRG_OK);
 
     ContactBuffer second_page[10]{};
-    ASSERT_EQ(hash_get_contact_list_iter(&htable, 10, 10, second_page), STRG_OK);
+    ASSERT_EQ(hash_get_contact_list(&htable, 10, 10, second_page), STRG_OK);
 
     std::vector<std::string> returned_phones;
     for (auto &r : first_page)

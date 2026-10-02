@@ -160,7 +160,7 @@ bool hash_find_message(HashTable *table, const char *phone, MessageBuffer *out);
 uint16_t get_nth_contact_index(HashTable *table, int n);
 
 /**
- * @brief Get a contiguous list of contacts from the hash table.
+ * @brief Get a continuous list of contacts from the hash table.
  *
  * @param table Pointer to the hash table.
  * @param start start contact number
@@ -171,8 +171,7 @@ uint16_t get_nth_contact_index(HashTable *table, int n);
 STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer *out);
 
 /**
- * @brief Get a list of contacts from the hash table using a hash table iterator.
- *        Contacts are returned in hash slot order rather than storage order.
+ * @brief Get a continuous list of contacts from the hash table, in sector storage order
  *
  * @param table Pointer to the hash table.
  * @param start start contact number
@@ -180,7 +179,7 @@ STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer
  * @param out Pointer to array of contacts (must hold at least n entries)
  * @retval STRG_OK if the read completed successfully.
  */
-STRG_RET hash_get_contact_list_iter(HashTable *table, int start, int n, ContactBuffer *out);
+STRG_RET hash_get_contact_list_by_usage(HashTable *table, int start, int n, ContactBuffer *out);
 
 /**
   * @brief  Find n number of messages from a contact

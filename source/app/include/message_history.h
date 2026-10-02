@@ -18,8 +18,11 @@ extern "C" {
 #include "storage.h"
 #include "message.h"
 
-typedef uint16_t MessageIndex;
+// Opaque Declaration
+typedef struct Journal Journal;
 typedef struct RingBuffer RingBuffer;
+
+typedef uint16_t MessageIndex;
 
 typedef struct {
     MessageIndex messageIndex[MESSAGE_HISTORY_SECTOR_CAPACITY];
@@ -60,7 +63,7 @@ STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t star
  * @param messageInd message sector index of the latest message
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_add(RingBuffer *rb, Storage *storage, uint16_t messageInd);
+STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, uint16_t messageInd);
 
 
 

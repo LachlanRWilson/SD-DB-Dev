@@ -544,7 +544,7 @@ uint16_t get_nth_contact_index(HashTable *table, int n)
  * @retval true if a matching contact was found and read successfully.
  * @retval false otherwise.
  */
-STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer *out)
+STRG_RET hash_get_contact_list_by_usage(HashTable *table, int start, int n, ContactBuffer *out)
 {
 
     STRG_RET ret;
@@ -1256,7 +1256,7 @@ Iterator hash_table_iterator_init(HashTableIteratorCtx *ctx, HashTable *table)
  * @param out Pointer to array of contacts (must hold at least n entries)
  * @retval STRG_OK if the read completed successfully.
  */
-STRG_RET hash_get_contact_list_iter(HashTable *table, int start, int n, ContactBuffer *out)
+STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer *out)
 {
     if (table == NULL || table->htable == NULL || table->storage == NULL ||
             out == NULL || start < 0 || n < 0)

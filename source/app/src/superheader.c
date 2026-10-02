@@ -1,21 +1,15 @@
 #include "superheader.h"
 #include "crc.h"
-
-
-#define USAGE_BITMAP_NUM_SECTORS TOTAL_DATA_SECTOR_SIZE / SECTOR_SIZE
-#define USAGE_BITMAP_SECTOR SUPERHEADER_SECTOR + 1
-
-
-
+#include <string.h>
 
 /**
   * @brief  Read the superheader from the SD Card and determine it's validity
   * @param  table: Pointer to the hash table
   * @retval None
   */
-bool read_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf)
+STRG_RET read_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf)
 {
-    return storage->read_block(storage->context, SUPERHEADER_SECTOR, superHeaderBuf->buffer);
+    return read_sector_raw(storage, SUPERHEADER_SECTOR, superHeaderBuf->buffer);
 }
 
 /**
@@ -24,12 +18,9 @@ bool read_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf)
   * @param  superHeaderBuf superheader to write (superheader_crc is overwritten)
   * @retval True if successful write else false.
   */
-bool write_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf)
+STRG_RET write_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf)
 {
-    superHeaderBuf->var.superheader_crc = crc32_calculate(superHeaderBuf->var.data.buffer,
-            sizeof(SuperHeaderData));
-
-    return storage->write_block(storage->context, SUPERHEADER_SECTOR, superHeaderBuf->buffer);
+    return write_sector(storage, SUPERHEADER_SECTOR, superHeaderBuf->buffer);
 }
 
 /**
@@ -40,27 +31,32 @@ bool write_superheader(Storage* storage, SuperHeaderBuffer* superHeaderBuf)
 SUPR_HEAD_STATUS get_superheader_status(SuperHeaderBuffer* superHeaderBuf)
 {
 
-    SuperHeader superheader = superHeaderBuf->var;
+    SuperHeader* superheader = &superHeaderBuf->var;
     uint8_t* buffer = superHeaderBuf->buffer;
+    uint32_t magic = superheader->data.var.magic;
+    uint32_t version = superheader->data.var.version;
+
+
+    // Check CRC32 Trailer
+    if (!sector_crc_valid(superHeaderBuf->buffer))
+    {
+        // if the magic is blank than SD DB uninitialised
+        if (magic == SUPR_HEAD_BLANK_EMPTY || magic == SUPR_HEAD_BLANK_FULL)
+        {
+            return SUPR_UNINITIALISED;
+        }
+
+        return SUPR_CORRUPTED;
+    }
 
     // Check magic
-    if (superheader.data.var.magic != SUPR_HEAD_MAGIC)
+    if (magic != SUPR_HEAD_MAGIC)
     {
         return SUPR_UNINITIALISED;
     }
 
-    // Calculate CRC
-    uint32_t crc = crc32_calculate(buffer, sizeof(SuperHeaderData));
-
-    // Check CRC
-    if (crc != superheader.superheader_crc)
-    {
-        // Database if fucked, good luck
-        return SUPR_CORRUPTED;
-    }
-
     // Version Check
-    if (superheader.data.var.version != DB_CURRENT_VERSION)
+    if (version != DB_CURRENT_VERSION)
     {
         return SUPR_OUTDATED;
     }
@@ -70,32 +66,44 @@ SUPR_HEAD_STATUS get_superheader_status(SuperHeaderBuffer* superHeaderBuf)
 }
 
 /**
-  * @brief  Read the superheader from the SD Card and determine it's validity
-  * @param  table: Pointer to the hash table
+  * @brief  Initialise superheader and write to the SD card if the superheader read is uninitialised. Only do this after successful journal and usage bitmap initialisations.
+  * @param  storage pointer to storage struct
+  * @param superheader sector buffer
   * @retval None
   */
-bool superheader_init(Storage* storage, SuperHeaderBuffer* superheader)
+STRG_RET superheader_init(Storage *storage, SuperHeaderBuffer *superheader)
 {
+    STRG_RET ret;
+    // clear data read from sd card superheader
+    memset(superheader, 0, sizeof(SuperHeader));
 
+    // Set the values in the header
+    SuperHeaderData *shData = &superheader->var.data.var;
+    shData->magic = SUPR_HEAD_MAGIC;
+    shData->db_start = DATA_REGION_START_SECTOR;
+    shData->db_end = DATA_REGION_START_SECTOR + CALL_HISTORY_DATA_START_SECTOR + TOTAL_CALL_HISTORY_SECTOR_SIZE;
+    shData->version = DB_CURRENT_VERSION;
+
+    return write_superheader(storage, superheader);
+}
+
+/**
+  * @brief  Read the superheader from the SD Card and determine it's validity
+  * @param  storage pointer to storage abstraction struct
+  * @param supderheader pointer to buffer storing super header buffer
+  * @retval None
+  */
+SUPR_HEAD_STATUS superheader_check(Storage* storage, SuperHeaderBuffer* superheader)
+{
+    STRG_RET ret;
     // read the super header from the sd card
-    if(!read_superheader(storage, superheader))
+    ret = read_superheader(storage, superheader);
+    if(ret == STRG_FAIL)
     {
-        return false;
+        return SUPR_FAIL;
     }
 
-    switch (get_superheader_status(superheader))
-    {
-        case SUPR_OUTDATED:
-        case SUPR_CORRUPTED:
-           return false; 
-
-        case SUPR_UNINITIALISED:
-            // initialise database
-        case SUPR_GOOD:
-           return true;
-    }
-
-    return false;
+    return get_superheader_status(superheader);
 }
 
 

@@ -265,28 +265,138 @@ TEST_F(SectorCrcTest, BitmapWalkSkipsTrailer)
  * Superheader
  * ========================================================================== */
 
-/**
- * @brief The superheader CRC covers all of SuperHeaderData, not just magic.
- */
-TEST_F(SectorCrcTest, SuperheaderCrcCoversAllData)
+static bool Failing_ReadBlock(void *, uint32_t, uint8_t *)
+{
+    return false;
+}
+
+/** @brief A superheader matching the compiled layout. */
+static SuperHeaderBuffer make_superheader()
 {
     SuperHeaderBuffer sh{};
     sh.var.data.var.magic = SUPR_HEAD_MAGIC;
     sh.var.data.var.version = DB_CURRENT_VERSION;
     sh.var.data.var.db_start = DATA_REGION_START_SECTOR;
     sh.var.data.var.db_end = DATA_REGION_START_SECTOR + TOTAL_DATA_SECTOR_SIZE;
+    return sh;
+}
 
-    ASSERT_TRUE(write_superheader(storage, &sh));
+/**
+ * @brief A written superheader reads back as good, and its CRC is the
+ *        standard sector trailer (read_sector() accepts it).
+ */
+TEST_F(SectorCrcTest, SuperheaderRoundTripIsGood)
+{
+    SuperHeaderBuffer sh = make_superheader();
+    ASSERT_EQ(write_superheader(storage, &sh), STRG_OK);
+    EXPECT_TRUE(sector_crc_valid(sh.buffer)); // caller's buffer stamped too
+
+    uint8_t raw[SECTOR_SIZE];
+    EXPECT_EQ(read_sector(storage, SUPERHEADER_SECTOR, raw), STRG_OK);
 
     SuperHeaderBuffer read{};
-    ASSERT_TRUE(read_superheader(storage, &read));
-    EXPECT_EQ(get_superheader_status(&read), SUPR_GOOD);
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_GOOD);
+    EXPECT_EQ(std::memcmp(read.buffer, sh.buffer, SECTOR_SIZE), 0);
+}
 
-    // db_end is the last field, previously outside the CRC
+/**
+ * @brief The CRC covers all of SuperHeaderData (db_end is the last field).
+ */
+TEST_F(SectorCrcTest, SuperheaderCrcCoversAllData)
+{
+    SuperHeaderBuffer sh = make_superheader();
+    ASSERT_EQ(write_superheader(storage, &sh), STRG_OK);
+
     corrupt(SUPERHEADER_SECTOR, offsetof(SuperHeaderData, db_end));
 
-    ASSERT_TRUE(read_superheader(storage, &read));
-    EXPECT_EQ(get_superheader_status(&read), SUPR_CORRUPTED);
+    SuperHeaderBuffer read{};
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_CORRUPTED);
+}
+
+/**
+ * @brief The trailer CRC also covers the padding.
+ */
+TEST_F(SectorCrcTest, SuperheaderPaddingIsCrcProtected)
+{
+    SuperHeaderBuffer sh = make_superheader();
+    ASSERT_EQ(write_superheader(storage, &sh), STRG_OK);
+
+    corrupt(SUPERHEADER_SECTOR, offsetof(SuperHeader, padding) + 100);
+
+    SuperHeaderBuffer read{};
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_CORRUPTED);
+}
+
+/**
+ * @brief A bit flip in the magic of a formatted card is corruption, not an
+ *        uninitialised card (which would trigger a format and wipe the DB).
+ */
+TEST_F(SectorCrcTest, SuperheaderCorruptMagicIsNotUninitialised)
+{
+    SuperHeaderBuffer sh = make_superheader();
+    ASSERT_EQ(write_superheader(storage, &sh), STRG_OK);
+
+    corrupt(SUPERHEADER_SECTOR, offsetof(SuperHeaderData, magic));
+
+    SuperHeaderBuffer read{};
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_CORRUPTED);
+}
+
+/**
+ * @brief A never-written (all 0x00) sector is uninitialised.
+ */
+TEST_F(SectorCrcTest, SuperheaderBlankZeroSectorIsUninitialised)
+{
+    SuperHeaderBuffer read{};
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_UNINITIALISED);
+}
+
+/**
+ * @brief An erased (all 0xFF) sector is uninitialised.
+ */
+TEST_F(SectorCrcTest, SuperheaderBlankErasedSectorIsUninitialised)
+{
+    std::memset(&storage_mem[SUPERHEADER_SECTOR * SECTOR_SIZE], 0xFF, SECTOR_SIZE);
+
+    SuperHeaderBuffer read{};
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_UNINITIALISED);
+}
+
+/**
+ * @brief A valid sector with a different magic (another format) is uninitialised.
+ */
+TEST_F(SectorCrcTest, SuperheaderValidCrcWrongMagicIsUninitialised)
+{
+    SuperHeaderBuffer sh = make_superheader();
+    sh.var.data.var.magic = 0x12345678u;
+    ASSERT_EQ(write_superheader(storage, &sh), STRG_OK);
+
+    SuperHeaderBuffer read{};
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_UNINITIALISED);
+}
+
+/**
+ * @brief A valid superheader from another database version is outdated.
+ */
+TEST_F(SectorCrcTest, SuperheaderOtherVersionIsOutdated)
+{
+    SuperHeaderBuffer sh = make_superheader();
+    sh.var.data.var.version = DB_CURRENT_VERSION + 1;
+    ASSERT_EQ(write_superheader(storage, &sh), STRG_OK);
+
+    SuperHeaderBuffer read{};
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_OUTDATED);
+}
+
+/**
+ * @brief A storage read failure is reported as SUPR_FAIL.
+ */
+TEST_F(SectorCrcTest, SuperheaderReadFailureIsFail)
+{
+    storage_obj.read_block = Failing_ReadBlock;
+
+    SuperHeaderBuffer read{};
+    EXPECT_EQ(superheader_check(storage, &read), SUPR_FAIL);
 }
 
 /* ============================================================================

@@ -1,6 +1,7 @@
 #include "message_history.h"
 #include "ring_buffer.h"
 #include "iterator.h"
+#include "journal.h"
 
 /**
  * @brief Initialise MessageHistory and RingBuffer
@@ -20,11 +21,34 @@ bool message_history_init(RingBuffer *rb)
     return true;
 }
 
+/**
+ * @brief Read the message history sector to the appropriate sector index
+ * offset by the message history data region start
+ *
+ * @param storage pointer to storage abstraction struct
+ * @param sector_index message history sector index (not offset)
+ * @param out output sector buffer
+ * @retval STRG_OK is storage read successful else STRG_* error code
+ */
 STRG_RET read_message_history_sector(Storage *storage, uint16_t sector_index, MessageHistorySectorB *out)
 {
-
     uint16_t raw_sector_index = sector_index + MESSAGE_HISTORY_DATA_START_SECTOR + DATA_REGION_START_SECTOR;
     return read_sector(storage, raw_sector_index, out->buffer);
+}
+
+/**
+ * @brief Write the message history sector to the appropriate sector index
+ * offset by the message history data region start
+ *
+ * @param storage pointer to storage abstraction struct
+ * @param sector_index message history sector index (not offset)
+ * @param in input sector buffer
+ * @retval STRG_OK is storage read successful else STRG_* error code
+ */
+STRG_RET write_message_history_sector(Storage *storage, uint16_t sector_index, MessageHistorySectorB *in)
+{
+    uint16_t raw_sector_index = sector_index + MESSAGE_HISTORY_DATA_START_SECTOR + DATA_REGION_START_SECTOR;
+    return write_sector(storage, raw_sector_index, in->buffer);
 }
 
 /**
@@ -60,10 +84,6 @@ STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t star
         }
 
 
-        messageIndex = mhSector.sector.sector_crc
-
-
-
         msg_history_cnt++;
     }
 
@@ -77,7 +97,38 @@ STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t star
  * @param messageInd message sector index of the latest message
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_add(RingBuffer *rb, uint16_t messageInd)
+STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, uint16_t messageInd)
 {
+    MessageHistorySectorB mhSector;
+    STRG_RET ret;
 
+    // move the ring buffer to the next sector and add to struct
+    if (!move_next_ring_buffer(rb) && !add_ring_buffer(rb))
+    {
+        return STRG_FAIL;
+    }
+
+    uint16_t sector_index = rb->current_index / MESSAGE_HISTORY_SECTOR_CAPACITY;
+
+    ret = read_message_history_sector(storage, rb->current_index / MESSAGE_HISTORY_SECTOR_CAPACITY, &mhSector);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    if (!journal_add(journal, JRNL_MSG_HIST, MESSAGE_HIST_DATA_SECTOR(rb->current_index), mhSector.buffer))
+    {
+        return STRG_FAIL;
+    }
+
+    mhSector.sector.messageIndex[rb->current_index % MESSAGE_HISTORY_SECTOR_CAPACITY] = messageInd;
+
+    ret = write_message_history_sector(storage, sector_index, &mhSector);
+
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    return journal_free(journal);
 }

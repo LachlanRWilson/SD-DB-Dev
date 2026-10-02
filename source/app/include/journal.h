@@ -15,13 +15,10 @@ extern "C" {
 #include "mem_layout.h"
 
 
-#define JRNL_SECTOR_SIZE 3
-
-#define JRNL_HEADER_DATA_SIZE 8
 // Journal magic number to check header corruption
-//#define JRNL_MAGIC 0x4A524E4Cu
 #define JRNL_MAGIC 0x4A524E5Cu
-#define JOURNAL_PADDING SECTOR_SIZE - sizeof(JournalHeaderData)  - sizeof(uint32_t) * 3
+#define JRNL_HEADER_MAGIC_EMPTY 0x00000000u
+#define JRNL_HEADER_MAGIC_FULL 0xFFFFFFFFu
 
 
 typedef uint8_t JRNL_STATE;
@@ -47,7 +44,9 @@ enum {
 // Stored Sector Type
 enum {
     JRNL_CONTACT = 0,
-    JRNL_MESSAGE
+    JRNL_MESSAGE,
+    JRNL_CALL_HIST,
+    JRNL_MSG_HIST
 };
 
 
@@ -66,16 +65,14 @@ typedef union {
     uint8_t buffer[sizeof(JournalHeaderData)];
 } JournalHeaderDataB;
 
-// Journal Header (512B, needs to be 512B because will be read from SD card)
+// Journal Header (512B)
 typedef struct {
     JournalHeaderDataB data;
-    uint32_t header_crc; // Journal header data CRC-32 (4B)
-    uint32_t content_crc; // Journal Content CRC-32 (4B)
-    uint32_t usage_bitmap_crc; // Journal Usage Bitmap CRC-32 (4B)
-    uint8_t padding[JOURNAL_PADDING];
+    uint8_t padding[JRNL_HEADER_PADDING];
+    uint32_t j_header_crc; // CRC-32 trailer
 } JournalHeader;
 
-
+// Journal Header Sector Union (512B)
 typedef union {
     JournalHeader var;
     uint8_t buffer[sizeof(JournalHeader)];
@@ -90,6 +87,7 @@ typedef struct Journal {
 } Journal;
 
 // Static check JournalHeader size
+STATIC_ASSERT(offsetof(JournalHeader, j_header_crc) == SECTOR_PAYLOAD_BYTES, "JournalHeader CRC is not the sector trailer");
 STATIC_ASSERT(sizeof(JournalHeaderData) == JRNL_HEADER_DATA_SIZE, "Unexpected JournalHeaderData\
         size");
 STATIC_ASSERT(sizeof(JournalHeader) == SECTOR_SIZE, "Unexpected JournalHeader size");
@@ -109,7 +107,7 @@ void journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t secto
 
 bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *content);
 
-bool journal_free(Journal *journal);
+STRG_RET journal_free(Journal *journal);
 
 #if defined (HOST_BUILD)
 

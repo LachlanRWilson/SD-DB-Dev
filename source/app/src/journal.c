@@ -1,13 +1,23 @@
 #include "journal.h"
 #include "usage_bitmap.h"
-#include "crc.h"
 
 
 // Forward Declaration
 JRNL_HEAD_STATUS get_journal_status(Journal* journal);
 bool journal_header_init(Journal* journal);
 bool journal_rollback(Journal *journal);
-bool journal_free(Journal *journal);
+STRG_RET journal_free(Journal *journal);
+
+
+STRG_RET journal_read_sector(Journal *journal, uint16_t journal_section, uint8_t *out)
+{
+    return read_sector(journal->storage, journal_section, out);
+}
+
+STRG_RET journal_write_sector(Journal *journal, uint16_t journal_section, uint8_t *in)
+{
+    return write_sector(journal->storage, journal_section, in);
+}
 
 /**
  * @brief Initialise the database journal
@@ -72,13 +82,7 @@ bool journal_header_init(Journal* journal)
         },
     };
 
-    // calculate the crc on the journal header data only
-    jHeadBuff.var.header_crc = crc32_calculate(jHeadBuff.var.data.buffer,
-            sizeof(JournalHeaderData));
-
-    // write journal header to sd card
-    Storage *storage = journal->storage;
-    return storage->write_block(storage->context, JRNL_HEADER_SECTOR, jHeadBuff.buffer);
+    return journal_write_sector(journal, JRNL_HEADER_SECTOR, jHeadBuff.buffer);
 
 }
 
@@ -95,22 +99,27 @@ bool journal_header_init(Journal* journal)
 STRG_RET journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *content, uint8_t
         *usage_bitmap)
 {
-    // allocate pointer to make it more readable
-    Storage *storage = journal->storage;
+    STRG_RET ret;
 
-    // Write header
-    if (!storage->write_block(storage->context, JRNL_HEADER_SECTOR, header->buffer))
+    // Write usage bitmap if given
+    if (usage_bitmap != NULL)
     {
-        return STRG_FAIL;
+        ret = journal_write_sector(journal, JRNL_USAGE_SECTOR, usage_bitmap);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
     }
 
     // Write content
-    if (!storage->write_block(storage->context, JRNL_CONTENT_SECTOR, content))
+    ret = journal_write_sector(journal, JRNL_CONTENT_SECTOR, content);
+    if (ret != STRG_OK)
     {
-        return STRG_FAIL;
+        return ret;
     }
 
-    return storage->write_block(storage->context, JRNL_USAGE_SECTOR, usage_bitmap);
+    // Write header
+    return journal_write_sector(journal, JRNL_HEADER_SECTOR, header->buffer);
 }
 
 void journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t sectorInd)
@@ -127,9 +136,10 @@ void journal_data_init(JournalHeaderDataB *jData, JRNL_TYPE type, uint16_t secto
  * to it in RAM. Allowing Database rollback if write failure.
  *
  * @param journal journal struct pointer (allocated in database struct)
- * @param type type of sector the index is pointing at
+ * @param type type of sector the index is pointing at (NOTE: usage_bitmap_sector is only applicable for JRNL_CONTACT
+ * and JRNL_MESSAGE types)
  * @param content old content being written to journel incase of rollback
- * @param index sector index of the content that is being journalled
+ * @param index raw sector index of the content that is being journalled
  *
  * @retval true journal add successful
  * @retval false journal add fail
@@ -139,26 +149,22 @@ bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *cont
 
     // Init Header
     JournalHeaderDataB jData;
+    uint32_t* usage_bitmap_sector = NULL;
     journal_data_init(&jData, type, index);
 
-    // Calc header CRC
-    uint32_t header_crc = crc32_calculate(jData.buffer, sizeof(JournalHeaderData));
-    uint32_t content_crc = crc32_calculate(content, SECTOR_SIZE);
-
-    // Get the sector in RAM of the usage bitmap vector
-    uint32_t* usage_bitmap_sector = &usage_bitmap[USAGE_BITMAP_FIND_SECTOR(index) *
-        ELEMENTS_PER_SECTOR];
-
-    // Get usage bitmap sector CRC
-    uint32_t usage_bitmap_crc = crc32_calculate((uint8_t*)usage_bitmap_sector, SECTOR_SIZE);
+    // only add usage bitmap if contact or message data (usage bitmap tracks
+    // said data unlike call / message history which uses ring buffers)
+    if (type == JRNL_CONTACT || type == JRNL_MESSAGE)
+    {
+        // Get the sector in RAM of the usage bitmap vector
+        usage_bitmap_sector = &usage_bitmap[USAGE_BITMAP_FIND_SECTOR(index) *
+            ELEMENTS_PER_SECTOR];
+    }
 
     // Create the journal header
     JournalHeaderBuffer jHeadBuff = {
         .var = {
             .data = jData,
-            .header_crc = header_crc,
-            .content_crc = content_crc,
-            .usage_bitmap_crc = usage_bitmap_crc
         }
     };
 
@@ -166,90 +172,67 @@ bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *cont
     journal->header = jHeadBuff;
 
     // Write to the journal
-    return journal_write(journal, &jHeadBuff, content, (uint8_t*)usage_bitmap_sector);
+    return journal_write(journal, &jHeadBuff, content, (uint8_t*)usage_bitmap_sector) == STRG_OK;
 
 }
 
 /**
- * @brief Read journal header from the SD Card
+ * @brief Take the journal header information and return the database to the previously journelled state.
+ *
+ * Note:
+ * Only contact and message data rollbacks the usage bitmap. Both call and message history do not require a usage
+ * bitmap as they are managed by a ring buffer
  *
  * @param journal journal struct pointer (allocated in database struct)
  *
- * @retval true journal read successful
- * @retval false journal read fail
+ * @retval true journal rollback successful
+ * @retval false journal rollback fail due to storage error
  */
-bool journal_header_read(Journal *journal, JournalHeaderBuffer *out)
-{
-    // Read journel sector
-    return journal->storage->read_block(journal->storage->context, JRNL_HEADER_SECTOR, out->buffer);
-}
-
-/**
- * @brief Read journal bitmap from SD Card
- *
- * @param journal journal struct pointer (allocated in database struct)
- *
- * @retval true journal read successful
- * @retval false journal read fail
- */
-bool journal_usage_read(Journal *journal)
-{
-
-    return journal->storage->read_block(journal->storage->context, JRNL_USAGE_SECTOR,
-            journal->usage_bitmap_sector);
-}
-
-/**
- * @brief Write to the journal
- *
- * @param journal journal struct pointer (allocated in database struct)
- *
- * @retval true journal read successful
- * @retval false journal read fail
- */
-bool journal_content_read(Journal *journal)
-{
-    // Read journel sector
-    return journal->storage->read_block(journal->storage->context, JRNL_CONTENT_SECTOR,
-            journal->content);
-
-}
-
 bool journal_rollback(Journal *journal)
 {
-    JournalHeader header = journal->header.var;
+    JournalHeader *header = &journal->header.var;
     Storage *storage = journal->storage;
+    STRG_RET ret;
 
-    if (!journal_content_read(journal) || !journal_usage_read(journal))
+    ret = journal_read_sector(journal, JRNL_CONTENT_SECTOR, journal->content);
+
+    if (ret != STRG_OK)
     {
         return false;
     }
-
-    // Check content crc (header crc already checked)
-    uint32_t content_crc = crc32_calculate(journal->content, SECTOR_SIZE);
-    uint32_t usage_crc = crc32_calculate(journal->usage_bitmap_sector, SECTOR_SIZE);
-
-    if (content_crc != header.content_crc || usage_crc != header.usage_bitmap_crc)
-    {
-        return false; // Journal corruption (PANIC)
-    }
-
 
     // write journal content back to sd card (TODO: SDMMC callback for write confirmation)
-    if (!storage->write_block(storage->context, header.data.var.sector + DATA_REGION_START_SECTOR, journal->content))
+    ret = write_sector(storage, header->data.var.sector + DATA_REGION_START_SECTOR, journal->content);
+    if (ret != STRG_OK)
     {
         return false;
     }
 
+    // If rollback on call history or message history do not concern with usage bitmap rollback
+    if (header->data.var.type != JRNL_CONTACT && header->data.var.type != JRNL_MESSAGE)
+    {
+        return journal_free(journal) == STRG_OK;
+    }
+
+    ret = journal_read_sector(journal, JRNL_USAGE_SECTOR, journal->usage_bitmap_sector);
+
+    if (ret != STRG_OK)
+    {
+        return false;
+    }
+
+
     // write jounral usage bitmap back to sd card
-    if (!storage->write_block(storage->context, USAGE_BITMAP_START_SECTOR +
-                USAGE_BITMAP_FIND_SECTOR(header.data.var.sector), journal->usage_bitmap_sector))
+    ret = write_sector(storage, USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_FIND_SECTOR(header->data.var.sector),
+                       journal->usage_bitmap_sector);
+
+    if (ret != STRG_OK)
     {
         return false;
     }
 
     // free the journal
-    return journal_free(journal);
+    return journal_free(journal) == STRG_OK;
 }
 
 
@@ -263,25 +246,30 @@ bool journal_rollback(Journal *journal)
 JRNL_HEAD_STATUS get_journal_status(Journal* journal)
 {
     JournalHeaderBuffer jHeadBuff;
+
     // Read journal header from sd card
-    if (!journal_header_read(journal, &jHeadBuff))
+    STRG_RET ret = read_sector_raw(journal->storage, JRNL_HEADER_SECTOR, jHeadBuff.buffer);
+    if (ret != STRG_OK)
     {
         return JRNL_READ_ERROR;
     }
 
-    // Check the magic number to see if initialised
-    if (jHeadBuff.var.data.var.magic != JRNL_MAGIC) {
-        return JRNL_UNINITIALIZED;
+    uint32_t magic = jHeadBuff.var.data.var.magic;
+
+    if (!sector_crc_valid(jHeadBuff.buffer))
+    {
+        // check if magic is uninit
+        if (magic == JRNL_HEADER_MAGIC_EMPTY || magic == JRNL_HEADER_MAGIC_FULL)
+        {
+            return JRNL_UNINITIALIZED;
+        }
+
+        return JRNL_CORRUPTED;
     }
 
-    // Calc CRC
-    uint32_t crc = crc32_calculate(jHeadBuff.var.data.buffer,
-            sizeof(JournalHeaderData));
-
-    // Check calculated crc with stored crc
-    if (crc != jHeadBuff.var.header_crc)
-    {
-        return JRNL_CORRUPTED;
+    // Check the magic number to see if initialised
+    if (magic != JRNL_MAGIC) {
+        return JRNL_UNINITIALIZED;
     }
 
     // No issues with header, store in struct
@@ -305,16 +293,14 @@ JRNL_HEAD_STATUS get_journal_status(Journal* journal)
  * @retval True if journal state updated
  * @retval Flase if journal state update fail
  */
-bool journal_free(Journal *journal)
+STRG_RET journal_free(Journal *journal)
 {
     Storage *storage = journal->storage;
 
     // Set journal header to committed
     journal->header.var.data.var.state = JRNL_COMMITTED;
 
-    // Need to recalculate the crc for the committed journal header
-    journal->header.var.header_crc = crc32_calculate(journal->header.buffer, sizeof(JournalHeaderData));
-
     // Write update to SD card
-    return storage->write_block(storage->context, JRNL_HEADER_SECTOR, journal->header.buffer);
+    return journal_write_sector(journal, JRNL_HEADER_SECTOR, journal->header.buffer);
 }
+

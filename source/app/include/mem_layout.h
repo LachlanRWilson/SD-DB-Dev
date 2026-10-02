@@ -120,7 +120,7 @@ extern "C" {
 
 /* ---- Superheader — sector 0 ----------------------------------------*/
 #define SUPERHEADER_SECTOR 0
-#define SUPERHEADER_DATA_BYTES 12
+#define SUPERHEADER_DATA_BYTES 16
 #define SUPERHEADER_PADDING (SUPERHEADER_BYTES - SUPERHEADER_DATA_BYTES - sizeof(uint32_t))
 #define SUPERHEADER_BYTES SECTOR_SIZE
 #define SUPERHEADER_SECTOR_SIZE 1
@@ -128,6 +128,8 @@ extern "C" {
 
 /* ---- Journal — starts right after the superheader ----------------------------------------*/
 #define JRNL_HEADER_SECTOR  (SUPERHEADER_SECTOR + SUPERHEADER_SECTOR_SIZE)
+#define JRNL_HEADER_DATA_SIZE 8
+#define JRNL_HEADER_PADDING (SECTOR_PAYLOAD_BYTES - JRNL_HEADER_DATA_SIZE)
 #define JRNL_CONTENT_SECTOR (JRNL_HEADER_SECTOR + 1)
 #define JRNL_USAGE_SECTOR   (JRNL_HEADER_SECTOR + 2)
 #define JRNL_SECTOR_SIZE    3
@@ -194,6 +196,7 @@ extern "C" {
  */
 #define CONTACT_DATA_SECTOR(slot)   (CONTACT_DATA_START_SECTOR + (slot) / CONTACT_SECTOR_CAPACITY)
 #define MESSAGE_DATA_SECTOR(msgInd) (MESSAGE_DATA_START_SECTOR + (msgInd))
+#define MESSAGE_HIST_DATA_SECTOR(mhInd) (MESSAGE_HISTORY_DATA_START_SECTOR + (mhInd) / MESSAGE_HISTORY_SECTOR_CAPACITY)
 #define DATA_SECTOR_TO_RAW(dataSec) (DATA_REGION_START_SECTOR + (dataSec))
 
 #ifdef __cplusplus

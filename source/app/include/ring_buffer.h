@@ -69,6 +69,14 @@ bool move_next_ring_buffer(RingBuffer *rb);
 bool move_prev_ring_buffer(RingBuffer *rb);
 
 /**
+ * @brief Increment the number of occupants in the ring buffer if not filled yet
+ *
+ * @param rb pointer to ring buffer struct
+ * @retval true if successful else false
+ */
+bool add_ring_buffer(RingBuffer *rb);
+
+/**
  * @brief get the index at the
  *
  * @param curind current index to move from

@@ -90,6 +90,25 @@ bool move_prev_ring_buffer(RingBuffer *rb)
 }
 
 /**
+ * @brief Increment the number of occupants in the ring buffer if not filled yet
+ *
+ * @param rb pointer to ring buffer struct
+ * @retval true if successful else false
+ */
+bool add_ring_buffer(RingBuffer *rb)
+{
+    if (rb == NULL)
+    {
+        return false;
+    }
+    if (rb->occupancy != rb->size){
+        rb->occupancy++;
+    }
+
+    return true;
+}
+
+/**
  * @brief get the index at the
  *
  * @param curind current index to move from
