@@ -30,8 +30,7 @@ typedef struct RingBuffer {
 typedef uint8_t RB_SECTOR_STATE;
 enum {
     RB_EMPTY,   // Nothing in RB sector
-    RB_FULL,    // RB Sector Full
-    RB_PARTIAL, // RB Sector Partially filled
+    RB_OCCUPIED,    // RB sector occupied with something
 };
 
 // Ring Buffer Iterator Context
@@ -58,8 +57,74 @@ typedef struct {
     uint32_t crc;                            // CRC-32 trailer
 } RingBufferSector;
 
+typedef union {
+    RingBufferSector sector;
+    uint8_t buffer[sizeof(RingBufferSector)];
+} U_RingBufferSector;
+
 STATIC_ASSERT(sizeof(RingBufferHeader) == RING_BUFFER_HEADER_BYTES, "Ring Buffer Header size if unknown");
 STATIC_ASSERT(sizeof(RingBufferSector) == RING_BUFFER_SECTOR_BYTES, "Ring Buffer Sector struct is not the size of a sector");
+
+/**
+ * @brief Read the ring buffer sector from the sd card
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param index memory index of the contact.
+ * @param out Contact Sector Buffer with the desired contact position
+ * @retval True if successful read else false.
+ */
+STRG_RET read_ring_buffer_sector(Storage *storage, uint16_t raw_sector_start, uint16_t index, U_RingBufferSector *out);
+
+/**
+ * @brief Get the sequence and state of the ring buffer sector to perform binary search
+ *
+ * @param storage pointer to storage abstraction struct
+ * @param raw_sector_start starting sector offset of ring buffer memory block
+ * @param index index (in the ring buffer) that the sequence and state is coming from
+ * @param seq pointer to sequence storage memory
+ * @param state pointer to sector state storage memory
+ * @retval STRG_RET return code
+ */
+STRG_RET seq_and_state_at(Storage *storage, uint16_t raw_sector_start,
+                          uint16_t index, uint32_t *seq,
+                          RB_SECTOR_STATE *state);
+
+/**
+ * @brief check is the ring buffer has wrapped by checking is the next sector from the head is occupied
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param raw_sector_start starting sector of the ring buffer
+ * @param head head of reign buffer
+ * @retval  STRG_FAIL the is a read error,
+ *          STRG_EMPTY ring buffer has not wrapped,
+ *          STRG_OK ring buffer has wrapped
+ */
+STRG_RET is_ring_buffer_wrapped(Storage *storage, uint16_t raw_sector_start, uint16_t head);
+
+/**
+ * @brief Perform binary search on the ring buffer memory to find the head and sequence number
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param raw_sector_start starting sector of the ring buffer
+ * @param mem_size memory size of the ring buffer (in sectors) on the sd card
+ * @param head pointer to head index for the ring buffer
+ * @param seq pointer to current sequence number of the ring buffer
+ * @retval  STRG_FAIL the is a read error,
+ *          STRG_EMPTY ring buffer has not wrapped,
+ *          STRG_OK ring buffer has wrapped
+ */
+STRG_RET binary_search_head(Storage *storage, uint16_t raw_sector_start,
+                            uint16_t mem_size, uint16_t *head, uint32_t *seq);
+
+/**
+ * @brief Using binary search to find the head of the ring buffer. Ring buffer sector indexes are
+ * (raw_sector_start, sector_size - 1).
+ *
+ * @param storage pointer to storage abstraction struct
+ * @param rb Pointer to RingBuffer struct that is going to be populated
+ * @retval True if successful write else false.
+ */
+bool reconstruct_ring_buffer(Storage* storage, RingBuffer *rb, uint16_t raw_sector_start);
 
 /**
  * @brief Iniitialise a ring buffer on the SD card. Only the state, current index and occupancy is stored in RAM
@@ -68,7 +133,7 @@ STATIC_ASSERT(sizeof(RingBufferSector) == RING_BUFFER_SECTOR_BYTES, "Ring Buffer
  * @param n number of
  * @retval True if successful write else false.
  */
-bool init_ring_buffer(RingBuffer *rb, uint16_t size, uint16_t startIndex);
+bool init_ring_buffer(Storage *storage, RingBuffer *rb, uint16_t size, uint16_t raw_sector_start);
 
 /**
  * @brief Initialise an iterator over a ring buffer's occupied index range

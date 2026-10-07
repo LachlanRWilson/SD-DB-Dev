@@ -1,6 +1,6 @@
 #include "crc.h"
 
-#if defined(HOST_BUILD)
+#if defined(HOST_BUILD) || defined(USE_SW_CRC)
 
 #define CRC32_POLYNOMIAL    0xEDB88320U
 #define CRC32_INITIAL_VALUE 0xFFFFFFFFU
@@ -45,7 +45,7 @@ uint32_t crc32_calculate(const uint8_t *data, size_t length)
 #include "crc_stm32.h"
 
 /**
- * @brief Calculate CRC-32 using the STM32 CRC peripheral.
+ * @brief Calculate CRC-32 using the STM32 CRC peripheral. 
  * NEED TO ENSURE THE CRC CALC IS THE SAME AS SOFTARE
  *
  * @param data      Pointer to data.
