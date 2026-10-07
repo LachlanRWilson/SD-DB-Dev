@@ -78,6 +78,7 @@ add_library(app_logic
     app/src/ring_buffer.c
     app/src/contact.c
     app/src/message.c
+    app/src/ring_buffer.c
     #app/src/database.c
 )
 endif()

@@ -2,6 +2,7 @@
 #include "ring_buffer.h"
 #include "iterator.h"
 #include "journal.h"
+#include <string.h>
 
 /**
  * @brief Initialise MessageHistory and RingBuffer
@@ -97,16 +98,22 @@ STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t star
  * @param messageInd message sector index of the latest message
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, uint16_t messageInd)
+STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, Message *message)
 {
     MessageHistorySectorB mhSector;
     STRG_RET ret;
 
-    // move the ring buffer to the next sector and add to struct
-    if (!move_next_ring_buffer(rb) && !add_ring_buffer(rb))
+    // move the ring buffer to the next sector
+    if (!move_next_ring_buffer(rb))
     {
         return STRG_FAIL;
     }
+
+    if (!add_ring_buffer(rb))
+    {
+        return STRG_FAIL;
+    }
+
 
     uint16_t sector_index = rb->current_index / MESSAGE_HISTORY_SECTOR_CAPACITY;
 
@@ -121,7 +128,12 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
         return STRG_FAIL;
     }
 
-    mhSector.sector.messageIndex[rb->current_index % MESSAGE_HISTORY_SECTOR_CAPACITY] = messageInd;
+    MessageHistEntry* mh_entry = &mhSector.sector.mh_entry[rb->current_index % MESSAGE_HISTORY_SECTOR_CAPACITY];
+
+    // Add the sequence number to the entry and copy the message
+    mh_entry->seq = rb->seq;
+    memcpy((void *) &mh_entry->message, (void*) message, sizeof(Message));
+
 
     ret = write_message_history_sector(storage, sector_index, &mhSector);
 
@@ -130,5 +142,16 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
         return ret;
     }
 
-    return journal_free(journal);
+    ret = journal_free(journal);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    // Increment the sequence number on ring buffer
+    if(!inc_seq_ring_buffer(rb))
+    {
+        return STRG_FAIL;
+    }
+    return STRG_OK;
 }

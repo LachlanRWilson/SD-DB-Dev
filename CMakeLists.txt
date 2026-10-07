@@ -161,3 +161,18 @@ add_custom_target(tags
         ${CMAKE_SOURCE_DIR}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
+
+# Struct layout / static assert report (--target struct_layout)
+# Always compiles with the host gcc, so it works from both Host and STM32 builds
+find_package(Python3 COMPONENTS Interpreter)
+
+if (Python3_Interpreter_FOUND)
+    add_custom_target(struct_layout
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/struct_layout.py
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        USES_TERMINAL
+        COMMENT "Printing struct layouts and static assert results"
+    )
+else ()
+    message(STATUS "struct_layout target disabled (python3 NOT FOUND)")
+endif()

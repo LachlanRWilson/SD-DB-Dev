@@ -53,8 +53,15 @@ extern "C" {
 // here for layout math — the struct itself still lives in hash_table.h.
 #define HASH_ENTRY_BYTES 8
 
+#define MESSAGE_HISTORY_ENTRY_BYTES 164
 // Byte size of the
 #define MESSAGE_HISTORY_SECTOR_BYTES SECTOR_SIZE
+
+// Generic Ring Buffer Sizes
+#define RING_BUFFER_HEADER_BYTES 8
+#define RING_BUFFER_PAYLOAD_BYTES \
+    (SECTOR_PAYLOAD_BYTES - RING_BUFFER_HEADER_BYTES)
+#define RING_BUFFER_SECTOR_BYTES SECTOR_SIZE
 
 /* ---- Contact sector layout ------------------------------------- */
 
@@ -79,7 +86,10 @@ extern "C" {
  * struct layout itself stays in message_extent.h.
  */
 #define MESSAGE_HISTORY_SECTOR_CAPACITY \
-    (SECTOR_PAYLOAD_BYTES / sizeof(uint16_t))
+    (RING_BUFFER_PAYLOAD_BYTES / MESSAGE_BYTES)
+
+#define MESSAGE_HISTORY_SECTOR_PADDING \
+    (RING_BUFFER_PAYLOAD_BYTES - (MESSAGE_HISTORY_SECTOR_CAPACITY * MESSAGE_BYTES))
 
 /* ---- Message region sizing --------------------------------------
  * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock

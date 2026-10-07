@@ -17,16 +17,27 @@ extern "C" {
 #include "mem_layout.h"
 #include "storage.h"
 #include "message.h"
+#include "ring_buffer.h"
 
 // Opaque Declaration
 typedef struct Journal Journal;
-typedef struct RingBuffer RingBuffer;
 
-typedef uint16_t MessageIndex;
+// Message History Data in RingBufferSector
+typedef struct 
+{
+    Message mh_entry[MESSAGE_HISTORY_SECTOR_CAPACITY];
 
+// Only include delaration of member if padding is not 0
+#if MESSAGE_HISTORY_SECTOR_PADDING != 0
+    uint8_t padding [MESSAGE_HISTORY_SECTOR_PADDING];
+#endif
+} MessageHistoryData;
+
+// Message History Sector (Refer to RingBufferSector)
 typedef struct {
-    MessageIndex messageIndex[MESSAGE_HISTORY_SECTOR_CAPACITY];
-    uint32_t sector_crc;
+    RingBufferHeader header; // header
+    MessageHistoryData data; // data
+    uint32_t sector_crc;     // CRC32 trailer
 } MessageHistorySector;
 
 typedef union {
@@ -34,9 +45,10 @@ typedef union {
     uint8_t buffer[sizeof(MessageHistorySector)];
 } MessageHistorySectorB;
 
-STATIC_ASSERT(sizeof(MessageHistorySector) == MESSAGE_HISTORY_SECTOR_BYTES, "Unexpected MessageHistorySector size");
-STATIC_ASSERT(offsetof(MessageHistorySector, sector_crc) == SECTOR_PAYLOAD_BYTES, "MessageHistorySector CRC is not the sector trailer");
-STATIC_ASSERT(MESSAGE_HISTORY_SECTOR_CAPACITY == 254, "CRC trailer changed the message history sector capacity");
+STATIC_ASSERT(sizeof(MessageHistoryData) == RING_BUFFER_PAYLOAD_BYTES, "MessageHistoryData doesn't fit in ring buffer payload");
+STATIC_ASSERT(sizeof(MessageHistorySector) == RING_BUFFER_SECTOR_BYTES, "Unexpected MessageHistorySector size");
+STATIC_ASSERT(offsetof(MessageHistorySector, sector_crc) == RING_BUFFER_PAYLOAD_BYTES + RING_BUFFER_HEADER_BYTES, "MessageHistorySector CRC is not the sector trailer");
+STATIC_ASSERT(0 != MESSAGE_HISTORY_SECTOR_PADDING, "Array size of 0 in padding delaration");
 
 /**
  * @brief Initialise MessageHistory and RingBuffer
@@ -63,7 +75,7 @@ STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t star
  * @param messageInd message sector index of the latest message
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, uint16_t messageInd);
+STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, Message *message);
 
 
 

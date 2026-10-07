@@ -1,5 +1,44 @@
 #include "ring_buffer.h"
 #include "iterator.h"
+
+
+/**
+ * @brief Is seq_i greater than seq_start regardless of unsigned overflow
+ *
+ * @param seq_start starting number in the ring buffer sequence
+ * @param seq_i sequnce number that is being checked
+ * @retval True if seq_i is greater than seq_start. This holds for normal sequence and if the number wraps around. 
+ * i.e for uint8, seq_start = 0xFF and seq_i = 3 than (seq_i - seq_start) = 3 therefore is greater
+ */
+static inline bool is_greater(uint32_t seq_start, uint32_t seq_i)
+{
+    return (seq_i - seq_start) > 0;
+}
+
+/**
+ * @brief Using binary search to find the head of the ring buffer. Ring buffer sector indexes are 
+ * (raw_sector_start, sector_size - 1).
+ *
+ * @param storage pointer to storage abstraction struct
+ * @param rb Pointer to RingBuffer struct that is going to be populated
+ * @retval True if successful write else false.
+ */
+bool reconstruct_ring_buffer(Storage* storage, RingBuffer *rb, uint16_t raw_sector_start, uint16_t sector_size)
+{
+    uint16_t hi = sector_size - 1;
+    uint16_t lo = 0;
+    // Get the mid point
+    uint16_t mid = hi - (hi - lo) / 2;
+
+    // iterate until hi and lo indexes are next to each other
+    while (hi - lo > 1)
+    {
+        
+    }
+
+    return true;
+}
+
 /**
  * @brief Iniitialise a ring buffer on the SD card. Only the state, current index and occupancy is stored in RAM
  *
@@ -90,7 +129,7 @@ bool move_prev_ring_buffer(RingBuffer *rb)
 }
 
 /**
- * @brief Increment the number of occupants in the ring buffer if not filled yet
+ * @brief Increment the number of occupants in the ring buffer if not filled yet and increment sequence number
  *
  * @param rb pointer to ring buffer struct
  * @retval true if successful else false
@@ -101,10 +140,35 @@ bool add_ring_buffer(RingBuffer *rb)
     {
         return false;
     }
-    if (rb->occupancy != rb->size){
+
+    if (rb->occupancy != rb->size)
+    {
         rb->occupancy++;
     }
 
+
+    return true;
+}
+
+/**
+ * @brief Increment the sequence number of the ring buffer. Wrap on UINT32_MAX
+ *
+ * @param rb pointer to ring buffer struct
+ * @retval true if successful else false
+ */
+bool inc_seq_ring_buffer(RingBuffer *rb)
+{
+    if (rb == NULL)
+    {
+        return false;
+    }
+
+    if (rb->seq <= UINT32_MAX)
+    {
+        rb->seq++;
+    } else {
+        rb->seq = 0;
+    }
     return true;
 }
 
