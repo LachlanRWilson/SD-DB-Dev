@@ -59,6 +59,7 @@ void SystemClock_Config(void);
 static void MPU_Config(void);
 void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
+static void MPU_Config_FMC(void);
 
 /* USER CODE END PFP */
 
@@ -87,6 +88,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+  MPU_Config_FMC();
 
   /* USER CODE END Init */
 
@@ -100,8 +102,8 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_FMC_Init();
-  MX_SDMMC1_SD_Init();
-  MX_FATFS_Init();
+  // MX_SDMMC1_SD_Init(); /* SD card unused while testing the LCD */
+  // MX_FATFS_Init();
   MX_CRC_Init();
   /* USER CODE BEGIN 2 */
 
@@ -110,10 +112,6 @@ int main(void)
   /* Init scheduler */
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
   MX_FREERTOS_Init();
-    DB_Init();
-    /* NOTE: shares the PB0 LED with DB_Init()'s test report -- comment one
-     * out if running the other test standalone. */
-    FMC_Test_Init();
 
   /* Start scheduler */
   osKernelStart();
@@ -191,6 +189,32 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/* The generated MPU_Config() makes 0x60000000-0x7FFFFFFF no-access, which
+ * would fault on the first LCD write. Open up FMC bank 1 (64MB) as
+ * strongly-ordered memory so the Cortex-M7 doesn't reorder, merge or
+ * speculatively read the LCD command/data registers. */
+static void MPU_Config_FMC(void)
+{
+  MPU_Region_InitTypeDef MPU_InitStruct = {0};
+
+  HAL_MPU_Disable();
+
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER1;
+  MPU_InitStruct.BaseAddress = 0x60000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_64MB;
+  MPU_InitStruct.SubRegionDisable = 0x00;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+}
 
 /* USER CODE END 4 */
 

@@ -59,6 +59,16 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED_Pin GPIO_PIN_0
 #define LED_GPIO_Port GPIOB
+#define FMC_DC_Pin GPIO_PIN_11
+#define FMC_DC_GPIO_Port GPIOD
+#define FMC_RES_Pin GPIO_PIN_3
+#define FMC_RES_GPIO_Port GPIOD
+#define FMC_RD_Pin GPIO_PIN_4
+#define FMC_RD_GPIO_Port GPIOD
+#define FMC_WR_Pin GPIO_PIN_5
+#define FMC_WR_GPIO_Port GPIOD
+#define FMC_CS_Pin GPIO_PIN_7
+#define FMC_CS_GPIO_Port GPIOD
 
 /* USER CODE BEGIN Private defines */
 

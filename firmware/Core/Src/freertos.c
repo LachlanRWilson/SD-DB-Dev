@@ -32,6 +32,7 @@
 #include "fatfs.h"
 #include "sdmmc.h"
 #include "raw_sd.h"
+#include "fmc_func.h"
 extern SD_HandleTypeDef hsd1;
 /* USER CODE END Includes */
 
@@ -119,6 +120,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  FMC_TaskHandle = osThreadNew(fmcTask, NULL, &fmc_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -163,10 +165,16 @@ void HeartbeatTask(void *argument)
 
 void fmcTask(void *argument)
 {
-    // FMC Init
+    static const uint16_t colours[] = {
+        LCD_COLOR_RED, LCD_COLOR_GREEN, LCD_COLOR_BLUE, LCD_COLOR_WHITE};
+
+    lcd_init();
+
     for (;;) {
-        // Write RGB to screen in between delays
-        osDelay(500);
+        for (uint32_t i = 0; i < sizeof(colours) / sizeof(colours[0]); i++) {
+            lcd_fill_color(colours[i]);
+            osDelay(1000);
+        }
     }
 }
 

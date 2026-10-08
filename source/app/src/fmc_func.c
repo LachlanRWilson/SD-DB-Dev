@@ -2,22 +2,26 @@
  * fmc_func.c - LCD driver for the AFR240320A0-2.0INTM over the STM32H723
  * FMC bus. See fmc_func.h for the public API.
  *
- * The panel's 8/9/16/18-bit MCU interface is wired to FMC bank 1 (NE1) as
- * a 16-bit NOR/SRAM device (hsram1 in fmc.c): FMC_A0 drives the panel's
- * DCX/D-C pin, so bit 0 of the word address selects command vs. data
- * registers, and NOE/NWE/NE1 give the ST7789V 8080-system write cycle
- * from AFR240320A0-2.0INTM-spec.pdf section 7.1 for free. MX_FMC_Init()
- * must have already run before any function here is called.
+ * The panel's 8/9/16/18-bit MCU interface is wired to FMC bank 1 as a
+ * 16-bit NOR/SRAM device (hsram1 in fmc.c): FMC_A16 (PD11) drives the
+ * panel's DCX/D-C pin, so address bit 16 selects command vs. data
+ * registers, and NOE/NWE give the ST7789V 8080-system write cycle from
+ * AFR240320A0-2.0INTM-spec.pdf section 7.1 for free. The panel's CSX
+ * (PD7) and RESX (PD3) are plain GPIOs. MX_GPIO_Init() and MX_FMC_Init()
+ * must have already run, and the MPU must allow access to 0x60000000
+ * (see main.c), before any function here is called.
  */
 #include "FreeRTOS.h"
 #include "cmsis_os2.h"
 
+#include "main.h"
 #include "fmc_func.h"
 
-/* FMC bank 1 base address, split into the command (A0 = 0) and data
- * (A0 = 1) halves by the panel's DCX pin. */
+/* FMC bank 1 base address, split into the command (A16 = 0) and data
+ * (A16 = 1) halves by the panel's DCX pin. With a 16-bit bus the FMC
+ * drives HADDR[25:1] onto A[24:0], so A16 is byte-address bit 17. */
 #define LCD_CMD   (*((volatile uint16_t *)0x60000000))
-#define LCD_DATA  (*((volatile uint16_t *)0x60000002))
+#define LCD_DATA  (*((volatile uint16_t *)(0x60000000 | (1UL << 17))))
 
 static void lcd_write_cmd(uint16_t cmd)
 {
@@ -75,12 +79,20 @@ void lcd_draw_image(uint16_t x0, uint16_t y0, uint16_t width, uint16_t height, c
 
 void lcd_init(void)
 {
-    /* RESX isn't wired to a GPIO on this board (see fmc.c), so bring the
-     * controller up with a software reset instead of a hardware pulse.
+    /* CSX is a GPIO and the panel is the only device on the bus, so
+     * just hold it selected. Then pulse RESX (>=10us low, datasheet
+     * section 7.5) followed by a software reset for good measure.
      * Datasheet section 7.5 note 7 requires Sleep Out to wait >=120ms
      * after a reset; osDelay() needs to run from task context (i.e.
-     * after osKernelStart()), which is why lcd_init() is called from the
-     * test task rather than directly in main(). */
+     * after osKernelStart()), which is why lcd_init() is called from a
+     * task rather than directly in main(). */
+    HAL_GPIO_WritePin(FMC_CS_GPIO_Port, FMC_CS_Pin, GPIO_PIN_RESET);
+
+    HAL_GPIO_WritePin(FMC_RES_GPIO_Port, FMC_RES_Pin, GPIO_PIN_RESET);
+    osDelay(10);
+    HAL_GPIO_WritePin(FMC_RES_GPIO_Port, FMC_RES_Pin, GPIO_PIN_SET);
+    osDelay(120);
+
     lcd_write_cmd(0x01); /* SWRESET */
     osDelay(150);
 
