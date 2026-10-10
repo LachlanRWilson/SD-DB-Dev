@@ -8,21 +8,9 @@ This files will be linked to test/CMakeLists.txt and firmware/CMakeLists.txt suc
 include "my_logic.h" header
 ]]
 
-# Create a library target for appilcaion logic
-if (BUILD_STM32)
+# Create a library target for application logic (sources shared by Host and STM32 builds)
+# hash_table_phone.c is legacy (contact-only) and defines the same symbols as hash_table.c -- never link it.
 add_library(app_logic
-    # Add App Source Files
-    #
-    # db_main.c runs the phone-keyed contact + message DB hardware tests
-    # (journalling + hash-table reconstruction), so the STM32 build links
-    # the same hash_table.c/message.c implementation the host tests use,
-    # plus the journal / usage-bitmap / storage helpers it depends on.
-    #
-    # hash_table_phone.c is legacy (contact-only, no messages) and is no
-    # longer linked here -- it also no longer compiles against the current
-    # contact.c API (remove_contact() gained a FreeList* parameter it never
-    # picked up), so keep it out of both build configs until/unless it's
-    # updated or removed outright.
     app/src/free_list_stack.c
     app/src/hash_table.c
     app/src/storage.c
@@ -33,58 +21,7 @@ add_library(app_logic
     app/src/iterator.c
     app/src/ring_buffer.c
     app/src/crc.c
-    app/src/crc_stm32.c
-    app/src/sd_storage.c
-    app/src/db_main.c
-    # AFR240320A0-2.0INTM LCD driver (over the FMC bus) + its on-hardware
-    # smoke test -- see fmc_func.c / test_fmc.c.
-    app/src/fmc_func.c
-    app/src/test_fmc.c
 )
-
-# Use the portable software CRC-32 on-device too: the STM32 CRC peripheral
-# path (crc_stm32.c) needs an MX_CRC_Init/hcrc that main.c does not set up,
-# and the journal CRCs must match the host implementation byte-for-byte.
-target_compile_definitions(app_logic PUBLIC USE_SW_CRC=1)
-
-# db_main.c persistence toggle:
-#   -DDB_TEST_WRITE=ON  (default) wipe + journalled writes + reconstruct/verify
-#   -DDB_TEST_WRITE=OFF            reconstruct/verify only, no writes to the card
-option(DB_TEST_WRITE "db_main.c runs the writing test pass" ON)
-if (DB_TEST_WRITE)
-    target_compile_definitions(app_logic PUBLIC DB_TEST_WRITE=1)
-else()
-    target_compile_definitions(app_logic PUBLIC DB_TEST_WRITE=0)
-endif()
-
-else ()
-add_library(app_logic
-    # Add App Source Files
-    app/src/free_list_stack.c
-    # hash_table.c is the phone-keyed, message-capable implementation used
-    # by both the host tests and (as of this build config) the STM32
-    # firmware. hash_table_phone.c is an older, contact-only variant kept
-    # around as legacy reference; it defines the same symbols
-    # (hash_init, hash_size, hash_phone, ...) so the two must never be
-    # linked together.
-    app/src/hash_table.c
-    app/src/storage.c
-    app/src/heap_storage.c
-    app/src/journal.c
-    app/src/crc.c
-    app/src/superheader.c
-    app/src/usage_bitmap.c
-    app/src/iterator.c
-    app/src/ring_buffer.c
-    app/src/contact.c
-    app/src/message.c
-    app/src/ring_buffer.c
-    #app/src/database.c
-)
-endif()
-
-# Print compiler include hierarchy
-#target_compile_options(app_logic PRIVATE -H)
 
 # Make the include directory PUBLIC so other files such as tests/test_my_logic.cpp and firmware/Core/Src/main.c
 # have access to my_logic.h header  (can do #include "my_header.h")
@@ -92,18 +29,53 @@ target_include_directories(app_logic PUBLIC
     app/include
 )
 
-# If building for STM32 link STM32 Platform else link Host Platform (PRIVATE as only my_logic.c #include "platform_*h" header)
+# Print compiler include hierarchy
+#target_compile_options(app_logic PRIVATE -H)
+
 if (BUILD_STM32)
-
-    # Link STM32 Platform Library
-    target_link_libraries(app_logic PRIVATE
-        platform_stm32
+    target_sources(app_logic PRIVATE
+        app/src/crc_stm32.c
+        app/src/sd_storage.c
+        # db_main.c runs the contact + message DB hardware tests (journalling + hash-table reconstruction)
+        app/src/db_main.c
+        # SD bus read-integrity diagnostic (-DSD_BUS_TEST=ON runs it instead of db_main.c)
+        app/src/sd_bus_test.c
+        # AFR240320A0-2.0INTM LCD driver (over the FMC bus) + its on-hardware smoke tests
+        app/src/fmc_func.c
+        app/src/test_fmc.c
+        app/src/lcd_font.c
+        app/src/fmc_ui_test.c
     )
-else()
 
-    # Link Host Platform Library
-    target_link_libraries(app_logic PRIVATE
-        platform_host
-    )
-    target_compile_definitions(app_logic PUBLIC HOST_BUILD=1)
+    # PRIVATE as only app sources #include "platform_*.h"
+    target_link_libraries(app_logic PRIVATE platform_stm32)
+
+    # Use the portable software CRC-32 on-device too: the STM32 CRC peripheral
+    # path (crc_stm32.c) needs an MX_CRC_Init/hcrc that main.c does not set up,
+    # and the journal CRCs must match the host implementation byte-for-byte.
+    target_compile_definitions(app_logic PUBLIC USE_SW_CRC=1)
+
+    # db_main.c persistence toggle:
+    #   -DDB_TEST_WRITE=ON  (default) wipe + journalled writes + reconstruct/verify
+    #   -DDB_TEST_WRITE=OFF            reconstruct/verify only, no writes to the card
+    option(DB_TEST_WRITE "db_main.c runs the writing test pass" ON)
+    if (DB_TEST_WRITE)
+        target_compile_definitions(app_logic PUBLIC DB_TEST_WRITE=1)
+    else()
+        target_compile_definitions(app_logic PUBLIC DB_TEST_WRITE=0)
     endif()
+
+    # -DSD_BUS_TEST=ON : main.c starts the SD bus diagnostic (sd_bus_test.c) instead of DB_Init()
+    option(SD_BUS_TEST "Run the SD bus diagnostic instead of the DB tests" OFF)
+    if (SD_BUS_TEST)
+        target_compile_definitions(app_logic PUBLIC SD_BUS_TEST=1)
+    endif()
+else ()
+    target_sources(app_logic PRIVATE
+        app/src/heap_storage.c
+        app/src/superheader.c
+    )
+
+    target_link_libraries(app_logic PRIVATE platform_host)
+    target_compile_definitions(app_logic PUBLIC HOST_BUILD=1)
+endif()

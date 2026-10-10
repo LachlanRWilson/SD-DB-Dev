@@ -30,6 +30,7 @@
 /* USER CODE BEGIN Includes */
 #include "db_extent_main.h"
 #include "db_main.h"
+#include "sd_bus_test.h"
 #include "test_fmc.h"
 /* USER CODE END Includes */
 
@@ -102,11 +103,15 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_FMC_Init();
-  // MX_SDMMC1_SD_Init(); /* SD card unused while testing the LCD */
-  // MX_FATFS_Init();
+  MX_SDMMC1_SD_Init();
+  MX_FATFS_Init();
   MX_CRC_Init();
   /* USER CODE BEGIN 2 */
-
+#if SD_BUS_TEST
+  SD_BusTest_Init();
+#else
+  DB_Init();
+#endif
   /* USER CODE END 2 */
 
   /* Init scheduler */

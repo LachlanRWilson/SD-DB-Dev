@@ -33,6 +33,7 @@
 #include "sdmmc.h"
 #include "raw_sd.h"
 #include "fmc_func.h"
+#include "fmc_ui_test.h"
 extern SD_HandleTypeDef hsd1;
 /* USER CODE END Includes */
 
@@ -165,17 +166,8 @@ void HeartbeatTask(void *argument)
 
 void fmcTask(void *argument)
 {
-    static const uint16_t colours[] = {
-        LCD_COLOR_RED, LCD_COLOR_GREEN, LCD_COLOR_BLUE, LCD_COLOR_WHITE};
-
     lcd_init();
-
-    for (;;) {
-        for (uint32_t i = 0; i < sizeof(colours) / sizeof(colours[0]); i++) {
-            lcd_fill_color(colours[i]);
-            osDelay(1000);
-        }
-    }
+    fmc_ui_test_run();
 }
 
 /* USER CODE END Application */
