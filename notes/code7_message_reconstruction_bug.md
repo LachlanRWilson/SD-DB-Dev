@@ -122,8 +122,7 @@ beyond the five listed above** — the fix was reverted before that could be iso
    is tripping early, or whether the mask (`bits &= (~0u) << first_message_usage_bit`)
    is being applied to the wrong word and clearing the real bits.
 4. Once messages reconstruct correctly, re-run the full `DB_TEST_WRITE=1` write pass,
-   then flash `DB_TEST_WRITE=0` to confirm persistence across a real power cycle,
-   per the workflow in `notes/db_main_hardware_tests.md`.
+   then flash `DB_TEST_WRITE=0` to confirm persistence across a real power cycle.
 
 ## GDB workflow notes (for reference)
 
@@ -132,7 +131,7 @@ beyond the five listed above** — the fix was reverted before that could be iso
 - `break verify_messages` + `continue` + `finish` (repeated) is a clean way to read
   each call's return value directly, since `T_MESSAGE_FIND` (7) is reused for both
   the pre- and post-reconstruction checks and the LED blink count alone can't
-  distinguish them (see `notes/db_main_hardware_tests.md`).
+  distinguish them.
 - Nesting `continue` inside a breakpoint's `commands` block was unreliable in batch
   mode (`gdb-multiarch -batch -x script.gdb`) — it silently stopped resuming after
   the first hit. Plain top-level `continue`/`finish` pairs, repeated explicitly for

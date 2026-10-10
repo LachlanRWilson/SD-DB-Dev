@@ -34,7 +34,8 @@
  *
  *     STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -r32 <&g_db_report> 0x100
  *
- *   The PB0 LED also shows the result once the suite finishes:
+ *   The LCD shows each test as it runs and the summary at the end
+ *   (htest_ui.c). The PB0 LED also shows the result once the suite finishes:
  *     - fast continuous blink         -> every test passed
  *     - N short pulses, pause, repeat -> test number N (1-based, the order
  *                                        of g_tests[]) was the first to fail
@@ -71,6 +72,7 @@
 #include "mem_layout.h"
 #include "sd_storage.h"
 #include "db_main.h"
+#include "htest_ui.h"
 
 #ifndef DB_TEST_WRITE
 #define DB_TEST_WRITE 1
@@ -1106,6 +1108,7 @@ static void run_test(size_t i)
 
     g_fail_line = 0;
     g_db_report.current = (uint32_t)(i + 1);
+    htest_ui_start((uint32_t)i, g_tests[i].name);
 
 #if DB_TEST_WRITE
     bool ready = fixture_setup();
@@ -1129,6 +1132,7 @@ static void run_test(size_t i)
 
     g_db_report.ms[i] = osKernelGetTickCount() - start;
     g_db_report.fail_line[i] = (uint16_t)g_fail_line;
+    htest_ui_result((uint32_t)i, g_fail_line == 0, (uint32_t)g_fail_line);
 
     if (g_fail_line == 0)
     {
@@ -1184,6 +1188,8 @@ void dbTask(void *arg)
     g_db_report.total = (uint32_t)N_TESTS;
     g_db_report.magic = DB_REPORT_MAGIC;
 
+    htest_ui_init((uint32_t)N_TESTS);
+
     if (!storage_bringup())
     {
         /* Nothing can run without the card: report it as test 1 failing. */
@@ -1191,6 +1197,8 @@ void dbTask(void *arg)
         g_db_report.failed = 1;
         g_db_report.status[0] = TEST_FAIL;
         g_db_report.fail_line[0] = (uint16_t)__LINE__;
+        htest_ui_start(0, "SD card init");
+        htest_ui_result(0, false, g_db_report.fail_line[0]);
     }
     else
     {
@@ -1202,6 +1210,7 @@ void dbTask(void *arg)
 
     g_db_report.current = 0;
     g_db_report.done = 1;
+    htest_ui_done(g_db_report.passed, g_db_report.failed);
 
     blink_forever(g_db_report.first_failed);
 }

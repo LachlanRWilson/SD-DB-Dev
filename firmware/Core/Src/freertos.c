@@ -121,7 +121,8 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  FMC_TaskHandle = osThreadNew(fmcTask, NULL, &fmc_attributes);
+  /* The LCD is owned by the DB test task (htest_ui.c); fmcTask's UI demo would draw over it. */
+  // FMC_TaskHandle = osThreadNew(fmcTask, NULL, &fmc_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */

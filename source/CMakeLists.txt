@@ -38,6 +38,8 @@ if (BUILD_STM32)
         app/src/sd_storage.c
         # db_main.c runs the contact + message DB hardware tests (journalling + hash-table reconstruction)
         app/src/db_main.c
+        # LCD view of the db_main.c hardware unit tests
+        app/src/htest_ui.c
         # SD bus read-integrity diagnostic (-DSD_BUS_TEST=ON runs it instead of db_main.c)
         app/src/sd_bus_test.c
         # AFR240320A0-2.0INTM LCD driver (over the FMC bus) + its on-hardware smoke tests
