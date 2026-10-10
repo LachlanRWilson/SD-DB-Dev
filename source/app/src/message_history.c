@@ -91,8 +91,44 @@ STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t star
     return STRG_OK;
 }
 
+
 /**
- * @brief Add new latest message index to the ring buffer
+ * @brief Set the current sector to full and write back to the sd card. Then increment the ring buffer and rerun message add on new sector
+ *
+ * @param rb message history ring buffer struct
+ * @param messageInd message sector index of the latest message
+ * @retval STRG_OK is storage read successful else STRG_* error code
+ */
+STRG_RET set_sector_full_move_next(Journal *journal, Storage *storage, RingBuffer* rb,
+                                     MessageHistorySectorB *mhSector, Message *message)
+{
+    STRG_RET ret;
+    RingBufferHeader *rb_header = &(mhSector->sector.header);
+
+    // Set the sector to full and write
+    rb_header->state = RB_FULL;
+
+    ret = write_message_history_sector(storage, rb->current_index, mhSector);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+    ret = journal_free(journal);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    // add entry and move ring buffer, then recall message history add
+    add_ring_buffer(rb);
+    move_next_ring_buffer(rb);
+    inc_seq_ring_buffer(rb);
+    return message_history_add(rb, journal, storage, message);
+
+}
+
+/**
+ * @brief Add new message to latest sector in the ring buffer. If sector is filled, move to next sector.
  *
  * @param rb message history ring buffer struct
  * @param messageInd message sector index of the latest message
@@ -103,21 +139,12 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
     MessageHistorySectorB mhSector;
     STRG_RET ret;
 
-    // move the ring buffer to the next sector
-    if (!move_next_ring_buffer(rb))
-    {
-        return STRG_FAIL;
+    // if ring buffer hasn't been added to yet add entry
+    if (rb->occupancy == 0) {
+        add_ring_buffer(rb);
     }
 
-    if (!add_ring_buffer(rb))
-    {
-        return STRG_FAIL;
-    }
-
-
-    uint16_t sector_index = rb->current_index / MESSAGE_HISTORY_SECTOR_CAPACITY;
-
-    ret = read_message_history_sector(storage, rb->current_index / MESSAGE_HISTORY_SECTOR_CAPACITY, &mhSector);
+    ret = read_message_history_sector(storage, rb->current_index, &mhSector);
     if (ret != STRG_OK)
     {
         return ret;
@@ -128,15 +155,40 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
         return STRG_FAIL;
     }
 
-    MessageHistEntry* mh_entry = &mhSector.sector.mh_entry[rb->current_index % MESSAGE_HISTORY_SECTOR_CAPACITY];
+    // Retrieve header and data pointer from sector
+    MessageHistoryData* mh_data = &mhSector.sector.data;
+    RingBufferHeader* rb_header = &mhSector.sector.header;
 
-    // Add the sequence number to the entry and copy the message
-    mh_entry->seq = rb->seq;
-    memcpy((void *) &mh_entry->message, (void*) message, sizeof(Message));
+    // check the ring buffer sector state
+    switch (rb_header->state)
+    {
+        case RB_EMPTY:
+            rb_header->state = RB_OCCUPIED;
+            rb_header->head = 0;
+            rb_header->seq = rb->seq;
+            break;
+        case RB_FULL:
+            rb_header->seq = rb->seq;
+            rb_header->head = 0;
+            rb_header->state = RB_OCCUPIED;
+            break;
+        case RB_OCCUPIED:
+            // check if current sector is full, if so move to next sector
+            if (rb_header->head == MESSAGE_HISTORY_SECTOR_CAPACITY - 1) {
+                return set_sector_full_move_next(journal, storage, rb, &mhSector, message);
+            }
+            // if sector not full increment the header
+            rb_header->head++;
+            break;
 
+        default:
+            return STRG_FAIL;
+    }
 
-    ret = write_message_history_sector(storage, sector_index, &mhSector);
+    // Adding message to sector
+    memcpy(&(mh_data->mh_entry[rb_header->head]), message, sizeof(Message));
 
+    ret = write_message_history_sector(storage, rb->current_index, &mhSector);
     if (ret != STRG_OK)
     {
         return ret;
@@ -148,10 +200,80 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
         return ret;
     }
 
-    // Increment the sequence number on ring buffer
-    if(!inc_seq_ring_buffer(rb))
+    // Increment the sequence number after successful write
+    return STRG_OK;
+}
+
+
+
+/**
+ * @brief Get a list of message history entries from latest to oldest
+ *
+ * @param rb Ring Buffer struct pointer
+ * @param storage Storage abstraction struct
+ * @param n number of messages to get
+ * @param out_count pointer to memory which stores number of messages read
+ * @param out_list pointer to array of n messages
+ * @retval STRG_OK if successful
+ */
+STRG_RET message_history_get_list(RingBuffer *rb, Storage *storage, size_t n, size_t *out_count, Message *out_list)
+{
+
+    if (rb == NULL || storage == NULL || out_count == NULL || out_list == NULL)
     {
         return STRG_FAIL;
     }
+
+    STRG_RET ret;
+
+    MessageHistorySectorB mhSector;
+    RingBufferHeader *rbHeader;
+    MessageHistoryData *mhData;
+
+    uint16_t sector_index;
+    RBIteratorCtx rb_it_ctx;
+    Iterator it = ring_buffer_iterator_init(&rb_it_ctx, rb);
+    *out_count = 0;
+    size_t sector_visited = 0;
+
+    // read sectors until n messages are read or entire ring buffer
+    while (*out_count < n && sector_visited < rb->occupancy)
+    {
+        // get the sector index from iterator
+        if (!ring_iterator_get(&it, (void *) &sector_index))
+        {
+            return STRG_FAIL;
+        }
+
+        ret = read_message_history_sector(storage, sector_index, &mhSector);
+        if (ret != STRG_OK)
+        {
+            return ret;
+
+        }
+
+        sector_visited++;
+        rbHeader = &(mhSector.sector.header);
+        mhData = &(mhSector.sector.data);
+
+        // if the sector is empty stop getting list
+        if (rbHeader->state == RB_EMPTY)
+        {
+            return STRG_OK;
+        }
+
+        // get message out of sector
+        for (int slots = rbHeader->head; slots >= 0 && *out_count < n; slots--)
+        {
+            memcpy(&out_list[*out_count], &(mhData->mh_entry[slots]), sizeof(Message));
+            (*out_count)++;
+        }
+
+        if (!ring_iterator_prev(&it))
+        {
+            return STRG_FAIL;
+        }
+    }
+
     return STRG_OK;
 }

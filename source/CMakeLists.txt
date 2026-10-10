@@ -21,6 +21,7 @@ add_library(app_logic
     app/src/iterator.c
     app/src/ring_buffer.c
     app/src/crc.c
+    app/src/message_history.c
 )
 
 # Make the include directory PUBLIC so other files such as tests/test_my_logic.cpp and firmware/Core/Src/main.c
@@ -42,6 +43,8 @@ if (BUILD_STM32)
         app/src/htest_ui.c
         # SD bus read-integrity diagnostic (-DSD_BUS_TEST=ON runs it instead of db_main.c)
         app/src/sd_bus_test.c
+        # SD persistence demo on the LCD (-DPERSIST_DEMO=ON runs it instead of db_main.c)
+        app/src/persist_demo.c
         # AFR240320A0-2.0INTM LCD driver (over the FMC bus) + its on-hardware smoke tests
         app/src/fmc_func.c
         app/src/test_fmc.c
@@ -71,6 +74,20 @@ if (BUILD_STM32)
     option(SD_BUS_TEST "Run the SD bus diagnostic instead of the DB tests" OFF)
     if (SD_BUS_TEST)
         target_compile_definitions(app_logic PUBLIC SD_BUS_TEST=1)
+    endif()
+
+    # -DPERSIST_DEMO=ON : main.c starts the persistence demo (persist_demo.c) instead of DB_Init()
+    #   -DPERSIST_DEMO_WRITE=ON  (default) write the demo data set to the card, showing each record
+    #   -DPERSIST_DEMO_WRITE=OFF           read it back from the card and show it
+    option(PERSIST_DEMO "Run the SD persistence demo instead of the DB tests" OFF)
+    option(PERSIST_DEMO_WRITE "persist_demo.c writes (ON) or reads (OFF) the card" ON)
+    if (PERSIST_DEMO)
+        target_compile_definitions(app_logic PUBLIC PERSIST_DEMO=1)
+    endif()
+    if (PERSIST_DEMO_WRITE)
+        target_compile_definitions(app_logic PUBLIC PERSIST_DEMO_WRITE=1)
+    else()
+        target_compile_definitions(app_logic PUBLIC PERSIST_DEMO_WRITE=0)
     endif()
 else ()
     target_sources(app_logic PRIVATE

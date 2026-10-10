@@ -26,7 +26,7 @@ STRG_RET read_ring_buffer_sector(Storage *storage, uint16_t raw_sector_start, ui
  */
 static inline bool binary_search_target_right(RB_SECTOR_STATE state_i, uint32_t seq_start, uint32_t seq_i, uint16_t mid)
 {
-    return (state_i == RB_OCCUPIED) && (seq_i - seq_start) == mid;
+    return (state_i != RB_EMPTY) && (seq_i - seq_start) == mid;
 }
 
 STRG_RET seq_and_state_at(Storage *storage, uint16_t raw_sector_start,
@@ -69,7 +69,7 @@ STRG_RET is_ring_buffer_wrapped(Storage *storage, uint16_t raw_sector_start, uin
 
 
     // if the next sector is unoccupied then the ring buffer has not wrapped
-    if (state != RB_OCCUPIED)
+    if (state == RB_EMPTY)
     {
         return STRG_EMPTY;
     }
@@ -225,28 +225,6 @@ bool init_ring_buffer(Storage *storage, RingBuffer *rb, uint16_t size, uint16_t 
     return reconstruct_ring_buffer(storage, rb, raw_sector_start);
 }
 
-/**
- * @brief Initialise an iterator over a ring buffer's occupied index range
- *        [0, occupancy], independent of the ring buffer's own read/write
- *        cursor (rb->current_index).
- *
- * @param ctx context storage owned by the caller, populated by this call
- * @param rb ring buffer to iterate over
- * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
- */
-Iterator ring_buffer_iterator_init(RBIteratorCtx *ctx, RingBuffer *rb)
-{
-    ctx->lower_lim = 0;
-    ctx->upper_lim = rb->occupancy;
-    ctx->current = rb->current_index;
-
-    Iterator it = {0};
-    it.context = (void *)ctx;
-    it.next = ring_iterator_next;
-    it.prev = ring_iterator_prev;
-    it.get = ring_iterator_get;
-    return it;
-}
 
 /**
  * @brief move to the next index in the ring buffer
@@ -408,6 +386,30 @@ bool ring_iterator_prev(Iterator *it)
     }
 
     return true;
+}
+
+/**
+ * @brief Initialise an iterator over a ring buffer's occupied index range
+ *        [0, occupancy], independent of the ring buffer's own read/write
+ *        cursor (rb->current_index).
+ *
+ * @param ctx context storage owned by the caller, populated by this call
+ * @param rb ring buffer to iterate over
+ * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
+ */
+Iterator ring_buffer_iterator_init(RBIteratorCtx *ctx, RingBuffer *rb)
+{
+    ctx->lower_lim = 0;
+    // if occupancy is zero set upper limit to zero
+    ctx->upper_lim = rb->occupancy ? rb->occupancy - 1 : 0;
+    ctx->current = rb->current_index;
+
+    Iterator it = {0};
+    it.context = (void *)ctx;
+    it.next = ring_iterator_next;
+    it.prev = ring_iterator_prev;
+    it.get = ring_iterator_get;
+    return it;
 }
 
 /**

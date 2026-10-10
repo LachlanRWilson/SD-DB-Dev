@@ -1,0 +1,5 @@
+if(EXISTS "/home/lachlan-wilson/Documents/University/thesis/dev/tests/test_message_history[1]_tests.cmake")
+  include("/home/lachlan-wilson/Documents/University/thesis/dev/tests/test_message_history[1]_tests.cmake")
+else()
+  add_test(test_message_history_NOT_BUILT test_message_history_NOT_BUILT)
+endif()

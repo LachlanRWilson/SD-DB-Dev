@@ -40,7 +40,7 @@ protected:
 
 /**
  * @brief A freshly initialised iterator starts positioned at the ring
- *        buffer's own current_index, within [0, occupancy].
+ *        buffer's own current_index, within [0, occupancy - 1].
  */
 TEST_F(RingBufferIteratorTest, GetReturnsRingBuffersCurrentIndex)
 {
@@ -66,7 +66,7 @@ TEST_F(RingBufferIteratorTest, NextWalksSequentiallyThroughOccupiedRange)
     RBIteratorCtx ctx;
     Iterator it = ring_buffer_iterator_init(&ctx, &rb);
 
-    for (uint16_t expected = 1; expected <= 4; expected++)
+    for (uint16_t expected = 1; expected <= 3; expected++)
     {
         ASSERT_TRUE(iterator_next_fn(&it));
         uint16_t value = 0;
@@ -76,7 +76,7 @@ TEST_F(RingBufferIteratorTest, NextWalksSequentiallyThroughOccupiedRange)
 }
 
 /**
- * @brief next() wraps from the upper limit (occupancy) back to the lower
+ * @brief next() wraps from the upper limit (occupancy - 1) back to the lower
  *        limit (0) rather than running off the end of the buffer.
  */
 TEST_F(RingBufferIteratorTest, NextWrapsAtUpperLimit)
@@ -87,14 +87,14 @@ TEST_F(RingBufferIteratorTest, NextWrapsAtUpperLimit)
     RBIteratorCtx ctx;
     Iterator it = ring_buffer_iterator_init(&ctx, &rb);
 
-    // Walk to the upper limit (occupancy).
-    for (int i = 0; i < 4; i++)
+    // Walk to the upper limit (occupancy - 1).
+    for (int i = 0; i < 3; i++)
     {
         ASSERT_TRUE(iterator_next_fn(&it));
     }
     uint16_t value = 0;
     ASSERT_TRUE(iterator_get_fn(&it, &value));
-    ASSERT_EQ(value, 4);
+    ASSERT_EQ(value, 3);
 
     // One more step wraps back to the lower limit.
     ASSERT_TRUE(iterator_next_fn(&it));
@@ -104,7 +104,7 @@ TEST_F(RingBufferIteratorTest, NextWrapsAtUpperLimit)
 
 /**
  * @brief prev() wraps from the lower limit (0) back to the upper limit
- *        (occupancy) rather than going negative.
+ *        (occupancy - 1) rather than going negative.
  */
 TEST_F(RingBufferIteratorTest, PrevWrapsAtLowerLimit)
 {
@@ -120,7 +120,7 @@ TEST_F(RingBufferIteratorTest, PrevWrapsAtLowerLimit)
 
     ASSERT_TRUE(iterator_prev_fn(&it));
     ASSERT_TRUE(iterator_get_fn(&it, &value));
-    EXPECT_EQ(value, 4);
+    EXPECT_EQ(value, 3);
 }
 
 /**
@@ -176,13 +176,13 @@ TEST_F(RingBufferIteratorTest, RejectsNullArguments)
  */
 TEST_F(RingBufferIteratorTest, PrevWalksSequentiallyThroughOccupiedRange)
 {
-    ASSERT_TRUE(set_ring_buffer(&rb, 8, 4));
+    ASSERT_TRUE(set_ring_buffer(&rb, 8, 3));
     fill(4);
 
     RBIteratorCtx ctx;
     Iterator it = ring_buffer_iterator_init(&ctx, &rb);
 
-    for (int expected = 3; expected >= 0; expected--)
+    for (int expected = 2; expected >= 0; expected--)
     {
         ASSERT_TRUE(iterator_prev_fn(&it));
         uint16_t value = 0;
@@ -192,14 +192,14 @@ TEST_F(RingBufferIteratorTest, PrevWalksSequentiallyThroughOccupiedRange)
 }
 
 /**
- * @brief Stepping next() once per position in [0, occupancy] brings the
+ * @brief Stepping next() once per position in [0, occupancy - 1] brings the
  *        iterator back to where it started, from any starting index.
  */
 TEST_F(RingBufferIteratorTest, NextFullCycleReturnsToStart)
 {
     constexpr uint16_t kOccupancy = 5;
 
-    for (uint16_t start = 0; start <= kOccupancy; start++)
+    for (uint16_t start = 0; start < kOccupancy; start++)
     {
         ASSERT_TRUE(set_ring_buffer(&rb, 8, start));
         fill(kOccupancy);
@@ -207,7 +207,7 @@ TEST_F(RingBufferIteratorTest, NextFullCycleReturnsToStart)
         RBIteratorCtx ctx;
         Iterator it = ring_buffer_iterator_init(&ctx, &rb);
 
-        for (int i = 0; i < kOccupancy + 1; i++)
+        for (int i = 0; i < kOccupancy; i++)
         {
             ASSERT_TRUE(iterator_next_fn(&it));
         }
@@ -270,7 +270,7 @@ TEST_F(RingBufferIteratorTest, EmptyBufferStaysAtIndexZero)
 }
 
 /**
- * @brief If the ring buffer's current_index lies outside [0, occupancy],
+ * @brief If the ring buffer's current_index lies outside [0, occupancy - 1],
  *        get() fails until next() brings the iterator back into range.
  */
 TEST_F(RingBufferIteratorTest, GetFailsWhenStartIsOutsideOccupiedRange)

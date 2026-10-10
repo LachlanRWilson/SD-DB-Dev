@@ -1,8 +1,11 @@
 # `tests/test_support/failable_storage.h` — Shared Test Helper
 
 Not a test file itself — a small shared header used by
-[test_usage_bitmap_edge.md](test_usage_bitmap_edge.md), [test_journal_edge.md](test_journal_edge.md),
-and [test_hash_table_edge.md](test_hash_table_edge.md) to inject storage read/write failures that
+[test_usage_bitmap_edge.md](test_usage_bitmap_edge.md), [test_journal.md](test_journal.md),
+[test_journal_edge.md](test_journal_edge.md), [test_hash_table_edge.md](test_hash_table_edge.md)
+and [test_ring_buffer.md](test_ring_buffer.md) (`RingBufferReconstructTest`, which uses
+`fail_after_read` as a read budget so a non-converging binary search fails instead of hanging) to
+inject storage read/write failures that
 real `HeapStorage` can't produce (it only ever fails on out-of-range access — never a "the SD
 card returned an error" scenario).
 

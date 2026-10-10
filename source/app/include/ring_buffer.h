@@ -29,8 +29,9 @@ typedef struct RingBuffer {
 //
 typedef uint8_t RB_SECTOR_STATE;
 enum {
-    RB_EMPTY,   // Nothing in RB sector
+    RB_EMPTY,       // Nothing in RB sector
     RB_OCCUPIED,    // RB sector occupied with something
+    RB_FULL,        // RB sector filled
 };
 
 // Ring Buffer Iterator Context

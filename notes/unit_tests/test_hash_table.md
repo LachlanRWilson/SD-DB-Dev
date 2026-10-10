@@ -2,8 +2,12 @@
 
 Covers the phone-keyed `HashTable` in [`hash_table.c`](../../source/app/src/hash_table.c),
 together with the contact store ([`contact.c`](../../source/app/src/contact.c)) and message
-chat store ([`message.c`](../../source/app/src/message.c)) it sits on top of. All 36 tests
-share one fixture, `HashTableTest`, and currently pass (`ctest -R test_hash_table`).
+chat store ([`message.c`](../../source/app/src/message.c)) it sits on top of. All 44 tests
+share one fixture, `HashTableTest`, and currently pass on the host (`ctest -R HashTableTest`).
+The last 8 (contact list paging and scale tests) were added after the first review; the four
+scale tests are host-only and are skipped on hardware (~30 min over SD, see
+[`hw_unit_test.md`](../hw_unit_test.md)). The iterator over this table has its own file,
+[test_hash_table_iterator.md](test_hash_table_iterator.md).
 
 Several of these tests were written specifically to pin down bugs found while reviewing the
 contact/message code (see the "Regression for" notes below) — those are the ones most worth a
@@ -64,6 +68,18 @@ revisit it.
 - [ ] ReconstructSkipsRemovedContacts
 - [ ] ReconstructPreservesCollisionChain
 - [ ] ReconstructedTableAcceptsNewWrites
+
+### Contact list paging
+- [ ] GetContactListReturnsFirstTenContacts
+- [ ] GetContactListReturnsSecondTenContacts
+- [ ] GetContactListIterReturnsFirstTenContacts
+- [ ] GetContactListIterReturnsSecondTenContacts
+
+### Scale tests (host only)
+- [ ] InsertFiveThousandContacts
+- [ ] InsertTenThousandContacts
+- [ ] FiveThousandMessagesForSingleContact
+- [ ] FiveThousandMessagesBetweenTwoContacts
 
 ---
 
@@ -334,3 +350,61 @@ layout).
 After rebuilding, the new (rebuilt) table is fully live: a new contact can be inserted into it
 and an old one removed from it, with `hash_size()` tracking correctly throughout — checks the
 rebuilt table isn't read-only or left in some partially-initialised state.
+
+---
+
+## Contact list paging
+
+Two implementations of "give me contacts `start .. start + n - 1`", each tested the same way:
+
+| Test prefix | Function | Order |
+|---|---|---|
+| `GetContactList…` | `hash_get_contact_list_by_usage()` | sector storage order, walking the usage bitmap |
+| `GetContactListIter…` | `hash_get_contact_list()` | hash slot order, walking the [hash table iterator](test_hash_table_iterator.md) |
+
+The naming is a bit confusing in the source: the test names, the `/* === */` section banners and
+the `@brief`s don't line up with the function names (the banner above the `GetContactList…` tests
+says `hash_get_contact_list_by_usage()`, but its `@brief` says `hash_get_contact_list()`, and the
+`Iter` tests' `@brief` refers to a `hash_get_contact_list_iter()` that doesn't exist). Worth
+tidying so the names match the functions.
+
+Both pairs compare **as sets** (sorted phone numbers), so neither checks the actual order — only
+that the right contacts come back with no duplicates or gaps.
+
+### GetContactListReturnsFirstTenContacts / GetContactListIterReturnsFirstTenContacts
+Insert 10 contacts, ask for `(start = 0, n = 10)`, and the returned phones are exactly the
+inserted set.
+
+### GetContactListReturnsSecondTenContacts / GetContactListIterReturnsSecondTenContacts
+Insert 20, ask for pages `(0, 10)` and `(10, 10)`. Together the two pages must be exactly the 20
+inserted phones, so they're disjoint and cover everything — the property a UI scrolling through
+the contact list relies on.
+
+---
+
+## Scale tests (host only)
+
+These run fine on the host but take around 30 minutes against the real SD card, so the hardware
+runner skips them. They're closer to stress tests / measurements than unit tests.
+
+### InsertFiveThousandContacts
+5000 contacts all insert and are all findable with the right name and phone afterwards. Also
+prints probe statistics: after each insert it samples `HashTable::collision_count` (the probe
+chain length of the most recent `hash_find_entry()`, overwritten per call) and reports total,
+average and max probe hops and the load factor (~35% of `HASH_TABLE_SIZE = 14293`). The numbers
+are printed as `[ INFO ]` lines, not asserted — useful for the thesis write-up on linear probing.
+
+### InsertTenThousandContacts
+Same at 10000 contacts (~70% load, just under the 75% `hash_cleanup()` threshold). A
+`static_assert` guards that the count stays below the table size.
+
+### FiveThousandMessagesForSingleContact
+5000 messages to one contact, rolling over many linked message sectors. `hash_find_message()`
+returns the newest, and `hash_find_n_message(…, 5000, …)` returns all 5000 newest-first with the
+right timestamps.
+
+### FiveThousandMessagesBetweenTwoContacts
+2500 messages each to two contacts, interleaved (A, B, A, B, …) so their message sectors are
+allocated alternately. Each contact's full history comes back newest-first with the right
+timestamp, direction and text, and nothing from the other contact. Checks the per-contact sector
+chains stay separate when their sectors are interleaved on disk.

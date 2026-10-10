@@ -77,6 +77,18 @@ STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t star
  */
 STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, Message *message);
 
+/**
+ * @brief Get a list of message history entries from latest to oldest
+ *
+ * @param rb Ring Buffer struct pointer
+ * @param storage Storage abstraction struct
+ * @param n number of messages to get
+ * @param out_count pointer to memory which stores number of messages read
+ * @param out_list pointer to array of n messages
+ * @retval STRG_OK if successful
+ */
+STRG_RET message_history_get_list(RingBuffer *rb, Storage *storage, size_t n, size_t *out_count, Message *out_list);
+
 
 
 #ifdef __cplusplus

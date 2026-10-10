@@ -31,6 +31,7 @@
 #include "db_extent_main.h"
 #include "db_main.h"
 #include "sd_bus_test.h"
+#include "persist_demo.h"
 #include "test_fmc.h"
 /* USER CODE END Includes */
 
@@ -109,6 +110,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
 #if SD_BUS_TEST
   SD_BusTest_Init();
+#elif PERSIST_DEMO
+  PersistDemo_Init();
 #else
   DB_Init();
 #endif

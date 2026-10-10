@@ -68,6 +68,10 @@ add_executable(test_db_recovery
     test_db_recovery.cpp
 )
 
+add_executable(test_message_history
+    test_message_history.cpp
+)
+
 set(UNIT_TESTS
     test_hash_table
     test_free_list
@@ -76,6 +80,7 @@ set(UNIT_TESTS
     test_ring_buffer
     test_sector_crc
     test_db_recovery
+    test_message_history
 )
 
 foreach(test ${UNIT_TESTS})

@@ -26,10 +26,12 @@ passing (`ctest -R UsageBitmapEdgeTest`). Uses the shared
 
 ### InitClearsPreviouslySetBitsInRamAndStorage
 Sets a couple of bits, then calls `init_usage_bitmap()` and checks both are cleared — in RAM via
-`check_usage_bit()`, and on storage by reading bitmap sector 0 directly and comparing against an
-all-zero buffer. `test_usage_bitmap.cpp` never actually calls `init_usage_bitmap()` at all (it
-resets the RAM bitmap via a raw `memset` in `SetUp()` instead), so this is the only place that
-function is exercised.
+`check_usage_bit()`, and on storage by reading bitmap sector 0 directly and checking the usage
+words (`SECTOR_PAYLOAD_BYTES`) are all zero **and** the CRC trailer is valid (updated for the
+per-sector CRC change — previously it compared the whole 512 bytes against zero, which a stamped
+sector no longer is). `test_usage_bitmap.cpp` never calls `init_usage_bitmap()` (it resets the RAM
+bitmap via a raw `memset` in `SetUp()`); it's also called in the `SectorCrcTest` and
+`DbRecoveryTest` fixtures, but only as setup — this is the only test that checks what it does.
 
 ### InitPropagatesStorageWriteFailure
 If the underlying `write_multiblock()` call fails, `init_usage_bitmap()` must return `false`
