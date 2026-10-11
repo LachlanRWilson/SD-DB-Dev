@@ -165,10 +165,11 @@ uint16_t get_nth_contact_index(HashTable *table, int n);
  * @param table Pointer to the hash table.
  * @param start start contact number
  * @param n number of contacts to be read
+ * @param out_count number of contacts written to out (<= n)
  * @param out Pointer to array of contacts (must hold at least n entries)
  * @retval STRG_OK if the read completed successfully.
  */
-STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer *out);
+STRG_RET hash_get_contact_list(HashTable *table, int start, int n, size_t *out_count, ContactBuffer *out);
 
 /**
  * @brief Get a continuous list of contacts from the hash table, in sector storage order
@@ -180,6 +181,19 @@ STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer
  * @retval STRG_OK if the read completed successfully.
  */
 STRG_RET hash_get_contact_list_by_usage(HashTable *table, int start, int n, ContactBuffer *out);
+
+/**
+ * @brief Get the latest message of each message chat in the hash table, in hash slot order.
+ *        Contacts without a message chat are skipped.
+ *
+ * @param table Pointer to the hash table.
+ * @param start start chat number
+ * @param n number of chats to be read
+ * @param out_count number of messages written to out (<= n)
+ * @param out Pointer to array of messages (must hold at least n entries)
+ * @retval STRG_OK if the read completed successfully.
+ */
+STRG_RET hash_get_message_list(HashTable *table, int start, int n, size_t *out_count, MessageBuffer *out);
 
 /**
   * @brief  Find n number of messages from a contact

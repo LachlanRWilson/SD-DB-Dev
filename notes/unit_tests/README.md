@@ -3,11 +3,11 @@
 One file per active GTest test file in [`tests/`](../../tests), each explaining what every test
 checks and why, with a per-test checklist for tracking your own read-through. All suites below
 are currently wired into [`tests/CMakeLists.txt`](../../tests/CMakeLists.txt) and pass via
-`ctest` (308 tests total, run from `build-host/`, last checked 2026-10-11).
+`ctest` (317 tests total, run from `build-host/`, last checked 2026-10-11).
 
 | Suite | File | Tests | Covers |
 |---|---|---|---|
-| `HashTableTest` | [test_hash_table.md](test_hash_table.md) | 44 | [`hash_table.c`](../../source/app/src/hash_table.c), [`contact.c`](../../source/app/src/contact.c), [`message.c`](../../source/app/src/message.c) |
+| `HashTableTest` | [test_hash_table.md](test_hash_table.md) | 51 | [`hash_table.c`](../../source/app/src/hash_table.c), [`contact.c`](../../source/app/src/contact.c), [`message.c`](../../source/app/src/message.c) |
 | `HashTableEdgeTest` / `HashTableSmallTableTest` | [test_hash_table_edge.md](test_hash_table_edge.md) | 12 | same, boundary/failure cases |
 | `HashTableIteratorTest` **(new)** | [test_hash_table_iterator.md](test_hash_table_iterator.md) | 7 | hash table iterator |
 | `FreeListTest` | [test_free_list_stack.md](test_free_list_stack.md) | 6 | [`free_list_stack.c`](../../source/app/src/free_list_stack.c) |
@@ -164,11 +164,9 @@ either a source-code decision or infrastructure this pass didn't set up).
     `move_prev_ring_buffer()` should wrap to `occupancy - 1` like `move_next` does, then update
     `NextWrapsAtUpperLimit`/`PrevWrapsAtLowerLimit` and add a partially-full `move_prev` test.
 
-12. **Contact list order.** Both contact list paging test pairs compare results as sorted sets, so
-    the order each function returns is untested. If the UI depends on a stable order (storage
-    order for `hash_get_contact_list_by_usage()`, slot order for `hash_get_contact_list()`), assert
-    it. Also worth tests for a page that runs past the last contact (`start + n > hash_size()`)
-    and for `n == 0`.
+12. **Contact list order.** The contact and message list paging tests compare results as sorted
+    sets, so the slot order `hash_get_contact_list()` / `hash_get_message_list()` return is
+    untested. If the UI depends on a stable order, assert it. Also worth a test for `n == 0`.
 
 13. **History power cut.** `MessageHistoryTest` and `CallHistoryTest` cover add, paging and
     rebuilding from the card, and `RollbackHistoryEntrySkipsBitmapAndCommits` covers a history

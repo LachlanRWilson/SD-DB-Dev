@@ -70,10 +70,17 @@ revisit it.
 - [ ] ReconstructedTableAcceptsNewWrites
 
 ### Contact list paging
-- [ ] GetContactListReturnsFirstTenContacts
-- [ ] GetContactListReturnsSecondTenContacts
 - [ ] GetContactListIterReturnsFirstTenContacts
 - [ ] GetContactListIterReturnsSecondTenContacts
+- [ ] GetContactListIterReturnsPartialPage
+- [ ] GetContactListIterRejectsInvalidArgs
+- [ ] GetMessageListReturnsFirstTenChats
+- [ ] GetMessageListReturnsSecondTenChats
+- [ ] GetMessageListReturnsLatestMessagePerChat
+- [ ] GetMessageListSkipsContactsWithoutChat
+- [ ] GetMessageListReturnsPartialPage
+- [ ] GetMessageListEmptyTable
+- [ ] GetMessageListRejectsInvalidArgs
 
 ### Scale tests (host only)
 - [ ] InsertFiveThousandContacts
@@ -355,30 +362,56 @@ rebuilt table isn't read-only or left in some partially-initialised state.
 
 ## Contact list paging
 
-Two implementations of "give me contacts `start .. start + n - 1`", each tested the same way:
+`hash_get_contact_list()` returns contacts `start .. start + n - 1` in hash slot order, walking the
+[hash table iterator](test_hash_table_iterator.md), and reports how many it wrote through
+`out_count`. The tests compare **as sets** (sorted phone numbers), so they don't check the order —
+only that the right contacts come back with no duplicates or gaps. The legacy
+`hash_get_contact_list_by_usage()` (sector storage order) is no longer tested.
 
-| Test prefix | Function | Order |
-|---|---|---|
-| `GetContactList…` | `hash_get_contact_list_by_usage()` | sector storage order, walking the usage bitmap |
-| `GetContactListIter…` | `hash_get_contact_list()` | hash slot order, walking the [hash table iterator](test_hash_table_iterator.md) |
-
-The naming is a bit confusing in the source: the test names, the `/* === */` section banners and
-the `@brief`s don't line up with the function names (the banner above the `GetContactList…` tests
-says `hash_get_contact_list_by_usage()`, but its `@brief` says `hash_get_contact_list()`, and the
-`Iter` tests' `@brief` refers to a `hash_get_contact_list_iter()` that doesn't exist). Worth
-tidying so the names match the functions.
-
-Both pairs compare **as sets** (sorted phone numbers), so neither checks the actual order — only
-that the right contacts come back with no duplicates or gaps.
-
-### GetContactListReturnsFirstTenContacts / GetContactListIterReturnsFirstTenContacts
+### GetContactListIterReturnsFirstTenContacts
 Insert 10 contacts, ask for `(start = 0, n = 10)`, and the returned phones are exactly the
 inserted set.
 
-### GetContactListReturnsSecondTenContacts / GetContactListIterReturnsSecondTenContacts
+### GetContactListIterReturnsSecondTenContacts
 Insert 20, ask for pages `(0, 10)` and `(10, 10)`. Together the two pages must be exactly the 20
 inserted phones, so they're disjoint and cover everything — the property a UI scrolling through
 the contact list relies on.
+
+### GetContactListIterReturnsPartialPage
+3 contacts, ask for `(0, 10)`: `out_count` is 3 and nothing is written past it. `(2, 10)` gives 1
+and `(3, 10)` gives 0. On hardware this is folded into `GetContactListIterReturnsSecondTenContacts`.
+
+### GetContactListIterRejectsInvalidArgs
+`NULL` table/output/`out_count` and negative `start`/`n` return `STRG_FAIL`.
+
+## Message list paging
+
+`hash_get_message_list()` mirrors `hash_get_contact_list()` (hash slot order via the iterator),
+but returns each chat's **latest message** — read from the entry's `latest_msg_extent`, not its
+contact `sector`. Contacts with no chat (`latest_msg_extent == UINT16_MAX`) are skipped and don't
+count towards `start` or `n`. `MessageBuffer` has no phone field, so each test sends the phone
+number as the message text to tell the chats apart, and compares as sets like the contact tests.
+Every test also checks `out_count`.
+
+### GetMessageListReturnsFirstTenChats / GetMessageListReturnsSecondTenChats
+Same as the contact list pair: one page of 10, then pages `(0, 10)` and `(10, 10)` over 20 chats
+must partition every chat.
+
+### GetMessageListReturnsLatestMessagePerChat
+One chat with two messages and one that has rolled over into a second sector; each entry must be
+that chat's newest message (timestamp, direction, text).
+
+### GetMessageListSkipsContactsWithoutChat
+5 contacts with no chat, 3 with chats, and 1 whose chat was removed. Pages `(0, 2)` + `(2, 1)` must
+be exactly the 3 chats, and `(3, 1)` returns `out_count` 0 and leaves the output untouched.
+
+### GetMessageListReturnsPartialPage / GetMessageListEmptyTable
+3 chats, ask for `(0, 10)`: `out_count` is 3 and nothing is written past it; `(2, 10)` gives 1. An
+empty table gives `STRG_OK` with `out_count` 0. On hardware the partial page check is folded into
+`GetMessageListSkipsContactsWithoutChat`.
+
+### GetMessageListRejectsInvalidArgs
+`NULL` table/output/`out_count` and negative `start`/`n` return `STRG_FAIL`.
 
 ---
 

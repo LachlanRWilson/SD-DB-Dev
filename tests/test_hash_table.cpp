@@ -867,15 +867,15 @@ TEST_F(HashTableTest, ReconstructedTableAcceptsNewWrites)
 }
 
 /* ============================================================================
- * hash_get_contact_list_by_usage()
+ * hash_get_contact_list()
  * ========================================================================== */
 
 /**
- * @brief hash_get_contact_list() fills an array with the first 10 contacts
- *        stored in the hash table, matching (as a set) the contacts that
- *        were inserted.
+ * @brief hash_get_contact_list() fills an array with the first 10
+ *        contacts stored in the hash table, matching (as a set) the contacts
+ *        that were inserted.
  */
-TEST_F(HashTableTest, GetContactListReturnsFirstTenContacts)
+TEST_F(HashTableTest, GetContactListIterReturnsFirstTenContacts)
 {
     std::vector<std::string> phones;
     for (int i = 0; i < 10; i++)
@@ -886,7 +886,9 @@ TEST_F(HashTableTest, GetContactListReturnsFirstTenContacts)
     }
 
     ContactBuffer results[10]{};
-    ASSERT_EQ(hash_get_contact_list_by_usage(&htable, 0, 10, results), STRG_OK);
+    size_t count = 0;
+    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, &count, results), STRG_OK);
+    EXPECT_EQ(count, 10u);
 
     std::vector<std::string> returned_phones;
     for (auto &r : results)
@@ -904,80 +906,6 @@ TEST_F(HashTableTest, GetContactListReturnsFirstTenContacts)
  *        offset 10 returns the second 10 - disjoint from the first 10,
  *        and together the two pages cover every inserted contact.
  */
-TEST_F(HashTableTest, GetContactListReturnsSecondTenContacts)
-{
-    std::vector<std::string> phones;
-    for (int i = 0; i < 20; i++)
-    {
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), "04%08d", i);
-        std::string phone(buf);
-        ASSERT_TRUE(insert("Contact " + std::to_string(i), phone));
-        phones.push_back(phone);
-    }
-
-    ContactBuffer first_page[10]{};
-    ASSERT_EQ(hash_get_contact_list_by_usage(&htable, 0, 10, first_page), STRG_OK);
-
-    ContactBuffer second_page[10]{};
-    ASSERT_EQ(hash_get_contact_list_by_usage(&htable, 10, 10, second_page), STRG_OK);
-
-    std::vector<std::string> returned_phones;
-    for (auto &r : first_page)
-    {
-        returned_phones.emplace_back(r.contact.phone, r.contact.phone_len);
-    }
-    for (auto &r : second_page)
-    {
-        returned_phones.emplace_back(r.contact.phone, r.contact.phone_len);
-    }
-
-    std::sort(phones.begin(), phones.end());
-    std::sort(returned_phones.begin(), returned_phones.end());
-
-    // The two pages together must be a partition of every inserted contact:
-    // no duplicates between them and nothing missing.
-    EXPECT_EQ(returned_phones, phones);
-}
-
-/* ============================================================================
- * hash_get_contact_list()
- * ========================================================================== */
-
-/**
- * @brief hash_get_contact_list_iter() fills an array with the first 10
- *        contacts stored in the hash table, matching (as a set) the contacts
- *        that were inserted.
- */
-TEST_F(HashTableTest, GetContactListIterReturnsFirstTenContacts)
-{
-    std::vector<std::string> phones;
-    for (int i = 0; i < 10; i++)
-    {
-        std::string phone = "04" + std::string(8, static_cast<char>('0' + i));
-        ASSERT_TRUE(insert("Contact " + std::to_string(i), phone));
-        phones.push_back(phone);
-    }
-
-    ContactBuffer results[10]{};
-    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, results), STRG_OK);
-
-    std::vector<std::string> returned_phones;
-    for (auto &r : results)
-    {
-        returned_phones.emplace_back(r.contact.phone, r.contact.phone_len);
-    }
-
-    std::sort(phones.begin(), phones.end());
-    std::sort(returned_phones.begin(), returned_phones.end());
-    EXPECT_EQ(returned_phones, phones);
-}
-
-/**
- * @brief With 20 contacts stored, hash_get_contact_list_iter() starting at
- *        offset 10 returns the second 10 - disjoint from the first 10,
- *        and together the two pages cover every inserted contact.
- */
 TEST_F(HashTableTest, GetContactListIterReturnsSecondTenContacts)
 {
     std::vector<std::string> phones;
@@ -990,11 +918,14 @@ TEST_F(HashTableTest, GetContactListIterReturnsSecondTenContacts)
         phones.push_back(phone);
     }
 
+    size_t count = 0;
     ContactBuffer first_page[10]{};
-    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, first_page), STRG_OK);
+    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, &count, first_page), STRG_OK);
+    EXPECT_EQ(count, 10u);
 
     ContactBuffer second_page[10]{};
-    ASSERT_EQ(hash_get_contact_list(&htable, 10, 10, second_page), STRG_OK);
+    ASSERT_EQ(hash_get_contact_list(&htable, 10, 10, &count, second_page), STRG_OK);
+    EXPECT_EQ(count, 10u);
 
     std::vector<std::string> returned_phones;
     for (auto &r : first_page)
@@ -1012,6 +943,279 @@ TEST_F(HashTableTest, GetContactListIterReturnsSecondTenContacts)
     // The two pages together must be a partition of every inserted contact:
     // no duplicates between them and nothing missing.
     EXPECT_EQ(returned_phones, phones);
+}
+
+/**
+ * @brief Asking for more contacts than exist returns the ones there are, and
+ *        out_count says how many were written.
+ */
+TEST_F(HashTableTest, GetContactListIterReturnsPartialPage)
+{
+    std::vector<std::string> phones = {"0411111111", "0422222222", "0433333333"};
+    for (auto &p : phones)
+    {
+        ASSERT_TRUE(insert("Contact", p));
+    }
+
+    ContactBuffer results[10]{};
+    size_t count = 0;
+    ASSERT_EQ(hash_get_contact_list(&htable, 0, 10, &count, results), STRG_OK);
+    ASSERT_EQ(count, 3u);
+
+    std::vector<std::string> returned_phones;
+    for (size_t i = 0; i < count; i++)
+    {
+        returned_phones.emplace_back(results[i].contact.phone, results[i].contact.phone_len);
+    }
+    std::sort(returned_phones.begin(), returned_phones.end());
+    EXPECT_EQ(returned_phones, phones);
+
+    // nothing written past out_count
+    EXPECT_EQ(results[3].contact.phone_len, 0);
+
+    // a page starting part way through only gets the remainder, and one
+    // starting past the end gets nothing
+    ASSERT_EQ(hash_get_contact_list(&htable, 2, 10, &count, results), STRG_OK);
+    EXPECT_EQ(count, 1u);
+    ASSERT_EQ(hash_get_contact_list(&htable, 3, 10, &count, results), STRG_OK);
+    EXPECT_EQ(count, 0u);
+}
+
+/**
+ * @brief Invalid arguments are rejected.
+ */
+TEST_F(HashTableTest, GetContactListIterRejectsInvalidArgs)
+{
+    ContactBuffer out{};
+    size_t count = 0;
+    EXPECT_EQ(hash_get_contact_list(nullptr, 0, 1, &count, &out), STRG_FAIL);
+    EXPECT_EQ(hash_get_contact_list(&htable, 0, 1, &count, nullptr), STRG_FAIL);
+    EXPECT_EQ(hash_get_contact_list(&htable, 0, 1, nullptr, &out), STRG_FAIL);
+    EXPECT_EQ(hash_get_contact_list(&htable, -1, 1, &count, &out), STRG_FAIL);
+    EXPECT_EQ(hash_get_contact_list(&htable, 0, -1, &count, &out), STRG_FAIL);
+}
+
+/* ============================================================================
+ * hash_get_message_list()
+ *
+ * MessageBuffer carries no phone number, so each chat's text is its own phone
+ * number - that's what identifies which chat a returned message came from.
+ * ========================================================================== */
+
+/**
+ * @brief hash_get_message_list() fills an array with the latest message of
+ *        the first 10 chats, matching (as a set) the chats that were created.
+ */
+TEST_F(HashTableTest, GetMessageListReturnsFirstTenChats)
+{
+    std::vector<std::string> phones;
+    for (int i = 0; i < 10; i++)
+    {
+        std::string phone = "04" + std::string(8, static_cast<char>('0' + i));
+        ASSERT_TRUE(send(phone, static_cast<uint16_t>(100 + i), true, phone));
+        phones.push_back(phone);
+    }
+
+    MessageBuffer results[10]{};
+    size_t count = 0;
+    ASSERT_EQ(hash_get_message_list(&htable, 0, 10, &count, results), STRG_OK);
+    EXPECT_EQ(count, 10u);
+
+    std::vector<std::string> returned_phones;
+    for (auto &r : results)
+    {
+        returned_phones.emplace_back(r.msg.str);
+    }
+
+    std::sort(phones.begin(), phones.end());
+    std::sort(returned_phones.begin(), returned_phones.end());
+    EXPECT_EQ(returned_phones, phones);
+}
+
+/**
+ * @brief With 20 chats stored, hash_get_message_list() starting at offset 10
+ *        returns the second 10 - disjoint from the first 10, and together the
+ *        two pages cover every chat.
+ */
+TEST_F(HashTableTest, GetMessageListReturnsSecondTenChats)
+{
+    std::vector<std::string> phones;
+    for (int i = 0; i < 20; i++)
+    {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "04%08d", i);
+        std::string phone(buf);
+        ASSERT_TRUE(send(phone, static_cast<uint16_t>(100 + i), true, phone));
+        phones.push_back(phone);
+    }
+
+    size_t count = 0;
+    MessageBuffer first_page[10]{};
+    ASSERT_EQ(hash_get_message_list(&htable, 0, 10, &count, first_page), STRG_OK);
+    EXPECT_EQ(count, 10u);
+
+    MessageBuffer second_page[10]{};
+    ASSERT_EQ(hash_get_message_list(&htable, 10, 10, &count, second_page), STRG_OK);
+    EXPECT_EQ(count, 10u);
+
+    std::vector<std::string> returned_phones;
+    for (auto &r : first_page)
+    {
+        returned_phones.emplace_back(r.msg.str);
+    }
+    for (auto &r : second_page)
+    {
+        returned_phones.emplace_back(r.msg.str);
+    }
+
+    std::sort(phones.begin(), phones.end());
+    std::sort(returned_phones.begin(), returned_phones.end());
+
+    // The two pages together must be a partition of every chat:
+    // no duplicates between them and nothing missing.
+    EXPECT_EQ(returned_phones, phones);
+}
+
+/**
+ * @brief Each entry is the chat's newest message, including for a chat that
+ *        has rolled over into a second sector.
+ */
+TEST_F(HashTableTest, GetMessageListReturnsLatestMessagePerChat)
+{
+    ASSERT_TRUE(send("0411111111", 100, true, "old"));
+    ASSERT_TRUE(send("0411111111", 101, false, "0411111111"));
+
+    const int total = static_cast<int>(MESSAGE_SECTOR_CAPACITY) + 1;
+    for (int i = 0; i < total - 1; i++)
+    {
+        ASSERT_TRUE(send("0422222222", static_cast<uint16_t>(200 + i), true, "old"));
+    }
+    ASSERT_TRUE(send("0422222222", static_cast<uint16_t>(200 + total - 1), true, "0422222222"));
+
+    MessageBuffer results[2]{};
+    size_t count = 0;
+    ASSERT_EQ(hash_get_message_list(&htable, 0, 2, &count, results), STRG_OK);
+    ASSERT_EQ(count, 2u);
+
+    for (auto &r : results)
+    {
+        std::string text(r.msg.str);
+        if (text == "0411111111")
+        {
+            EXPECT_EQ(r.msg.timestamp, 101);
+            EXPECT_FALSE(r.msg.direction);
+        }
+        else
+        {
+            EXPECT_EQ(text, "0422222222");
+            EXPECT_EQ(r.msg.timestamp, 200 + total - 1);
+        }
+    }
+    EXPECT_STRNE(results[0].msg.str, results[1].msg.str);
+}
+
+/**
+ * @brief Contacts without a message chat (inserted directly, or whose chat
+ *        was removed) are skipped and don't count towards start or n.
+ */
+TEST_F(HashTableTest, GetMessageListSkipsContactsWithoutChat)
+{
+    for (int i = 0; i < 5; i++)
+    {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "04%08d", i);
+        ASSERT_TRUE(insert("No Chat " + std::to_string(i), buf));
+    }
+
+    std::vector<std::string> phones = {"0411111111", "0422222222", "0433333333"};
+    for (auto &p : phones)
+    {
+        ASSERT_TRUE(send(p, 100, true, p));
+    }
+
+    // a removed chat leaves the contact behind with no messages
+    ASSERT_TRUE(send("0444444444", 100, true, "0444444444"));
+    MessageBuffer removed{};
+    ASSERT_TRUE(hash_remove_message(&htable, &journal, "0444444444", &removed));
+
+    size_t count = 0;
+    MessageBuffer first[2]{};
+    ASSERT_EQ(hash_get_message_list(&htable, 0, 2, &count, first), STRG_OK);
+    EXPECT_EQ(count, 2u);
+    MessageBuffer second[1]{};
+    ASSERT_EQ(hash_get_message_list(&htable, 2, 1, &count, second), STRG_OK);
+    EXPECT_EQ(count, 1u);
+
+    std::vector<std::string> returned_phones = {first[0].msg.str, first[1].msg.str, second[0].msg.str};
+    std::sort(phones.begin(), phones.end());
+    std::sort(returned_phones.begin(), returned_phones.end());
+    EXPECT_EQ(returned_phones, phones);
+
+    // past the last chat nothing is written
+    MessageBuffer past{};
+    count = 99;
+    ASSERT_EQ(hash_get_message_list(&htable, 3, 1, &count, &past), STRG_OK);
+    EXPECT_EQ(count, 0u);
+    EXPECT_EQ(past.msg.timestamp, 0);
+    EXPECT_EQ(past.msg.str[0], '\0');
+}
+
+/**
+ * @brief Asking for more chats than exist returns the ones there are, and
+ *        out_count says how many were written.
+ */
+TEST_F(HashTableTest, GetMessageListReturnsPartialPage)
+{
+    std::vector<std::string> phones = {"0411111111", "0422222222", "0433333333"};
+    for (auto &p : phones)
+    {
+        ASSERT_TRUE(send(p, 100, true, p));
+    }
+
+    MessageBuffer results[10]{};
+    size_t count = 0;
+    ASSERT_EQ(hash_get_message_list(&htable, 0, 10, &count, results), STRG_OK);
+    ASSERT_EQ(count, 3u);
+
+    std::vector<std::string> returned_phones;
+    for (size_t i = 0; i < count; i++)
+    {
+        returned_phones.emplace_back(results[i].msg.str);
+    }
+    std::sort(returned_phones.begin(), returned_phones.end());
+    EXPECT_EQ(returned_phones, phones);
+
+    // nothing written past out_count
+    EXPECT_EQ(results[3].msg.timestamp, 0);
+
+    // a page starting part way through only gets the remainder
+    ASSERT_EQ(hash_get_message_list(&htable, 2, 10, &count, results), STRG_OK);
+    EXPECT_EQ(count, 1u);
+}
+
+/**
+ * @brief An empty table gives an empty list, not an error.
+ */
+TEST_F(HashTableTest, GetMessageListEmptyTable)
+{
+    MessageBuffer results[1]{};
+    size_t count = 99;
+    ASSERT_EQ(hash_get_message_list(&htable, 0, 1, &count, results), STRG_OK);
+    EXPECT_EQ(count, 0u);
+}
+
+/**
+ * @brief Invalid arguments are rejected.
+ */
+TEST_F(HashTableTest, GetMessageListRejectsInvalidArgs)
+{
+    MessageBuffer out{};
+    size_t count = 0;
+    EXPECT_EQ(hash_get_message_list(nullptr, 0, 1, &count, &out), STRG_FAIL);
+    EXPECT_EQ(hash_get_message_list(&htable, 0, 1, &count, nullptr), STRG_FAIL);
+    EXPECT_EQ(hash_get_message_list(&htable, 0, 1, nullptr, &out), STRG_FAIL);
+    EXPECT_EQ(hash_get_message_list(&htable, -1, 1, &count, &out), STRG_FAIL);
+    EXPECT_EQ(hash_get_message_list(&htable, 0, -1, &count, &out), STRG_FAIL);
 }
 
 /* ============================================================================

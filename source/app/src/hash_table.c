@@ -1253,13 +1253,14 @@ Iterator hash_table_iterator_init(HashTableIteratorCtx *ctx, HashTable *table)
  * @param table Pointer to the hash table.
  * @param start start contact number
  * @param n number of contacts to be read
+ * @param out_count number of contacts written to out (<= n)
  * @param out Pointer to array of contacts (must hold at least n entries)
  * @retval STRG_OK if the read completed successfully.
  */
-STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer *out)
+STRG_RET hash_get_contact_list(HashTable *table, int start, int n, size_t *out_count, ContactBuffer *out)
 {
     if (table == NULL || table->htable == NULL || table->storage == NULL ||
-            out == NULL || start < 0 || n < 0)
+            out == NULL || out_count == NULL || start < 0 || n < 0)
     {
         return STRG_FAIL;
     }
@@ -1268,9 +1269,9 @@ STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer
     Iterator it = hash_table_iterator_init(&ctx, table);
     uint16_t slot;
     int skipped = 0;
-    int contact_count = 0;
+    *out_count = 0;
 
-    while (contact_count < n && iterator_next_fn(&it))
+    while (*out_count < (size_t)n && iterator_next_fn(&it))
     {
         // skip the first start contacts
         if (skipped < start)
@@ -1284,12 +1285,72 @@ STRG_RET hash_get_contact_list(HashTable *table, int start, int n, ContactBuffer
             return STRG_FAIL;
         }
 
-        STRG_RET ret = read_contact(table->storage, table->htable[slot].sector, &out[contact_count]);
+        STRG_RET ret = read_contact(table->storage, table->htable[slot].sector, &out[*out_count]);
         if (ret != STRG_OK)
         {
             return ret;
         }
-        contact_count++;
+        (*out_count)++;
+    }
+
+    return STRG_OK;
+}
+
+/**
+ * @brief Get the latest message of each message chat in the hash table by
+ *        walking its occupied slots with a hash table iterator (slot order,
+ *        not storage order). Contacts without a message chat are skipped and
+ *        don't count towards start or n.
+ *
+ * @param table Pointer to the hash table.
+ * @param start start chat number
+ * @param n number of chats to be read
+ * @param out_count number of messages written to out (<= n)
+ * @param out Pointer to array of messages (must hold at least n entries)
+ * @retval STRG_OK if the read completed successfully.
+ */
+STRG_RET hash_get_message_list(HashTable *table, int start, int n, size_t *out_count, MessageBuffer *out)
+{
+    if (table == NULL || table->htable == NULL || table->storage == NULL ||
+            out == NULL || out_count == NULL || start < 0 || n < 0)
+    {
+        return STRG_FAIL;
+    }
+
+    HashTableIteratorCtx ctx;
+    Iterator it = hash_table_iterator_init(&ctx, table);
+    uint16_t slot;
+    int skipped = 0;
+    *out_count = 0;
+
+    while (*out_count < (size_t)n && iterator_next_fn(&it))
+    {
+        if (!iterator_get_fn(&it, &slot))
+        {
+            return STRG_FAIL;
+        }
+
+        // contacts without a message chat aren't in the message list
+        if (table->htable[slot].latest_msg_extent == UINT16_MAX)
+        {
+            continue;
+        }
+
+        // skip the first start chats
+        if (skipped < start)
+        {
+            skipped++;
+            continue;
+        }
+
+        // newest message (pos 0) of the chat's latest sector
+        STRG_RET ret = read_message(table->storage, table->htable[slot].latest_msg_extent, 0, &out[*out_count]);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        (*out_count)++;
     }
 
     return STRG_OK;

@@ -96,15 +96,22 @@ Last result (2026-10-10): **41/41 pass** with `DB_TEST_WRITE=ON` and **1/1** wit
 ### Contact lists
 | # | Test | Checks |
 |---|---|---|
-| 37 | GetContactListReturnsFirstTenContacts | `hash_get_contact_list_by_usage()` page 0 of 10 returns exactly the 10 inserted phones |
-| 38 | GetContactListReturnsSecondTenContacts | With 20 contacts, pages 0 and 10 cover every phone once (no duplicates, none missing) |
-| 39 | GetContactListIterReturnsFirstTenContacts | As 37 for `hash_get_contact_list()` (iterator order) |
-| 40 | GetContactListIterReturnsSecondTenContacts | As 38 for `hash_get_contact_list()` |
+| 37 | GetContactListIterReturnsFirstTenContacts | `hash_get_contact_list()` page 0 of 10 returns exactly the 10 inserted phones, `out_count` 10 |
+| 38 | GetContactListIterReturnsSecondTenContacts | With 20 contacts, pages 0 and 10 cover every phone once (no duplicates, none missing). A page at 15 returns 5, one at 20 returns 0, and a `NULL` `out_count` fails |
+
+### Message lists
+| # | Test | Checks |
+|---|---|---|
+| 39 | GetMessageListReturnsFirstTenChats | `hash_get_message_list()` page 0 of 10 returns the latest message of all 10 chats |
+| 40 | GetMessageListReturnsSecondTenChats | With 20 chats, pages 0 and 10 cover every chat once |
+| 41 | GetMessageListReturnsLatestMessagePerChat | Each entry is the chat's newest message, including a chat rolled over into a second sector |
+| 42 | GetMessageListSkipsContactsWithoutChat | Contacts with no chat (or a removed one) are skipped; a page running past the end returns only what's there |
+| 43 | GetMessageListRejectsInvalidArgs | `NULL` table/output/`out_count` and negative `start`/`n` fail |
 
 ### Persistence (hardware only)
 | # | Build | Test | Checks |
 |---|---|---|---|
-| 41 | `DB_TEST_WRITE=ON` | PersistSeed | Leaves Alice, Bob, Charlie, Dana and Erin on the card, plus a 3-message, 2-sector chat for Charlie (`0433333333`) |
+| 44 | `DB_TEST_WRITE=ON` | PersistSeed | Leaves Alice, Bob, Charlie, Dana and Erin on the card, plus a 3-message, 2-sector chat for Charlie (`0433333333`) |
 | 1 | `DB_TEST_WRITE=OFF` | PersistVerify | No formatting. Journal recovery only, then rebuild contacts **and** chats from the card. Checks all 5 contacts and names, Charlie's chat in newest-first order with the right bodies, and that Alice has no chat |
 
 `PersistSeed` must have run last for `PersistVerify` to pass. Power-cycle between the two

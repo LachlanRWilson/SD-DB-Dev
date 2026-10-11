@@ -913,14 +913,12 @@ static void test_ReconstructedTableAcceptsNewWrites(void)
 }
 
 /* ================================================================== *
- *  hash_get_contact_list_by_usage() / hash_get_contact_list()
+ *  hash_get_contact_list()
  * ================================================================== */
-
-typedef STRG_RET (*ContactListFn)(HashTable *table, int start, int n, ContactBuffer *out);
 
 /* Insert ten contacts "04" + 8 x digit i and check one 10-contact page
  * returns exactly that set. */
-static void check_first_ten(ContactListFn list)
+static void test_GetContactListIterReturnsFirstTenContacts(void)
 {
     PhoneStr phones[10];
     PhoneStr returned[10];
@@ -935,16 +933,19 @@ static void check_first_ten(ContactListFn list)
         CHECK(insert(name, phones[i]));
     }
 
+    size_t count = 0;
     memset(results, 0, sizeof(results));
-    CHECK(list(&g_table, 0, 10, results) == STRG_OK);
+    CHECK(hash_get_contact_list(&g_table, 0, 10, &count, results) == STRG_OK);
+    CHECK(count == 10u);
 
     collect_phones(results, 10, returned);
     CHECK(same_phone_set(phones, returned, 10));
 }
 
 /* Insert twenty contacts and check the pages at 0 and 10 partition them:
- * no duplicates between the pages and nothing missing. */
-static void check_second_ten(ContactListFn list)
+ * no duplicates between the pages and nothing missing. Then check out_count
+ * on a partial page: (15, 10) only has 5 and (20, 10) none. */
+static void test_GetContactListIterReturnsSecondTenContacts(void)
 {
     PhoneStr phones[20];
     PhoneStr returned[20];
@@ -958,18 +959,186 @@ static void check_second_ten(ContactListFn list)
         CHECK(insert(name, phones[i]));
     }
 
+    size_t count = 0;
     memset(pages, 0, sizeof(pages));
-    CHECK(list(&g_table, 0, 10, &pages[0]) == STRG_OK);
-    CHECK(list(&g_table, 10, 10, &pages[10]) == STRG_OK);
+    CHECK(hash_get_contact_list(&g_table, 0, 10, &count, &pages[0]) == STRG_OK);
+    CHECK(count == 10u);
+    CHECK(hash_get_contact_list(&g_table, 10, 10, &count, &pages[10]) == STRG_OK);
+    CHECK(count == 10u);
 
     collect_phones(pages, 20, returned);
     CHECK(same_phone_set(phones, returned, 20));
+
+    ContactBuffer results[10];
+    memset(results, 0, sizeof(results));
+    CHECK(hash_get_contact_list(&g_table, 15, 10, &count, results) == STRG_OK);
+    CHECK(count == 5u);
+    CHECK(results[5].contact.phone_len == 0);
+    CHECK(hash_get_contact_list(&g_table, 20, 10, &count, results) == STRG_OK);
+    CHECK(count == 0u);
+    CHECK(hash_get_contact_list(&g_table, 0, 1, NULL, results) == STRG_FAIL);
 }
 
-static void test_GetContactListReturnsFirstTenContacts(void)      { check_first_ten(hash_get_contact_list_by_usage); }
-static void test_GetContactListReturnsSecondTenContacts(void)     { check_second_ten(hash_get_contact_list_by_usage); }
-static void test_GetContactListIterReturnsFirstTenContacts(void)  { check_first_ten(hash_get_contact_list); }
-static void test_GetContactListIterReturnsSecondTenContacts(void) { check_second_ten(hash_get_contact_list); }
+/* ================================================================== *
+ *  hash_get_message_list()
+ *
+ *  MessageBuffer carries no phone number, so each chat's text is its
+ *  own phone number - that's what identifies the chat a result came from.
+ * ================================================================== */
+
+/* Copy each returned message's text into a terminated string. */
+static void collect_texts(const MessageBuffer *in, int n, PhoneStr *out)
+{
+    for (int i = 0; i < n; i++)
+    {
+        size_t len = strnlen(in[i].msg.str, MAX_PHONE_LEN);
+        memcpy(out[i], in[i].msg.str, len);
+        out[i][len] = '\0';
+    }
+}
+
+static void test_GetMessageListReturnsFirstTenChats(void)
+{
+    PhoneStr phones[10];
+    PhoneStr returned[10];
+    MessageBuffer results[10];
+
+    for (int i = 0; i < 10; i++)
+    {
+        snprintf(phones[i], sizeof(phones[i]), "04%c%c%c%c%c%c%c%c",
+                 '0' + i, '0' + i, '0' + i, '0' + i, '0' + i, '0' + i, '0' + i, '0' + i);
+        CHECK(send(phones[i], (uint16_t)(100 + i), true, phones[i]));
+    }
+
+    size_t count = 0;
+    memset(results, 0, sizeof(results));
+    CHECK(hash_get_message_list(&g_table, 0, 10, &count, results) == STRG_OK);
+    CHECK(count == 10u);
+
+    collect_texts(results, 10, returned);
+    CHECK(same_phone_set(phones, returned, 10));
+}
+
+static void test_GetMessageListReturnsSecondTenChats(void)
+{
+    PhoneStr phones[20];
+    PhoneStr returned[20];
+    MessageBuffer pages[20];
+
+    for (int i = 0; i < 20; i++)
+    {
+        numbered_phone(phones[i], sizeof(phones[i]), i);
+        CHECK(send(phones[i], (uint16_t)(100 + i), true, phones[i]));
+    }
+
+    size_t count = 0;
+    memset(pages, 0, sizeof(pages));
+    CHECK(hash_get_message_list(&g_table, 0, 10, &count, &pages[0]) == STRG_OK);
+    CHECK(count == 10u);
+    CHECK(hash_get_message_list(&g_table, 10, 10, &count, &pages[10]) == STRG_OK);
+    CHECK(count == 10u);
+
+    collect_texts(pages, 20, returned);
+    CHECK(same_phone_set(phones, returned, 20));
+}
+
+static void test_GetMessageListReturnsLatestMessagePerChat(void)
+{
+    const int total = (int)MESSAGE_SECTOR_CAPACITY + 1;
+
+    CHECK(send("0411111111", 100, true, "old"));
+    CHECK(send("0411111111", 101, false, "0411111111"));
+
+    for (int i = 0; i < total - 1; i++)
+    {
+        CHECK(send("0422222222", (uint16_t)(200 + i), true, "old"));
+    }
+    CHECK(send("0422222222", (uint16_t)(200 + total - 1), true, "0422222222"));
+
+    MessageBuffer results[2];
+    size_t count = 0;
+    memset(results, 0, sizeof(results));
+    CHECK(hash_get_message_list(&g_table, 0, 2, &count, results) == STRG_OK);
+    CHECK(count == 2u);
+
+    for (int i = 0; i < 2; i++)
+    {
+        if (TEXT_IS(results[i], "0411111111"))
+        {
+            CHECK(results[i].msg.timestamp == 101);
+            CHECK(!results[i].msg.direction);
+        }
+        else
+        {
+            CHECK(TEXT_IS(results[i], "0422222222"));
+            CHECK(results[i].msg.timestamp == 200 + total - 1);
+        }
+    }
+    CHECK(strncmp(results[0].msg.str, results[1].msg.str, SMS_MAX_MESSAGE_LENGTH) != 0);
+}
+
+static void test_GetMessageListSkipsContactsWithoutChat(void)
+{
+    char phone[16];
+    char name[16];
+
+    for (int i = 0; i < 5; i++)
+    {
+        numbered_phone(phone, sizeof(phone), i);
+        snprintf(name, sizeof(name), "No Chat %d", i);
+        CHECK(insert(name, phone));
+    }
+
+    PhoneStr phones[3] = {"0411111111", "0422222222", "0433333333"};
+    for (int i = 0; i < 3; i++)
+    {
+        CHECK(send(phones[i], 100, true, phones[i]));
+    }
+
+    /* a removed chat leaves the contact behind with no messages */
+    CHECK(send("0444444444", 100, true, "0444444444"));
+    MessageBuffer removed;
+    CHECK(hash_remove_message(&g_table, &g_journal, "0444444444", &removed));
+
+    MessageBuffer results[3];
+    PhoneStr returned[3];
+    size_t count = 0;
+    memset(results, 0, sizeof(results));
+    CHECK(hash_get_message_list(&g_table, 0, 2, &count, &results[0]) == STRG_OK);
+    CHECK(count == 2u);
+    CHECK(hash_get_message_list(&g_table, 2, 1, &count, &results[2]) == STRG_OK);
+    CHECK(count == 1u);
+
+    collect_texts(results, 3, returned);
+    CHECK(same_phone_set(phones, returned, 3));
+
+    /* a page running off the end only gets what's there */
+    MessageBuffer partial[10];
+    memset(partial, 0, sizeof(partial));
+    CHECK(hash_get_message_list(&g_table, 0, 10, &count, partial) == STRG_OK);
+    CHECK(count == 3u);
+    CHECK(partial[3].msg.timestamp == 0);
+
+    /* past the last chat nothing is written */
+    MessageBuffer past;
+    memset(&past, 0, sizeof(past));
+    count = 99;
+    CHECK(hash_get_message_list(&g_table, 3, 1, &count, &past) == STRG_OK);
+    CHECK(count == 0u);
+    CHECK(past.msg.timestamp == 0);
+    CHECK(past.msg.str[0] == '\0');
+}
+
+static void test_GetMessageListRejectsInvalidArgs(void)
+{
+    MessageBuffer out;
+    size_t count = 0;
+    CHECK(hash_get_message_list(NULL, 0, 1, &count, &out) == STRG_FAIL);
+    CHECK(hash_get_message_list(&g_table, 0, 1, &count, NULL) == STRG_FAIL);
+    CHECK(hash_get_message_list(&g_table, 0, 1, NULL, &out) == STRG_FAIL);
+    CHECK(hash_get_message_list(&g_table, -1, 1, &count, &out) == STRG_FAIL);
+    CHECK(hash_get_message_list(&g_table, 0, -1, &count, &out) == STRG_FAIL);
+}
 #endif /* DB_TEST_WRITE */
 
 /* ================================================================== *
@@ -1086,10 +1255,13 @@ static const TestCase g_tests[] = {
     TEST(ReconstructSkipsRemovedContacts),
     TEST(ReconstructPreservesCollisionChain),
     TEST(ReconstructedTableAcceptsNewWrites),
-    TEST(GetContactListReturnsFirstTenContacts),
-    TEST(GetContactListReturnsSecondTenContacts),
     TEST(GetContactListIterReturnsFirstTenContacts),
     TEST(GetContactListIterReturnsSecondTenContacts),
+    TEST(GetMessageListReturnsFirstTenChats),
+    TEST(GetMessageListReturnsSecondTenChats),
+    TEST(GetMessageListReturnsLatestMessagePerChat),
+    TEST(GetMessageListSkipsContactsWithoutChat),
+    TEST(GetMessageListRejectsInvalidArgs),
     TEST(PersistSeed),
 #else
     TEST(PersistVerify),

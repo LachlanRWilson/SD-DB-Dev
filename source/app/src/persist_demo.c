@@ -371,11 +371,13 @@ static void show_contacts_and_chats(void)
 
     SECTION("CONTACTS (%d rebuilt)", (int)hash_size(&g_table));
     memset(contacts, 0, sizeof(contacts));
-    if (hash_get_contact_list(&g_table, 0, n, contacts) != STRG_OK)
+    size_t count = 0;
+    if (hash_get_contact_list(&g_table, 0, n, &count, contacts) != STRG_OK)
     {
         record(false, " contact list read failed");
         return;
     }
+    n = (int)count;
 
     for (int i = 0; i < n; i++)
     {
