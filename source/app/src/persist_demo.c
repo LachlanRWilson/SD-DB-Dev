@@ -236,13 +236,24 @@ static bool seed_contact(const Person *p)
 }
 
 /* One message goes to two places: its contact's chat and the message
- * history ring buffer. */
+ * history ring buffer. The history entry records the chat sector the
+ * message was written to (the contact's latest extent after the insert). */
 static bool seed_message(const SeedMessage *s)
 {
     MessageBuffer m = create_message(s->timestamp, s->sent, (char *)s->text);
+    MessageHistoryEntry e;
+    HashEntry *entry;
 
-    return hash_insert_message(&g_table, &g_journal, s->phone, &m) &&
-           message_history_add(&g_history, &g_journal, storage, &m.msg) == STRG_OK;
+    if (!hash_insert_message(&g_table, &g_journal, s->phone, &m) ||
+        !hash_find_entry(&g_table, s->phone, &entry) || entry == NULL)
+    {
+        return false;
+    }
+
+    memset(&e, 0, sizeof(e));
+    e.msgInd = entry->latest_msg_extent;
+    e.message = m.msg;
+    return message_history_add(&g_history, &g_journal, storage, &e) == STRG_OK;
 }
 
 static void run_demo(void)
@@ -391,9 +402,46 @@ static void show_contacts_and_chats(void)
     }
 }
 
+/* The chat sector a history entry points at must belong to the message's
+ * contact and hold that message. */
+static bool history_sector_matches(const MessageHistoryEntry *e)
+{
+    MessageSectorBuffer sector;
+    const char *phone = NULL;
+    char sector_phone[MAX_PHONE_LEN + 1];
+
+    for (size_t i = 0; i < N_MSGS; i++)
+    {
+        if (g_msgs[i].timestamp == e->message.timestamp)
+        {
+            phone = g_msgs[i].phone;
+            break;
+        }
+    }
+    if (phone == NULL || e->msgInd >= TOTAL_MESSAGE_SECTOR_SIZE ||
+        read_message_sector(storage, e->msgInd, &sector) != STRG_OK)
+    {
+        return false;
+    }
+
+    field_str(sector_phone, sector.var.header.phone, sector.var.header.phone_len, MAX_PHONE_LEN);
+    if (strcmp(sector_phone, phone) != 0)
+    {
+        return false;
+    }
+    for (uint16_t i = 0; i < sector.var.header.msg_count && i < MESSAGE_SECTOR_CAPACITY; i++)
+    {
+        if (memcmp(&sector.var.messages[i].msg, &e->message, sizeof(Message)) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void show_history(void)
 {
-    Message history[N_MSGS];
+    MessageHistoryEntry history[N_MSGS];
     size_t count = 0;
 
     if (!init_ring_buffer(storage, &g_history, DEMO_MH_SECTORS, DEMO_MH_RAW_START))
@@ -414,14 +462,16 @@ static void show_history(void)
     SECTION("HISTORY (%u, newest first)", (unsigned)count);
     for (size_t i = 0; i < count; i++)
     {
-        message_row(NULL, &history[i]);
+        message_row(NULL, &history[i].message);
+        record(history_sector_matches(&history[i]), "   -> chat sector %u", history[i].msgInd);
     }
 }
 
 static void run_demo(void)
 {
-    /* Every contact, chat message and history entry of the data set. */
-    const uint32_t expected = N_PEOPLE + 2 * N_MSGS;
+    /* Every contact, chat message and history entry (plus the chat sector
+     * each entry points at) of the data set. */
+    const uint32_t expected = N_PEOPLE + 3 * N_MSGS;
     char text[24];
 
     lcd_log_init("SD READ DEMO");

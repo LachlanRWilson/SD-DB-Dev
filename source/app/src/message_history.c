@@ -62,7 +62,7 @@ STRG_RET write_message_history_sector(Storage *storage, uint16_t sector_index, M
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
 STRG_RET set_sector_full_move_next(Journal *journal, Storage *storage, RingBuffer* rb,
-                                     MessageHistorySectorB *mhSector, Message *message)
+                                     MessageHistorySectorB *mhSector, MessageHistoryEntry *message)
 {
     STRG_RET ret;
     RingBufferHeader *rb_header = &(mhSector->sector.header);
@@ -96,7 +96,7 @@ STRG_RET set_sector_full_move_next(Journal *journal, Storage *storage, RingBuffe
  * @param messageInd message sector index of the latest message
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, Message *message)
+STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, MessageHistoryEntry *message)
 {
     MessageHistorySectorB mhSector;
     STRG_RET ret;
@@ -148,7 +148,7 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
     }
 
     // Adding message to sector
-    memcpy(&(mh_data->mh_entry[rb_header->head]), message, sizeof(Message));
+    memcpy(&(mh_data->mh_entry[rb_header->head]), message, sizeof(MessageHistoryEntry));
 
     ret = write_message_history_sector(storage, rb->current_index, &mhSector);
     if (ret != STRG_OK)
@@ -176,7 +176,7 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
 STRG_RET read_message_history(Storage *storage, uint16_t sector_index, uint8_t pos, size_t n, size_t *out_count, 
-                              Message *out_list)
+                              MessageHistoryEntry *out_list)
 {
     STRG_RET ret;
     MessageHistorySectorB mhSector;
@@ -201,7 +201,7 @@ STRG_RET read_message_history(Storage *storage, uint16_t sector_index, uint8_t p
         // get message out of sector
         for (int slots = pos; slots >= 0 && *out_count < n; slots--)
         {
-            memcpy(&out_list[*out_count], &(mhData->mh_entry[slots]), sizeof(Message));
+            memcpy(&out_list[*out_count], &(mhData->mh_entry[slots]), sizeof(MessageHistoryEntry));
             (*out_count)++;
         }
 
@@ -209,7 +209,7 @@ STRG_RET read_message_history(Storage *storage, uint16_t sector_index, uint8_t p
 }
 
 
-STRG_RET read_first_sector(Storage *storage, Iterator *it, uint8_t start_head, size_t n, size_t *out_count, Message *out_list)
+STRG_RET read_first_sector(Storage *storage, Iterator *it, uint8_t start_head, size_t n, size_t *out_count, MessageHistoryEntry *out_list)
 {
     STRG_RET ret;
     uint16_t sector_index;
@@ -240,7 +240,7 @@ STRG_RET read_first_sector(Storage *storage, Iterator *it, uint8_t start_head, s
  * @param n number of latest message to be read
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t start, size_t n, size_t *out_count, Message *out_list)
+STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t start, size_t n, size_t *out_count, MessageHistoryEntry *out_list)
 {
 
     if (rb == NULL || storage == NULL || out_count == NULL || out_list == NULL)

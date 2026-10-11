@@ -22,10 +22,18 @@ extern "C" {
 // Opaque Declaration
 typedef struct Journal Journal;
 
-// Message History Data in RingBufferSector
-typedef struct 
+typedef uint16_t MessageIndex;
+
+typedef struct
 {
-    Message mh_entry[MESSAGE_HISTORY_SECTOR_CAPACITY];
+    MessageIndex msgInd;    // (2B)
+    Message message;        // (164B)
+} MessageHistoryEntry;
+
+// Message History Data in RingBufferSector
+typedef struct
+{
+    MessageHistoryEntry mh_entry[MESSAGE_HISTORY_SECTOR_CAPACITY];
 
 // Only include delaration of member if padding is not 0
 #if MESSAGE_HISTORY_SECTOR_PADDING != 0
@@ -45,6 +53,7 @@ typedef union {
     uint8_t buffer[sizeof(MessageHistorySector)];
 } MessageHistorySectorB;
 
+STATIC_ASSERT(sizeof(MessageHistoryEntry) == MESSAGE_HISTORY_ENTRY_BYTES, "Uknown MessageHistoryEntry size");
 STATIC_ASSERT(sizeof(MessageHistoryData) == RING_BUFFER_PAYLOAD_BYTES, "MessageHistoryData doesn't fit in ring buffer payload");
 STATIC_ASSERT(sizeof(MessageHistorySector) == RING_BUFFER_SECTOR_BYTES, "Unexpected MessageHistorySector size");
 STATIC_ASSERT(offsetof(MessageHistorySector, sector_crc) == RING_BUFFER_PAYLOAD_BYTES + RING_BUFFER_HEADER_BYTES, "MessageHistorySector CRC is not the sector trailer");
@@ -65,7 +74,7 @@ bool message_history_init(RingBuffer *rb);
  * @param messageInd message sector index of the latest message
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, Message *message);
+STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage, MessageHistoryEntry *message);
 
 /**
  * @brief Get a range of message history from start -> start + n
@@ -75,7 +84,7 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
  * @param n number of latest message to be read
  * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t start, size_t n, size_t *out_count, Message *out_list);
+STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t start, size_t n, size_t *out_count, MessageHistoryEntry *out_list);
 
 
 

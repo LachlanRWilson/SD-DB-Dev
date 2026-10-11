@@ -178,9 +178,9 @@ static uint16_t g_added;
 
 /* get_range() output; one extra slot for the overrun sentinel. */
 __attribute__((section(".ram_d1")))
-static Message g_out[MH_OUT_MAX + 1];
+static MessageHistoryEntry g_out[MH_OUT_MAX + 1];
 __attribute__((section(".ram_d1")))
-static Message g_out2[MH_OUT_MAX + 1];
+static MessageHistoryEntry g_out2[MH_OUT_MAX + 1];
 
 /* Region + guard as raw bytes, for the "does not modify storage" tests. */
 __attribute__((section(".ram_d1")))
@@ -271,22 +271,30 @@ static bool stored(uint16_t i, MessageHistorySectorB *s)
     return read_sector(storage, MH_START + i, s->buffer) == STRG_OK;
 }
 
-static Message make_message(uint16_t id)
+/* Message sector index stored with message `id`. Differs from the timestamp
+ * to catch mixed-up fields. */
+static MessageIndex msg_ind_for(uint16_t id)
 {
-    Message m;
-    memset(&m, 0, sizeof(m));
-    m.timestamp = id;
-    m.direction = (id % 2) != 0;
-    snprintf(m.str, sizeof(m.str), "message %u", id);
-    return m;
+    return (MessageIndex)(id * 3 + 7);
+}
+
+static MessageHistoryEntry make_entry(uint16_t id)
+{
+    MessageHistoryEntry e;
+    memset(&e, 0, sizeof(e));
+    e.msgInd = msg_ind_for(id);
+    e.message.timestamp = id;
+    e.message.direction = (id % 2) != 0;
+    snprintf(e.message.str, sizeof(e.message.str), "message %u", id);
+    return e;
 }
 
 static bool add(int n)
 {
     for (int i = 0; i < n; i++)
     {
-        Message m = make_message(g_added);
-        if (message_history_add(&g_rb, &g_journal, storage, &m) != STRG_OK)
+        MessageHistoryEntry e = make_entry(g_added);
+        if (message_history_add(&g_rb, &g_journal, storage, &e) != STRG_OK)
         {
             return false;
         }
@@ -297,13 +305,13 @@ static bool add(int n)
 
 /* get_range into `out` (MH_OUT_MAX + 1 slots), with a sentinel past the
  * requested range to catch overruns. An overrun fails the test at `line`. */
-static STRG_RET range_into(Message *out, size_t start, size_t n, size_t *count, int line)
+static STRG_RET range_into(MessageHistoryEntry *out, size_t start, size_t n, size_t *count, int line)
 {
-    memset(out, 0, sizeof(Message) * (n + 1));
-    out[n].timestamp = 0xBEEF;
+    memset(out, 0, sizeof(MessageHistoryEntry) * (n + 1));
+    out[n].message.timestamp = 0xBEEF;
     *count = 0xFFFF;
     STRG_RET ret = message_history_get_range(&g_rb, storage, start, n, count, out);
-    if (out[n].timestamp != 0xBEEF)
+    if (out[n].message.timestamp != 0xBEEF)
     {
         fail_at(line);
     }
@@ -315,12 +323,15 @@ static STRG_RET range_into(Message *out, size_t start, size_t n, size_t *count, 
 #define get_list(n, count)          range_into(g_out, 0, (n), (count), __LINE__)
 
 /* out[0..count) are messages start..start+count from newest, newest first. */
-static bool range_is(const Message *out, size_t start, size_t count)
+static bool range_is(const MessageHistoryEntry *out, size_t start, size_t count)
 {
     for (size_t i = 0; i < count; i++)
     {
-        Message want = make_message((uint16_t)(g_added - 1 - start - i));
-        if (out[i].timestamp != want.timestamp || strcmp(out[i].str, want.str) != 0)
+        MessageHistoryEntry want = make_entry((uint16_t)(g_added - 1 - start - i));
+        if (out[i].msgInd != want.msgInd ||
+            out[i].message.timestamp != want.message.timestamp ||
+            out[i].message.direction != want.message.direction ||
+            strcmp(out[i].message.str, want.message.str) != 0)
         {
             return false;
         }
@@ -398,7 +409,8 @@ static void test_FirstAddClaimsSectorZero(void)
     CHECK(s.sector.header.state == RB_OCCUPIED);
     CHECK(s.sector.header.head == 0);
     CHECK(s.sector.header.seq == 0);
-    CHECK(s.sector.data.mh_entry[0].timestamp == 0);
+    CHECK(s.sector.data.mh_entry[0].message.timestamp == 0);
+    CHECK(s.sector.data.mh_entry[0].msgInd == msg_ind_for(0));
 }
 
 static void test_AddsWithinSectorAdvanceHead(void)
@@ -414,7 +426,44 @@ static void test_AddsWithinSectorAdvanceHead(void)
     CHECK(s.sector.header.head == MH_CAP - 1);
     for (uint16_t i = 0; i < MH_CAP; i++)
     {
-        CHECK(s.sector.data.mh_entry[i].timestamp == i);
+        CHECK(s.sector.data.mh_entry[i].message.timestamp == i);
+        CHECK(s.sector.data.mh_entry[i].msgInd == msg_ind_for(i));
+    }
+}
+
+static void test_AddStoresWholeEntry(void)
+{
+    /* Fill a sector so the last slot (next to the padding) is checked too */
+    MessageHistorySectorB s;
+    CHECK(add(MH_CAP));
+
+    CHECK(stored(0, &s));
+    for (uint16_t i = 0; i < MH_CAP; i++)
+    {
+        MessageHistoryEntry want = make_entry(i);
+        CHECK(memcmp(&s.sector.data.mh_entry[i], &want, sizeof(MessageHistoryEntry)) == 0);
+    }
+}
+
+static void test_AddKeepsFullRangeMessageIndex(void)
+{
+    /* msgInd is independent of the message contents, check the extremes survive */
+    static const MessageIndex inds[] = {0, 1, 0x00FF, 0x0100, 0xFFFF};
+    size_t count;
+    for (size_t i = 0; i < 5; i++)
+    {
+        MessageHistoryEntry e = make_entry(g_added);
+        e.msgInd = inds[i];
+        CHECK(message_history_add(&g_rb, &g_journal, storage, &e) == STRG_OK);
+        g_added++;
+    }
+
+    CHECK(get_list(5, &count) == STRG_OK);
+    CHECK(count == 5);
+    for (size_t i = 0; i < count; i++)
+    {
+        CHECK(g_out[i].msgInd == inds[4 - i]);
+        CHECK(g_out[i].message.timestamp == 4 - i);
     }
 }
 
@@ -439,7 +488,7 @@ static void test_AddPastFullSectorMovesToNextSector(void)
     CHECK(s1.sector.header.state == RB_OCCUPIED);
     CHECK(s1.sector.header.head == 0);
     CHECK(s1.sector.header.seq == 1);
-    CHECK(s1.sector.data.mh_entry[0].timestamp == MH_CAP);
+    CHECK(s1.sector.data.mh_entry[0].message.timestamp == MH_CAP);
 }
 
 static void test_SectorsFillSequentiallyWithIncreasingSeq(void)
@@ -456,7 +505,7 @@ static void test_SectorsFillSequentiallyWithIncreasingSeq(void)
         CHECK(stored(i, &s));
         CHECK(s.sector.header.seq == i);
         CHECK(s.sector.header.state == (i == MH_SECTORS - 1 ? RB_OCCUPIED : RB_FULL));
-        CHECK(s.sector.data.mh_entry[0].timestamp == i * MH_CAP);
+        CHECK(s.sector.data.mh_entry[0].message.timestamp == i * MH_CAP);
     }
 }
 
@@ -476,7 +525,7 @@ static void test_WrapOverwritesOldestSector(void)
     CHECK(s0.sector.header.state == RB_OCCUPIED);
     CHECK(s0.sector.header.head == 0);
     CHECK(s0.sector.header.seq == MH_SECTORS);
-    CHECK(s0.sector.data.mh_entry[0].timestamp == MH_SECTORS * MH_CAP);
+    CHECK(s0.sector.data.mh_entry[0].message.timestamp == MH_SECTORS * MH_CAP);
 }
 
 static void test_AddsAfterWrapKeepFillingReusedSector(void)
@@ -491,7 +540,7 @@ static void test_AddsAfterWrapKeepFillingReusedSector(void)
     CHECK(s0.sector.header.head == 2);
     for (uint16_t i = 0; i < 3; i++)
     {
-        CHECK(s0.sector.data.mh_entry[i].timestamp == MH_SECTORS * MH_CAP + i);
+        CHECK(s0.sector.data.mh_entry[i].message.timestamp == MH_SECTORS * MH_CAP + i);
     }
 }
 
@@ -514,10 +563,10 @@ static void test_ManyWrapsStayInsideRegion(void)
 static void test_AddRejectsCorruptSectorState(void)
 {
     MessageHistorySectorB s;
-    Message m = make_message(0);
+    MessageHistoryEntry e = make_entry(0);
 
     CHECK(write_header(MH_START, 0, 0x7F, 200));
-    CHECK(message_history_add(&g_rb, &g_journal, storage, &m) != STRG_OK);
+    CHECK(message_history_add(&g_rb, &g_journal, storage, &e) != STRG_OK);
 
     /* Sector not rewritten */
     CHECK(stored(0, &s));
@@ -526,11 +575,11 @@ static void test_AddRejectsCorruptSectorState(void)
 
 static void test_AddPropagatesReadFailure(void)
 {
-    Message m = make_message(0);
+    MessageHistoryEntry e = make_entry(0);
 
     g_fail_ctx.read_calls = 0;
     g_fail_ctx.fail_after_read = 1;
-    STRG_RET ret = message_history_add(&g_rb, &g_journal, storage, &m);
+    STRG_RET ret = message_history_add(&g_rb, &g_journal, storage, &e);
     g_fail_ctx.fail_after_read = -1;
     CHECK(ret == STRG_FAIL);
 }
@@ -652,8 +701,8 @@ static void test_GetRangeReturnsSecondTenMessages(void)
      * no duplicates between them and nothing missing. */
     for (size_t i = 0; i < 20; i++)
     {
-        const Message *m = (i < 10) ? &g_out[i] : &g_out2[i - 10];
-        CHECK(m->timestamp == 19 - i);
+        const MessageHistoryEntry *e = (i < 10) ? &g_out[i] : &g_out2[i - 10];
+        CHECK(e->message.timestamp == 19 - i);
     }
 }
 
@@ -878,6 +927,8 @@ static const TestCase g_tests[] = {
     TEST(GetListWithZeroRequestedReturnsZero),
     TEST(FirstAddClaimsSectorZero),
     TEST(AddsWithinSectorAdvanceHead),
+    TEST(AddStoresWholeEntry),
+    TEST(AddKeepsFullRangeMessageIndex),
     TEST(AddPastFullSectorMovesToNextSector),
     TEST(SectorsFillSequentiallyWithIncreasingSeq),
     TEST(WrapOverwritesOldestSector),

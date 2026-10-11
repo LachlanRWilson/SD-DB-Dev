@@ -73,9 +73,13 @@
 extern Storage sd_storage;
 
 /* ------------------------------------------------------------------ *
- *  Data set: message i has timestamp i + 1 (the read build checks
- *  against the same table)
+ *  Data set: message i has timestamp i + 1 and message sector index
+ *  DEMO_MSG_IND(i) (the read build checks against the same table)
  * ------------------------------------------------------------------ */
+/* No chats are written here, so the message sector index each history
+ * entry was "copied from" is made up, just distinct from the timestamp. */
+#define DEMO_MSG_IND(i) ((MessageIndex)(100 + (i)))
+
 typedef struct
 {
     bool        sent;
@@ -180,14 +184,15 @@ static bool format_history(void)
 
 static bool history_add(uint16_t i)
 {
-    Message m;
+    MessageHistoryEntry e;
 
-    memset(&m, 0, sizeof(m));
-    m.timestamp = (uint16_t)(i + 1);
-    m.direction = g_msgs[i].sent;
-    strncpy(m.str, g_msgs[i].text, sizeof(m.str) - 1);
+    memset(&e, 0, sizeof(e));
+    e.msgInd = DEMO_MSG_IND(i);
+    e.message.timestamp = (uint16_t)(i + 1);
+    e.message.direction = g_msgs[i].sent;
+    strncpy(e.message.str, g_msgs[i].text, sizeof(e.message.str) - 1);
 
-    return message_history_add(&g_history, &g_journal, storage, &m) == STRG_OK;
+    return message_history_add(&g_history, &g_journal, storage, &e) == STRG_OK;
 }
 
 static void run_demo(void)
@@ -219,8 +224,8 @@ static void run_demo(void)
             last_index = g_history.current_index;
         }
 
-        lcd_log_line(ok ? LOG_COLOR_PASS : LOG_COLOR_FAIL, " t%-3u%c %s",
-                     (unsigned)(i + 1), dir_char(g_msgs[i].sent), g_msgs[i].text);
+        lcd_log_line(ok ? LOG_COLOR_PASS : LOG_COLOR_FAIL, " t%-3u s%-3u%c %s",
+                     (unsigned)(i + 1), (unsigned)DEMO_MSG_IND(i), dir_char(g_msgs[i].sent), g_msgs[i].text);
         if (ok) { g_ok++; } else { g_bad++; }
         osDelay(DEMO_STEP_MS);
     }
@@ -240,12 +245,13 @@ static void run_demo(void)
  * ================================================================== */
 
 /* Row `pos` (0 = newest) should be the message with timestamp N_MSGS - pos. */
-static bool message_matches(size_t pos, const Message *m)
+static bool message_matches(size_t pos, const MessageHistoryEntry *e)
 {
     uint16_t want_ts = (uint16_t)(N_MSGS - pos);
+    const Message *m = &e->message;
     const SeedMessage *s;
 
-    if (pos >= N_MSGS || m->timestamp != want_ts)
+    if (pos >= N_MSGS || m->timestamp != want_ts || e->msgInd != DEMO_MSG_IND(want_ts - 1))
     {
         return false;
     }
@@ -256,7 +262,7 @@ static bool message_matches(size_t pos, const Message *m)
 static void run_demo(void)
 {
     const uint16_t expected = stored_after(N_MSGS);
-    Message page[DEMO_PAGE];
+    MessageHistoryEntry page[DEMO_PAGE];
     size_t start = 0;
     char text[24];
 
@@ -301,10 +307,11 @@ static void run_demo(void)
             bool ok = message_matches(start + i, &page[i]);
             char body[SMS_MAX_MESSAGE_LENGTH + 1];
 
-            memcpy(body, page[i].str, SMS_MAX_MESSAGE_LENGTH);
+            memcpy(body, page[i].message.str, SMS_MAX_MESSAGE_LENGTH);
             body[SMS_MAX_MESSAGE_LENGTH] = '\0';
-            lcd_log_line(ok ? LOG_COLOR_PASS : LOG_COLOR_FAIL, " t%-3u%c %s",
-                         page[i].timestamp, dir_char(page[i].direction), body);
+            lcd_log_line(ok ? LOG_COLOR_PASS : LOG_COLOR_FAIL, " t%-3u s%-3u%c %s",
+                         page[i].message.timestamp, page[i].msgInd,
+                         dir_char(page[i].message.direction), body);
             if (ok) { g_ok++; } else { g_bad++; }
             osDelay(DEMO_STEP_MS);
         }
