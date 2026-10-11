@@ -3,7 +3,7 @@
 One file per active GTest test file in [`tests/`](../../tests), each explaining what every test
 checks and why, with a per-test checklist for tracking your own read-through. All suites below
 are currently wired into [`tests/CMakeLists.txt`](../../tests/CMakeLists.txt) and pass via
-`ctest` (232 tests total, run from `build-host/`, last checked 2026-10-10).
+`ctest` (308 tests total, run from `build-host/`, last checked 2026-10-11).
 
 | Suite | File | Tests | Covers |
 |---|---|---|---|
@@ -19,6 +19,8 @@ are currently wired into [`tests/CMakeLists.txt`](../../tests/CMakeLists.txt) an
 | `RingBufferIteratorTest` / `RingBufferStateTest` / `RingBufferReconstructTest` **(new)** | [test_ring_buffer.md](test_ring_buffer.md) | 33 | [`ring_buffer.c`](../../source/app/src/ring_buffer.c) |
 | `SectorCrcTest` **(new)** | [test_sector_crc.md](test_sector_crc.md) | 20 | per-sector CRC trailer in [`storage.c`](../../source/app/src/storage.c), plus contacts, messages, bitmap, [`superheader.c`](../../source/app/src/superheader.c) |
 | `DbRecoveryTest` **(new)** | [test_db_recovery.md](test_db_recovery.md) | 7 | cross-module: message addressing, power-cut rollback, `hash_reconstruct_message()` |
+| `MessageHistoryTest` **(new)** | [test_message_history.md](test_message_history.md) | 36 | [`message_history.c`](../../source/app/src/message_history.c) |
+| `CallHistoryTest` **(new)** | [test_call_history.md](test_call_history.md) | 40 | [`call_history.c`](../../source/app/src/call_history.c), port of `MessageHistoryTest` |
 
 Plus [test_support.md](test_support.md) — not a test suite, but the shared `FailableStorageCtx`
 mock most of the failure-path suites use to inject storage read/write failures. Worth reading
@@ -64,6 +66,8 @@ logic on the STM32 and isn't documented test-by-test here.
    core of the power-safety argument.
 4. `test_ring_buffer.md` — self-contained apart from storage; read the two characterisation notes
    at the top first.
+   Then `test_message_history.md` (history layer on top of the ring buffer) and
+   `test_call_history.md` (only the differences from message history).
 5. `test_hash_table.md` + `test_hash_table_edge.md` + `test_hash_table_iterator.md` — the largest and most consequential, since
    it drives contact/message storage through the journal and usage bitmap underneath. Several
    tests across both files were written to pin down bugs found during review (marked
@@ -166,7 +170,7 @@ either a source-code decision or infrastructure this pass didn't set up).
     it. Also worth tests for a page that runs past the last contact (`start + n > hash_size()`)
     and for `n == 0`.
 
-13. **Message history (`message_history_add()` and friends).** The ring buffer is tested on its
-    own, and `RollbackHistoryEntrySkipsBitmapAndCommits` covers a `JRNL_MSG_HIST` rollback, but
-    nothing yet drives the history layer end to end (add, power cut, reconstruct). Probably
-    waiting on the head-in-sector work noted in commit `ef232c2`.
+13. **History power cut.** `MessageHistoryTest` and `CallHistoryTest` cover add, paging and
+    rebuilding from the card, and `RollbackHistoryEntrySkipsBitmapAndCommits` covers a history
+    rollback at the journal level. No test yet does a power cut partway through
+    `message_history_add()` / `call_history_add()` and then checks recovery from that state.

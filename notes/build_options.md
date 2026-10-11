@@ -21,7 +21,7 @@ cmake --build build-host            # build app_logic + every test executable
 
 Test executables (see `tests/CMakeLists.txt`): `test_hash_table`, `test_free_list`,
 `test_usage_bitmap`, `test_journal`, `test_ring_buffer`, `test_sector_crc`,
-`test_db_recovery`, `test_message_history`.
+`test_db_recovery`, `test_message_history`, `test_call_history`.
 
 ## STM32 (on-hardware unit tests)
 
