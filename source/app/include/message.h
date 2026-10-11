@@ -17,21 +17,6 @@ extern "C" {
 #include "mem_layout.h"
 #include "storage.h"
 
-#define MESSAGE_SECTOR_SIZE 2 * HASH_TABLE_SIZE
-
-#define SMS_MAX_MESSAGE_LENGTH 160
-#define MAX_PHONE_LEN 15
-#define MESSAGE_BYTES 164
-#define MESSAGE_BLOCK_HEADER_BYTES 24
-#define MESSAGE_BLOCK_BYTES SECTOR_SIZE
-
-// Fit messages into a 512B block of memory
-#define MESSAGE_BLOCK_CAPACITY \
-    ((MESSAGE_BLOCK_BYTES - SECTOR_CRC_BYTES - sizeof(MessageSectorHeader) - sizeof(SECTOR_TYPE) - sizeof(uint8_t)) / sizeof(Message))
-
-// Ensure padding is accounted for
-#define MESSAGE_BLOCK_PADDING \
-    (MESSAGE_BLOCK_BYTES - SECTOR_CRC_BYTES - sizeof(MessageSectorHeader) - sizeof(SECTOR_TYPE) - sizeof(uint8_t) - sizeof(Message) * MESSAGE_BLOCK_CAPACITY)
 
 // Ensure enum is 1 byte
 typedef uint8_t EXTENT_STATE;
@@ -74,11 +59,11 @@ typedef struct
 // Message Sector (512B)
 typedef struct
 {
-    SECTOR_TYPE type; // (1B)
-    uint8_t reserved; // (1B) for alignment
     MessageSectorHeader header; // Header (24B)
-    MessageBuffer messages[MESSAGE_BLOCK_CAPACITY]; // Array of chats
-    uint8_t padding[MESSAGE_BLOCK_PADDING];
+    MessageBuffer messages[MESSAGE_SECTOR_CAPACITY]; // Array of chats
+#if MESSAGE_SECTOR_PADDING != 0
+    uint8_t padding[MESSAGE_SECTOR_PADDING];
+#endif
     uint32_t crc; // CRC-32 trailer, stamped by write_sector() (4B)
 } MessageSector;
 
@@ -89,19 +74,17 @@ typedef union
 } MessageSectorBuffer;
 
 
-// Static checks to ensure the size of the struct are correct if they are changed
-STATIC_ASSERT(MESSAGE_BLOCK_PADDING > 0, "0 or negative padding (remove padding from struct)");
 
 STATIC_ASSERT(sizeof(Message) == MESSAGE_BYTES, "Unexpected Message size");
 
-STATIC_ASSERT(sizeof(MessageSectorHeader) == MESSAGE_BLOCK_HEADER_BYTES, "Unexpected \
+STATIC_ASSERT(sizeof(MessageSectorHeader) == MESSAGE_SECTOR_HEADER_BYTES, "Unexpected \
         MessageSectorHeader size");
 
 STATIC_ASSERT(sizeof(MessageSector) == SECTOR_SIZE, "Unexpected MessageSector size");
 
 STATIC_ASSERT(offsetof(MessageSector, crc) == SECTOR_PAYLOAD_BYTES, "MessageSector CRC is not the sector trailer");
 
-STATIC_ASSERT(MESSAGE_BLOCK_CAPACITY == 2, "CRC trailer changed the message sector capacity");
+STATIC_ASSERT(MESSAGE_SECTOR_CAPACITY == 2, "CRC trailer changed the message sector capacity");
 
 // Opaque Declaration of FreeList
 typedef struct FreeList FreeList;

@@ -52,44 +52,6 @@ STRG_RET write_message_history_sector(Storage *storage, uint16_t sector_index, M
     return write_sector(storage, raw_sector_index, in->buffer);
 }
 
-/**
- * @brief Get a range of message history
- *
- * @param rb message history ring buffer struct
- * @param start starting message in message history (from latest where 0 = latest message)
- * @param n number of latest message to be read
- * @retval STRG_OK is storage read successful else STRG_* error code
- */
-STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t start, size_t n, Message *out)
-{
-    RBIteratorCtx ctx;
-    STRG_RET ret;
-    MessageHistorySectorB mhSector;
-    int msg_history_cnt = 0;
-    uint16_t messageHistIndex = 0;
-    uint16_t messageIndex = 0;
-    Iterator it = ring_buffer_iterator_init(&ctx, rb);
-
-    // Use iterator to search over ring buffer
-    while ((msg_history_cnt < n) && iterator_next_fn(&it))
-    {
-        if (!iterator_get_fn(&it, (void*) &messageHistIndex))
-        {
-            return STRG_FAIL;
-        }
-
-        ret = read_message_history_sector(storage, messageHistIndex / MESSAGE_HISTORY_SECTOR_CAPACITY, &mhSector);
-        if (ret != STRG_OK)
-        {
-            return ret;
-        }
-
-
-        msg_history_cnt++;
-    }
-
-    return STRG_OK;
-}
 
 
 /**
@@ -204,19 +166,81 @@ STRG_RET message_history_add(RingBuffer *rb, Journal *journal, Storage *storage,
     return STRG_OK;
 }
 
+/**
+ * @brief Read all the message history entries from pos. Note that if the number of read message meets n than stop 
+ * reading
+ *
+ * @param rb message history ring buffer struct
+ * @param start starting message in message history (from latest where 0 = latest message)
+ * @param n number of latest message to be read
+ * @retval STRG_OK is storage read successful else STRG_* error code
+ */
+STRG_RET read_message_history(Storage *storage, uint16_t sector_index, uint8_t pos, size_t n, size_t *out_count, 
+                              Message *out_list)
+{
+    STRG_RET ret;
+    MessageHistorySectorB mhSector;
+    RingBufferHeader *rbHeader;
+    MessageHistoryData *mhData;
+        ret = read_message_history_sector(storage, sector_index, &mhSector);
+        if (ret != STRG_OK)
+        {
+            return ret;
 
+        }
+
+        rbHeader = &(mhSector.sector.header);
+        mhData = &(mhSector.sector.data);
+
+        // if the sector is empty stop getting list
+        if (rbHeader->state == RB_EMPTY)
+        {
+            return STRG_OK;
+        }
+
+        // get message out of sector
+        for (int slots = pos; slots >= 0 && *out_count < n; slots--)
+        {
+            memcpy(&out_list[*out_count], &(mhData->mh_entry[slots]), sizeof(Message));
+            (*out_count)++;
+        }
+
+    return STRG_OK;
+}
+
+
+STRG_RET read_first_sector(Storage *storage, Iterator *it, uint8_t start_head, size_t n, size_t *out_count, Message *out_list)
+{
+    STRG_RET ret;
+    uint16_t sector_index;
+    // Get the start sector and read the 
+    if (!ring_iterator_get(it, (void *) &sector_index))
+    {
+        return STRG_FAIL;
+    }
+
+    ret = read_message_history(storage, sector_index, start_head, n, out_count, out_list);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    if (!ring_iterator_prev(it))
+    {
+        return STRG_FAIL;
+    }
+    return STRG_OK;
+}
 
 /**
- * @brief Get a list of message history entries from latest to oldest
+ * @brief Get a range of message history
  *
- * @param rb Ring Buffer struct pointer
- * @param storage Storage abstraction struct
- * @param n number of messages to get
- * @param out_count pointer to memory which stores number of messages read
- * @param out_list pointer to array of n messages
- * @retval STRG_OK if successful
+ * @param rb message history ring buffer struct
+ * @param start starting message in message history (from latest where 0 = latest message)
+ * @param n number of latest message to be read
+ * @retval STRG_OK is storage read successful else STRG_* error code
  */
-STRG_RET message_history_get_list(RingBuffer *rb, Storage *storage, size_t n, size_t *out_count, Message *out_list)
+STRG_RET message_history_get_range(RingBuffer *rb, Storage *storage, size_t start, size_t n, size_t *out_count, Message *out_list)
 {
 
     if (rb == NULL || storage == NULL || out_count == NULL || out_list == NULL)
@@ -228,16 +252,76 @@ STRG_RET message_history_get_list(RingBuffer *rb, Storage *storage, size_t n, si
 
     MessageHistorySectorB mhSector;
     RingBufferHeader *rbHeader;
-    MessageHistoryData *mhData;
-
     uint16_t sector_index;
     RBIteratorCtx rb_it_ctx;
-    Iterator it = ring_buffer_iterator_init(&rb_it_ctx, rb);
-    *out_count = 0;
+    Iterator it;
     size_t sector_visited = 0;
+    uint8_t start_head = 0;
+    *out_count = 0;
+
+    // look at the current sector to find how many sectors to skip
+    ret = read_message_history_sector(storage, rb->current_index, &mhSector);
+    if (ret != STRG_OK)
+    {
+        return ret;
+
+    }
+
+    rbHeader = &(mhSector.sector.header);
+
+    // if the sector is empty stop getting list
+    if (rbHeader->state == RB_EMPTY)
+    {
+        return STRG_OK;
+    }
+
+    // number of messages in the current sector (may be partially filled)
+    size_t cur_cnt = rbHeader->head + 1;
+    int num_sectors_to_start;
+
+    if (start < cur_cnt)
+    {
+        // start is inside the current sector
+        num_sectors_to_start = 0;
+        start_head = rbHeader->head - start;
+    }
+    else
+    {
+        // messages past the current sector, older sectors are always full
+        size_t rem = start - cur_cnt;
+        num_sectors_to_start = 1 + rem / MESSAGE_HISTORY_SECTOR_CAPACITY;
+        // start head is the remainder inverted. Since latest to oldest is 2->0
+        start_head = (MESSAGE_HISTORY_SECTOR_CAPACITY - 1) - (rem % MESSAGE_HISTORY_SECTOR_CAPACITY);
+    }
+
+    // start exceeds number of sectors in the ring buffer
+    if (num_sectors_to_start >= rb->occupancy)
+    {
+        return STRG_FAIL;
+    }
+
+    int start_rb_index = rb->current_index - num_sectors_to_start;
+
+    // handling for wrap around for negative index
+    if (start_rb_index < 0)
+    {
+        start_rb_index = (rb->occupancy) + start_rb_index;
+    }
+
+
+    it = ring_buffer_iterator_init(&rb_it_ctx, rb, start_rb_index);
+
+    // read the first sector
+    ret = read_first_sector(storage, &it, start_head, n, out_count, out_list);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    sector_visited++;
 
     // read sectors until n messages are read or entire ring buffer
-    while (*out_count < n && sector_visited < rb->occupancy)
+    while ((*out_count < n) && (sector_visited < rb->occupancy - num_sectors_to_start))
     {
         // get the sector index from iterator
         if (!ring_iterator_get(&it, (void *) &sector_index))
@@ -245,30 +329,12 @@ STRG_RET message_history_get_list(RingBuffer *rb, Storage *storage, size_t n, si
             return STRG_FAIL;
         }
 
-        ret = read_message_history_sector(storage, sector_index, &mhSector);
+        ret = read_message_history(storage, sector_index, MESSAGE_HISTORY_SECTOR_CAPACITY - 1, n, out_count, out_list);
         if (ret != STRG_OK)
         {
             return ret;
-
         }
-
         sector_visited++;
-        rbHeader = &(mhSector.sector.header);
-        mhData = &(mhSector.sector.data);
-
-        // if the sector is empty stop getting list
-        if (rbHeader->state == RB_EMPTY)
-        {
-            return STRG_OK;
-        }
-
-        // get message out of sector
-        for (int slots = rbHeader->head; slots >= 0 && *out_count < n; slots--)
-        {
-            memcpy(&out_list[*out_count], &(mhData->mh_entry[slots]), sizeof(Message));
-            (*out_count)++;
-        }
-
         if (!ring_iterator_prev(&it))
         {
             return STRG_FAIL;

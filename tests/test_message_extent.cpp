@@ -190,7 +190,7 @@ TEST_F(MessageExtentTest, AllocateNewExtentWhenFull)
 
     Message msg = {};
 
-    for (uint16_t i = 0; i < MESSAGE_BLOCK_CAPACITY + 1; i++)
+    for (uint16_t i = 0; i < MESSAGE_SECTOR_CAPACITY + 1; i++)
     {
         msg.timestamp = i;
 
@@ -220,7 +220,7 @@ TEST_F(MessageExtentTest, PreviousExtentLinks)
 
     Message msg = {};
 
-    for (uint16_t i = 0; i < MESSAGE_BLOCK_CAPACITY + 2; i++)
+    for (uint16_t i = 0; i < MESSAGE_SECTOR_CAPACITY + 2; i++)
     {
         msg.timestamp = i;
         message_extent_append(&extent, &idx, &msg);
@@ -267,7 +267,7 @@ TEST_F(MessageExtentTest, ReadAcrossExtents)
 
     Message msg = {};
 
-    for (uint16_t i = 0; i < MESSAGE_BLOCK_CAPACITY * 2; i++)
+    for (uint16_t i = 0; i < MESSAGE_SECTOR_CAPACITY * 2; i++)
     {
         msg.timestamp = i;
         message_extent_append(&extent, &idx, &msg);
@@ -275,7 +275,7 @@ TEST_F(MessageExtentTest, ReadAcrossExtents)
 
     EXPECT_GT(
         message_extent_count(&extent, idx),
-        MESSAGE_BLOCK_CAPACITY);
+        MESSAGE_SECTOR_CAPACITY);
 }
 
 /**

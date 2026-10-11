@@ -145,7 +145,7 @@ bool init_ring_buffer(Storage *storage, RingBuffer *rb, uint16_t size, uint16_t 
  * @param rb ring buffer to iterate over
  * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
  */
-Iterator ring_buffer_iterator_init(RBIteratorCtx *ctx, RingBuffer *rb);
+Iterator ring_buffer_iterator_init(RBIteratorCtx *ctx, RingBuffer *rb, size_t start);
 
 /**
  * @brief move to the next index in the ring buffer

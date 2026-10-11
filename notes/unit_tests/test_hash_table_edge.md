@@ -104,7 +104,7 @@ actually stop cleanly rather than reading past the start of the chat or returnin
 
 ### TwoContactsWithMultiSectorChatsDoNotInterfere
 Two different phone numbers, each sent enough messages to roll over onto a second linked message
-sector (`MESSAGE_BLOCK_CAPACITY + 1` messages each, interleaved rather than one-then-the-other).
+sector (`MESSAGE_SECTOR_CAPACITY + 1` messages each, interleaved rather than one-then-the-other).
 Confirms each contact's `hash_find_message()` returns *its own* latest message, and — the more
 interesting part — that removing one contact's entire chat via `hash_remove_message()` leaves
 the other contact's multi-sector chat completely intact and still correctly findable afterwards.

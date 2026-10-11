@@ -75,7 +75,7 @@ before commit. After reboot the sector holds exactly the first message (`msg_cou
 usage bit is still set.
 
 ### FullMessageSectorLeavesJournalCommitted
-Fill a message sector to `MESSAGE_BLOCK_CAPACITY`, then one more `write_message()` returns
+Fill a message sector to `MESSAGE_SECTOR_CAPACITY`, then one more `write_message()` returns
 `STRG_FULL` and the journal is still `JRNL_VALID`. **Regression for:** the full check used to
 happen after `journal_add()`, leaving an ACTIVE journal behind for a write that never happened —
 the next boot would then roll back a perfectly good sector.
@@ -86,7 +86,7 @@ the next boot would then roll back a perfectly good sector.
 
 ### ReconstructMessageRestoresLatestSectors
 The first real test of `hash_reconstruct_message()` (previously listed as untested in the
-README). Three contacts: one with `MESSAGE_BLOCK_CAPACITY + 1` messages (two message sectors), one
+README). Three contacts: one with `MESSAGE_SECTOR_CAPACITY + 1` messages (two message sectors), one
 with one message, one with none — 3 message sectors used. It records each contact's
 `latest_msg_extent`, then rebuilds a fresh table from an *empty* allocator after `reboot()` and
 checks:

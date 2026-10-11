@@ -109,9 +109,9 @@ the real read/write/journal code paths rather than mocks.
   - `rebuild()` → simulates a power cycle: builds a second, empty `HashTable` over the *same*
     storage, reloads the usage bitmap from storage, and calls `hash_reconstruct_contact`.
 
-`MESSAGE_BLOCK_CAPACITY` (how many messages fit in one 512B message sector) currently evaluates
+`MESSAGE_SECTOR_CAPACITY` (how many messages fit in one 512B message sector) currently evaluates
 to **2**, given `Message` is 164B and the sector header/type overhead is 26B. Several message
-tests deliberately send `MESSAGE_BLOCK_CAPACITY + 1` (i.e. 3) messages to force a sector
+tests deliberately send `MESSAGE_SECTOR_CAPACITY + 1` (i.e. 3) messages to force a sector
 rollover — worth confirming that arithmetic still holds if `Message` or `MessageSectorHeader`
 ever change size.
 
@@ -267,11 +267,11 @@ not the first.
 the contact doesn't exist at all.
 
 ### FindNMessagesWithinOneSector
-Two messages (fits in one sector, `MESSAGE_BLOCK_CAPACITY == 2`); `hash_find_n_message(n=2)`
+Two messages (fits in one sector, `MESSAGE_SECTOR_CAPACITY == 2`); `hash_find_n_message(n=2)`
 must return them **newest-first**.
 
 ### MessageChatRollsOverToNewSector
-Sends `MESSAGE_BLOCK_CAPACITY + 1` (3) messages — more than fit in one sector — and checks the
+Sends `MESSAGE_SECTOR_CAPACITY + 1` (3) messages — more than fit in one sector — and checks the
 *latest* message is still the last one sent, i.e. the chat correctly rolled over onto a second,
 linked sector rather than losing the overflow message or wrapping incorrectly.
 **Regression for two separate, compounding bugs:**
@@ -286,7 +286,7 @@ linked sector rather than losing the overflow message or wrapping incorrectly.
 Same 3-message rollover scenario, but requests all 3 via `hash_find_n_message()` and checks the
 full newest-first ordering across the sector boundary.
 **Regression for:** `read_n_messages()`'s per-message index formula was
-`msg_count - (msg_read % MESSAGE_BLOCK_CAPACITY) - 1`, which produces a negative array index
+`msg_count - (msg_read % MESSAGE_SECTOR_CAPACITY) - 1`, which produces a negative array index
 (undefined behaviour) as soon as more than one message is read back — the `msg_read %
 CAPACITY` term doesn't correspond to "position within the current sector" once you've crossed a
 sector boundary or read more than one message from a partially-full sector. Simplified to
@@ -298,7 +298,7 @@ message must be gone (`hash_find_message` → `false`) but the **contact** must 
 and unchanged. Checks message removal doesn't have side effects on the contact record.
 
 ### RemoveMessageChatAcrossMultipleSectors
-Same removal, but for a chat that spans `MESSAGE_BLOCK_CAPACITY + 1` (3) messages / 2 linked
+Same removal, but for a chat that spans `MESSAGE_SECTOR_CAPACITY + 1` (3) messages / 2 linked
 sectors — checks the whole chain is walked and cleared, not just the head sector.
 **Regression for:** `remove_message_chat()`'s loop condition was `while (curIndex !=
 UINT16_MAX)`, correctly walking the `prev` chain — but the body called

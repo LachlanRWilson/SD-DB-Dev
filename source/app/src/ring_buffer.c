@@ -397,12 +397,12 @@ bool ring_iterator_prev(Iterator *it)
  * @param rb ring buffer to iterate over
  * @retval Iterator ready to be driven with iterator_next_fn/iterator_prev_fn/iterator_get_fn
  */
-Iterator ring_buffer_iterator_init(RBIteratorCtx *ctx, RingBuffer *rb)
+Iterator ring_buffer_iterator_init(RBIteratorCtx *ctx, RingBuffer *rb, size_t start)
 {
     ctx->lower_lim = 0;
     // if occupancy is zero set upper limit to zero
     ctx->upper_lim = rb->occupancy ? rb->occupancy - 1 : 0;
-    ctx->current = rb->current_index;
+    ctx->current = start;
 
     Iterator it = {0};
     it.context = (void *)ctx;

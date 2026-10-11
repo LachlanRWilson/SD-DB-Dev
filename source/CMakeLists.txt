@@ -22,6 +22,7 @@ add_library(app_logic
     app/src/ring_buffer.c
     app/src/crc.c
     app/src/message_history.c
+    app/src/call_history.c
 )
 
 # Make the include directory PUBLIC so other files such as tests/test_my_logic.cpp and firmware/Core/Src/main.c
@@ -45,6 +46,12 @@ if (BUILD_STM32)
         app/src/sd_bus_test.c
         # SD persistence demo on the LCD (-DPERSIST_DEMO=ON runs it instead of db_main.c)
         app/src/persist_demo.c
+        # Message history hardware unit tests (-DMH_TEST=ON runs them instead of db_main.c)
+        app/src/mh_main.c
+        # Message history ring buffer demo on the LCD (-DMH_DEMO=ON runs it instead of db_main.c)
+        app/src/mh_demo.c
+        # Scrolling text log on the LCD, shared by the demos
+        app/src/lcd_log.c
         # AFR240320A0-2.0INTM LCD driver (over the FMC bus) + its on-hardware smoke tests
         app/src/fmc_func.c
         app/src/test_fmc.c
@@ -88,6 +95,26 @@ if (BUILD_STM32)
         target_compile_definitions(app_logic PUBLIC PERSIST_DEMO_WRITE=1)
     else()
         target_compile_definitions(app_logic PUBLIC PERSIST_DEMO_WRITE=0)
+    endif()
+
+    # -DMH_TEST=ON : main.c starts the message history hardware unit tests (mh_main.c) instead of DB_Init()
+    option(MH_TEST "Run the message history hardware unit tests instead of the DB tests" OFF)
+    if (MH_TEST)
+        target_compile_definitions(app_logic PUBLIC MH_TEST=1)
+    endif()
+
+    # -DMH_DEMO=ON : main.c starts the message history demo (mh_demo.c) instead of DB_Init()
+    #   -DMH_DEMO_WRITE=ON  (default) fill (and wrap) a small history ring buffer on the card
+    #   -DMH_DEMO_WRITE=OFF           rebuild it from the card and page through it with get_range
+    option(MH_DEMO "Run the message history demo instead of the DB tests" OFF)
+    option(MH_DEMO_WRITE "mh_demo.c writes (ON) or reads (OFF) the card" ON)
+    if (MH_DEMO)
+        target_compile_definitions(app_logic PUBLIC MH_DEMO=1)
+    endif()
+    if (MH_DEMO_WRITE)
+        target_compile_definitions(app_logic PUBLIC MH_DEMO_WRITE=1)
+    else()
+        target_compile_definitions(app_logic PUBLIC MH_DEMO_WRITE=0)
     endif()
 else ()
     target_sources(app_logic PRIVATE

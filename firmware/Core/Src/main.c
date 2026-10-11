@@ -32,6 +32,8 @@
 #include "db_main.h"
 #include "sd_bus_test.h"
 #include "persist_demo.h"
+#include "mh_main.h"
+#include "mh_demo.h"
 #include "test_fmc.h"
 /* USER CODE END Includes */
 
@@ -112,6 +114,10 @@ int main(void)
   SD_BusTest_Init();
 #elif PERSIST_DEMO
   PersistDemo_Init();
+#elif MH_TEST
+  MH_Test_Init();
+#elif MH_DEMO
+  MH_Demo_Init();
 #else
   DB_Init();
 #endif

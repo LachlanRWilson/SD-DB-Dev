@@ -1,5 +1,5 @@
 /*
- * htest_ui.c - LCD view of the hardware unit tests (db_main.c).
+ * htest_ui.c - LCD view of the hardware unit tests (db_main.c, mh_main.c).
  *
  *   +--------------------------+
  *   | HW UNIT TESTS            |  header, full-size font (16x24)
@@ -57,6 +57,7 @@ typedef struct
 static Row      g_rows[MAX_TESTS];
 static uint32_t g_total;
 static uint32_t g_shown; /* rows started so far */
+static const char *g_title;
 
 /* One full-width band, rendered then blitted with lcd_draw_image(). */
 static uint16_t g_band[LCD_WIDTH * FOOTER_H];
@@ -129,7 +130,7 @@ static void band_text_small(uint16_t x, uint16_t y, const char *s, uint16_t colo
 static void draw_header(void)
 {
     band_fill(HEADER_H, COLOR_BAR);
-    band_text(8, (HEADER_H - LCD_FONT_HEIGHT) / 2, "HW UNIT TESTS", COLOR_TEXT);
+    band_text(8, (HEADER_H - LCD_FONT_HEIGHT) / 2, g_title, COLOR_TEXT);
     lcd_draw_image(0, 0, LCD_WIDTH, HEADER_H, g_band);
 }
 
@@ -190,11 +191,12 @@ static void draw_list(void)
 /* ------------------------------------------------------------------ *
  *  API
  * ------------------------------------------------------------------ */
-void htest_ui_init(uint32_t total)
+void htest_ui_init(const char *title, uint32_t total)
 {
     char text[40];
 
     memset(g_rows, 0, sizeof(g_rows));
+    g_title = title;
     g_total = total;
     g_shown = 0;
 

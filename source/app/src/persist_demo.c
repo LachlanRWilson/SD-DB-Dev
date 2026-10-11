@@ -56,8 +56,7 @@
 #include "usage_bitmap.h"
 #include "mem_layout.h"
 #include "sd_storage.h"
-#include "fmc_func.h"
-#include "lcd_font.h"
+#include "lcd_log.h"
 #include "persist_demo.h"
 
 #ifndef PERSIST_DEMO_WRITE
@@ -110,7 +109,7 @@ static const Person g_people[] = {
 };
 #define N_PEOPLE (sizeof(g_people) / sizeof(g_people[0]))
 
-/* Charlie's 3 messages need two linked chat sectors (MESSAGE_BLOCK_CAPACITY
+/* Charlie's 3 messages need two linked chat sectors (MESSAGE_SECTOR_CAPACITY
  * is 2), and all 5 span two message history sectors. */
 static const SeedMessage g_msgs[] = {
     { "0411111111", 1, true,  "Hi Alice!" },
@@ -143,178 +142,23 @@ static RingBuffer       g_history;
 static SDStorageContext g_sd_ctx;
 
 /* ================================================================== *
- *  LCD text view
- * ================================================================== */
-#define SMALL_W 8
-#define SMALL_H 12
-
-#define BAR_H     28
-#define ROW_H     (SMALL_H + 1)
-#define LIST_Y    BAR_H
-#define LIST_ROWS ((LCD_HEIGHT - 2 * BAR_H) / ROW_H)
-#define ROW_CHARS (LCD_WIDTH / SMALL_W)
-#define MAX_LINES 48
-
-#define COLOR_BG      LCD_RGB565(16, 24, 48)
-#define COLOR_BAR     LCD_RGB565(32, 44, 80)
-#define COLOR_TEXT    LCD_COLOR_WHITE
-#define COLOR_DIM     LCD_RGB565(150, 160, 190)
-#define COLOR_SECTION LCD_COLOR_CYAN
-#define COLOR_RUN     LCD_COLOR_YELLOW
-#define COLOR_PASS    LCD_RGB565(60, 220, 90)
-#define COLOR_FAIL    LCD_RGB565(255, 70, 70)
-
-typedef struct
-{
-    char     text[ROW_CHARS + 1];
-    uint16_t color;
-} Line;
-
-static Line     g_lines[MAX_LINES];
-static uint32_t g_n_lines;
-
-/* One full-width band, rendered then blitted with lcd_draw_image(). */
-static uint16_t g_band[LCD_WIDTH * BAR_H];
-
-static void band_fill(uint16_t h, uint16_t color)
-{
-    for (uint32_t i = 0; i < (uint32_t)LCD_WIDTH * h; i++)
-    {
-        g_band[i] = color;
-    }
-}
-
-static uint16_t glyph_index(char c)
-{
-    if (c < LCD_FONT_FIRST || c > LCD_FONT_LAST)
-    {
-        c = '?';
-    }
-    return (uint16_t)(c - LCD_FONT_FIRST);
-}
-
-/* Full-size (16x24) text at (x, y) inside the band. */
-static void band_text(uint16_t x, uint16_t y, const char *s, uint16_t color)
-{
-    for (; *s != '\0' && x + LCD_FONT_WIDTH <= LCD_WIDTH; s++, x += LCD_FONT_WIDTH)
-    {
-        const uint16_t *g = lcd_font[glyph_index(*s)];
-        for (uint16_t gy = 0; gy < LCD_FONT_HEIGHT; gy++)
-        {
-            for (uint16_t gx = 0; gx < LCD_FONT_WIDTH; gx++)
-            {
-                if (g[gy] & (0x8000U >> gx))
-                {
-                    g_band[(uint32_t)(y + gy) * LCD_WIDTH + x + gx] = color;
-                }
-            }
-        }
-    }
-}
-
-/* Half-size (8x12) text: a pixel is set when 2+ of the 2x2 font pixels under
- * it are (same scaling as htest_ui.c). */
-static void band_text_small(uint16_t x, uint16_t y, const char *s, uint16_t color)
-{
-    for (; *s != '\0' && x + SMALL_W <= LCD_WIDTH; s++, x += SMALL_W)
-    {
-        const uint16_t *g = lcd_font[glyph_index(*s)];
-        for (uint16_t sy = 0; sy < SMALL_H; sy++)
-        {
-            uint16_t r0 = g[2 * sy];
-            uint16_t r1 = g[2 * sy + 1];
-            for (uint16_t sx = 0; sx < SMALL_W; sx++)
-            {
-                uint16_t m = (uint16_t)(0xC000U >> (2 * sx));
-                int n = __builtin_popcount(r0 & m) + __builtin_popcount(r1 & m);
-                if (n >= 2)
-                {
-                    g_band[(uint32_t)(y + sy) * LCD_WIDTH + x + sx] = color;
-                }
-            }
-        }
-    }
-}
-
-static void draw_bar(uint16_t y, const char *text, uint16_t color)
-{
-    band_fill(BAR_H, COLOR_BAR);
-    band_text(8, (BAR_H - LCD_FONT_HEIGHT) / 2, text, color);
-    lcd_draw_image(0, y, LCD_WIDTH, BAR_H, g_band);
-}
-
-static void draw_footer(const char *text, uint16_t color)
-{
-    draw_bar(LCD_HEIGHT - BAR_H, text, color);
-}
-
-/* Draw list slot `slot` (0 = top) showing line `index`, or blank. */
-static void draw_row(uint32_t slot, uint32_t index)
-{
-    band_fill(ROW_H, COLOR_BG);
-    if (index < g_n_lines)
-    {
-        band_text_small(0, 0, g_lines[index].text, g_lines[index].color);
-    }
-    lcd_draw_image(0, (uint16_t)(LIST_Y + slot * ROW_H), LCD_WIDTH, ROW_H, g_band);
-}
-
-/* Append a row; once the list is longer than the screen it scrolls so the
- * newest row is at the bottom. */
-static void add_line(uint16_t color, const char *fmt, ...)
-{
-    va_list args;
-
-    if (g_n_lines >= MAX_LINES)
-    {
-        memmove(&g_lines[0], &g_lines[1], sizeof(Line) * (MAX_LINES - 1));
-        g_n_lines--;
-    }
-
-    va_start(args, fmt);
-    vsnprintf(g_lines[g_n_lines].text, sizeof(g_lines[0].text), fmt, args);
-    va_end(args);
-    g_lines[g_n_lines].color = color;
-    g_n_lines++;
-
-    if (g_n_lines <= LIST_ROWS)
-    {
-        draw_row(g_n_lines - 1, g_n_lines - 1);
-        return;
-    }
-
-    for (uint32_t slot = 0; slot < LIST_ROWS; slot++)
-    {
-        draw_row(slot, g_n_lines - LIST_ROWS + slot);
-    }
-}
-
-static void ui_init(const char *title)
-{
-    g_n_lines = 0;
-    lcd_init();
-    lcd_fill_color(COLOR_BG);
-    draw_bar(0, title, COLOR_TEXT);
-}
-
-/* ================================================================== *
  *  Record rows: green = ok, red = failed / doesn't match
  * ================================================================== */
 static uint32_t g_ok;
 static uint32_t g_bad;
 
-#define SECTION(...) add_line(COLOR_SECTION, __VA_ARGS__)
+#define SECTION(...) lcd_log_line(LOG_COLOR_SECTION, __VA_ARGS__)
 
 static void record(bool ok, const char *fmt, ...)
 {
     va_list args;
-    char text[ROW_CHARS + 1];
+    char text[LCD_LOG_ROW_CHARS + 1];
 
     va_start(args, fmt);
     vsnprintf(text, sizeof(text), fmt, args);
     va_end(args);
 
-    add_line(ok ? COLOR_PASS : COLOR_FAIL, "%s", text);
+    lcd_log_line(ok ? LOG_COLOR_PASS : LOG_COLOR_FAIL, "%s", text);
     if (ok) { g_ok++; } else { g_bad++; }
 
     osDelay(DEMO_STEP_MS);
@@ -405,16 +249,16 @@ static void run_demo(void)
 {
     char text[24];
 
-    ui_init("SD WRITE DEMO");
-    draw_footer("writing...", COLOR_RUN);
+    lcd_log_init("SD WRITE DEMO");
+    lcd_log_footer("writing...", LOG_COLOR_RUN);
 
     if (!storage_bringup() || !format_card())
     {
-        add_line(COLOR_FAIL, "SD card init/format failed");
-        draw_footer("SD FAIL", COLOR_FAIL);
+        lcd_log_line(LOG_COLOR_FAIL, "SD card init/format failed");
+        lcd_log_footer("SD FAIL", LOG_COLOR_FAIL);
         return;
     }
-    add_line(COLOR_DIM, "card formatted (empty DB)");
+    lcd_log_line(LOG_COLOR_DIM, "card formatted (empty DB)");
 
     SECTION("CONTACTS -> SD");
     for (size_t i = 0; i < N_PEOPLE; i++)
@@ -430,12 +274,12 @@ static void run_demo(void)
     }
 
     SECTION("HISTORY RING BUFFER");
-    add_line(COLOR_DIM, " %u/%u sectors, head %u, seq %lu",
+    lcd_log_line(LOG_COLOR_DIM, " %u/%u sectors, head %u, seq %lu",
              g_history.occupancy, g_history.size, g_history.current_index,
              (unsigned long)g_history.seq);
 
     snprintf(text, sizeof(text), "WROTE %lu/%u", (unsigned long)g_ok, (unsigned)(N_PEOPLE + N_MSGS));
-    draw_footer(text, g_bad == 0 ? COLOR_PASS : COLOR_FAIL);
+    lcd_log_footer(text, g_bad == 0 ? LOG_COLOR_PASS : LOG_COLOR_FAIL);
 }
 
 #else /* PERSIST_DEMO_WRITE == 0 */
@@ -560,7 +404,7 @@ static void show_history(void)
     }
 
     memset(history, 0, sizeof(history));
-    if (message_history_get_list(&g_history, storage, N_MSGS, &count, history) != STRG_OK)
+    if (message_history_get_range(&g_history, storage, 0, N_MSGS, &count, history) != STRG_OK)
     {
         SECTION("HISTORY");
         record(false, " history read failed");
@@ -580,20 +424,20 @@ static void run_demo(void)
     const uint32_t expected = N_PEOPLE + 2 * N_MSGS;
     char text[24];
 
-    ui_init("SD READ DEMO");
-    draw_footer("reading...", COLOR_RUN);
+    lcd_log_init("SD READ DEMO");
+    lcd_log_footer("reading...", LOG_COLOR_RUN);
 
     if (!storage_bringup())
     {
-        add_line(COLOR_FAIL, "SD card init failed");
-        draw_footer("SD FAIL", COLOR_FAIL);
+        lcd_log_line(LOG_COLOR_FAIL, "SD card init failed");
+        lcd_log_footer("SD FAIL", LOG_COLOR_FAIL);
         return;
     }
 
     if (!rebuild_from_card())
     {
-        add_line(COLOR_FAIL, "rebuild from card failed");
-        draw_footer("REBUILD FAIL", COLOR_FAIL);
+        lcd_log_line(LOG_COLOR_FAIL, "rebuild from card failed");
+        lcd_log_footer("REBUILD FAIL", LOG_COLOR_FAIL);
         return;
     }
 
@@ -603,7 +447,7 @@ static void run_demo(void)
     bool pass = (g_bad == 0) && (g_ok == expected);
     snprintf(text, sizeof(text), "READ %lu/%lu %s", (unsigned long)g_ok, (unsigned long)expected,
              pass ? "OK" : "BAD");
-    draw_footer(text, pass ? COLOR_PASS : COLOR_FAIL);
+    lcd_log_footer(text, pass ? LOG_COLOR_PASS : LOG_COLOR_FAIL);
 }
 
 #endif /* PERSIST_DEMO_WRITE */

@@ -72,6 +72,10 @@ add_executable(test_message_history
     test_message_history.cpp
 )
 
+add_executable(test_call_history
+    test_call_history.cpp
+)
+
 set(UNIT_TESTS
     test_hash_table
     test_free_list
@@ -81,6 +85,7 @@ set(UNIT_TESTS
     test_sector_crc
     test_db_recovery
     test_message_history
+    test_call_history
 )
 
 foreach(test ${UNIT_TESTS})

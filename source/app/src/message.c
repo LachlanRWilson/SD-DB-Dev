@@ -69,7 +69,7 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
 
     // if sector full then need to allocate a new sector (checked before journalling
     // so a full sector doesn't leave an active journal behind)
-    if (msg_count >= MESSAGE_BLOCK_CAPACITY)
+    if (msg_count >= MESSAGE_SECTOR_CAPACITY)
     {
         return STRG_FULL;
     }
@@ -300,7 +300,7 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
     STRG_RET ret;
 
     // If position is invalid
-    if (pos > MESSAGE_BLOCK_CAPACITY) {
+    if (pos > MESSAGE_SECTOR_CAPACITY) {
         return STRG_FAIL;
     }
 
@@ -323,7 +323,7 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
     uint16_t msg_count = mSector.var.header.msg_count;
 
     // If message count exceeds the capacity of the sector there is an error with the sector header or sector
-    if (msg_count > MESSAGE_BLOCK_CAPACITY)
+    if (msg_count > MESSAGE_SECTOR_CAPACITY)
     {
         return STRG_FAIL;
     }
@@ -404,7 +404,7 @@ int read_n_messages(Storage *storage, uint16_t startIndex, int n, MessageBuffer 
                 return STRG_FAIL - 1; // return -1 for failue (need to do this because normally fail is 0)
             }
 
-            // set message count to number of messages in new sector (should always be MESSAGE_BLOCK_CAPACITY)
+            // set message count to number of messages in new sector (should always be MESSAGE_SECTOR_CAPACITY)
             msg_count = curMSector.var.header.msg_count;
         }
 
@@ -532,7 +532,6 @@ void create_new_message_sector(MessageSectorBuffer *mSector, const char* phone, 
     // start from a clean sector so no stack garbage is persisted
     memset(mSector, 0, sizeof(*mSector));
 
-    mSector->var.type = MESSAGE_SECTOR;
     mSector->var.header.prev = prev;
     mSector->var.header.next = UINT16_MAX;
     mSector->var.header.msg_count = 0;

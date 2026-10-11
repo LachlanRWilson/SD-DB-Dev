@@ -23,47 +23,25 @@ extern "C" {
 ;
 
 /* ================================================================
- * Database sizing knobs — single source of truth
- * ================================================================
- * These used to be scattered across hash_table.h / contact.h /
- * usage_bitmap.h, each including the others just to compute a byte
- * count or sector offset. That's what caused the circular includes.
- *
- * Rule going forward: if a value is a *number* used for layout math
- * (capacities, sector counts, sector start offsets), it lives here.
- * If it's a *struct definition* (Contact, HashEntry, MessageBlock),
- * it stays in its own header. Struct-size STATIC_ASSERTs in those
- * headers keep the numbers below honest.
- */
+ * Database Structs Size Defines
+ * ================================================================ */
 
-// Number of contacts / hash table slots the system supports
+/* Hash Table */
 #define HASH_TABLE_SIZE 14293
 #define HASH_TABLE_ENTRIES 10000
-
-// Raw byte size of one on-disk Contact record.
-// Kept in sync with sizeof(Contact) via STATIC_ASSERT in contact.h.
-#define CONTACT_RECORD_BYTES 81
-
-// Byte size of ContactSectorHeader (the small used-bitmap header at
-// the front of every ContactSector). Checked via STATIC_ASSERT in
-// contact.h.
-#define CONTACT_SECTOR_HEADER_BYTES 1
-
 // Byte size of the HashEntry struct (see hash_table.h). Only needed
 // here for layout math — the struct itself still lives in hash_table.h.
 #define HASH_ENTRY_BYTES 8
 
-#define MESSAGE_HISTORY_ENTRY_BYTES 164
-// Byte size of the
-#define MESSAGE_HISTORY_SECTOR_BYTES SECTOR_SIZE
 
-// Generic Ring Buffer Sizes
-#define RING_BUFFER_HEADER_BYTES 8
-#define RING_BUFFER_PAYLOAD_BYTES \
-    (SECTOR_PAYLOAD_BYTES - RING_BUFFER_HEADER_BYTES)
-#define RING_BUFFER_SECTOR_BYTES SECTOR_SIZE
+/* Message History */
 
-/* ---- Contact sector layout ------------------------------------- */
+/* Ring Buffer */
+
+/* ------------------ CONTACT INFORMATION ----------------------- */
+
+#define CONTACT_RECORD_BYTES 81
+#define CONTACT_SECTOR_HEADER_BYTES 1
 
 // How many Contact records fit in one 512B sector, after the sector
 // type tag, the ContactSectorHeader and the CRC trailer.
@@ -81,36 +59,63 @@ extern "C" {
 #define CONTACT_MEMORY_SECTOR_SIZE \
     CONTACT_MEMORY_SECTORS(HASH_TABLE_SIZE, CONTACT_SECTOR_CAPACITY)
 
-/* ---- Message region sizing --------------------------------------
- * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock
- * struct layout itself stays in message_extent.h.
- */
+#define TOTAL_CONTACT_SECTOR_SIZE CONTACT_MEMORY_SECTOR_SIZE
+
+/* ------------------ MESSAGE INFORMATION ----------------------- */
+#define MESSAGE_SECTOR_SIZE 2 * HASH_TABLE_SIZE
+
+#define SMS_MAX_MESSAGE_LENGTH 160
+#define MAX_PHONE_LEN 15
+#define MESSAGE_BYTES 164
+#define MESSAGE_SECTOR_HEADER_BYTES 24
+#define MESSAGE_SECTOR_BYTES SECTOR_SIZE
+
+// Fit messages into a 512B block of memory
+#define MESSAGE_SECTOR_CAPACITY \
+    ((SECTOR_PAYLOAD_BYTES - MESSAGE_SECTOR_HEADER_BYTES) / MESSAGE_BYTES)
+
+// Ensure padding is accounted for
+#define MESSAGE_SECTOR_PADDING \
+    (SECTOR_PAYLOAD_BYTES - MESSAGE_SECTOR_HEADER_BYTES - (MESSAGE_SECTOR_CAPACITY * MESSAGE_BYTES))
+
+// Message Memory Region Sector Size
+#define TOTAL_MESSAGE_SECTOR_SIZE (HASH_TABLE_SIZE * 2)
+
+/* ------------------ RING BUFFER INFORMATION ----------------------- */
+#define RING_BUFFER_HEADER_BYTES 8
+#define RING_BUFFER_PAYLOAD_BYTES \
+    (SECTOR_PAYLOAD_BYTES - RING_BUFFER_HEADER_BYTES)
+#define RING_BUFFER_SECTOR_BYTES SECTOR_SIZE
+
+/* ------------------ MESSAGE HISTORY INFORMATION ----------------------- */
+#define MESSAGE_HISTORY_ENTRY_BYTES 164
+#define MESSAGE_HISTORY_SECTOR_BYTES SECTOR_SIZE
+
 #define MESSAGE_HISTORY_SECTOR_CAPACITY \
     (RING_BUFFER_PAYLOAD_BYTES / MESSAGE_BYTES)
 
 #define MESSAGE_HISTORY_SECTOR_PADDING \
     (RING_BUFFER_PAYLOAD_BYTES - (MESSAGE_HISTORY_SECTOR_CAPACITY * MESSAGE_BYTES))
 
-/* ---- Message region sizing --------------------------------------
- * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock
- * struct layout itself stays in message_extent.h.
- */
-#define TOTAL_MESSAGE_SECTOR_SIZE (HASH_TABLE_SIZE * 2)
+// Number of sectors for 10000 latest message history
+#define TOTAL_MESSAGE_HISTORY_SECTOR_SIZE \
+((HASH_TABLE_ENTRIES + MESSAGE_HISTORY_SECTOR_CAPACITY - 1) / MESSAGE_HISTORY_SECTOR_CAPACITY)
 
+/* ------------------ CALL HISTORY INFORMATION ----------------------- */
 
-/* ---- Message History region sizing --------------------------------------
- * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock
- * struct layout itself stays in message_extent.h.
- */
-#define TOTAL_MESSAGE_HISTORY_SECTOR_SIZE 0 // TO BE SET
-/* ---- Call History region sizing --------------------------------------
- * Only what's needed for TOTAL_DATA_SECTOR_SIZE math. The MessageBlock
- * struct layout itself stays in message_extent.h.
- */
-#define TOTAL_CALL_HISTORY_SECTOR_SIZE 0 // TO BE SET
+#define CONTACT_INDEX_BYTES 2 // uint16_t
 
-/* ---- Overall data region ----------------------------------------*/
-#define TOTAL_CONTACT_SECTOR_SIZE CONTACT_MEMORY_SECTOR_SIZE
+#define CALL_HISTORY_ENTRY_BYTES 84
+
+#define CALL_HISTORY_SECTOR_CAPACITY \
+    (RING_BUFFER_PAYLOAD_BYTES / CALL_HISTORY_ENTRY_BYTES)
+
+#define CALL_HISTORY_SECTOR_PADDING \
+    (RING_BUFFER_PAYLOAD_BYTES - (CALL_HISTORY_SECTOR_CAPACITY * CALL_HISTORY_ENTRY_BYTES))
+
+#define TOTAL_CALL_HISTORY_SECTOR_SIZE 5000
+
+/* ---- Overall data region covered by usage bitmap ----------------------------------------*/
 #define TOTAL_DATA_SECTOR_SIZE (TOTAL_CONTACT_SECTOR_SIZE + TOTAL_MESSAGE_SECTOR_SIZE)
 
 /* ================================================================
@@ -207,6 +212,7 @@ extern "C" {
 #define CONTACT_DATA_SECTOR(slot)   (CONTACT_DATA_START_SECTOR + (slot) / CONTACT_SECTOR_CAPACITY)
 #define MESSAGE_DATA_SECTOR(msgInd) (MESSAGE_DATA_START_SECTOR + (msgInd))
 #define MESSAGE_HIST_DATA_SECTOR(mhInd) (MESSAGE_HISTORY_DATA_START_SECTOR + (mhInd))
+#define CALL_HIST_DATA_SECTOR(chInd) (CALL_HISTORY_DATA_START_SECTOR + (chInd))
 #define DATA_SECTOR_TO_RAW(dataSec) (DATA_REGION_START_SECTOR + (dataSec))
 
 #ifdef __cplusplus

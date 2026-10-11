@@ -77,7 +77,7 @@ Last result (2026-10-10): **41/41 pass** with `DB_TEST_WRITE=ON` and **1/1** wit
 | 23 | FindMessageReturnsLatest | `hash_find_message()` returns the newest message (timestamp, body, direction) |
 | 24 | FindMessageMissingContactFails | No chat means the find fails |
 | 25 | FindNMessagesWithinOneSector | Two messages come back newest-first from one sector |
-| 26 | MessageChatRollsOverToNewSector | `MESSAGE_BLOCK_CAPACITY + 1` (3) messages spill onto a second sector, and the latest is still found |
+| 26 | MessageChatRollsOverToNewSector | `MESSAGE_SECTOR_CAPACITY + 1` (3) messages spill onto a second sector, and the latest is still found |
 | 27 | FindNMessagesAcrossSectorBoundary | `hash_find_n_message()` walks back across the sector link in newest-first order |
 | 28 | RemoveMessageChatClearsMessagesOnly | Removing the chat leaves the contact and its name intact |
 | 29 | RemoveMessageChatAcrossMultipleSectors | Removing a 2-sector chat clears all of it |

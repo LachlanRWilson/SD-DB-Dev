@@ -26,7 +26,8 @@ extern "C"
 class MessageHistoryTest : public ::testing::Test
 {
 protected:
-    static constexpr uint16_t kSectors = 4;
+    // Large enough to hold 20+ messages for the get_range paging tests
+    static constexpr uint16_t kSectors = 8;
     static constexpr uint16_t kCap = MESSAGE_HISTORY_SECTOR_CAPACITY;
     static constexpr uint16_t kStart = DATA_REGION_START_SECTOR + MESSAGE_HISTORY_DATA_START_SECTOR;
     static constexpr uint16_t kGuard = kStart + kSectors;
@@ -116,9 +117,32 @@ protected:
         // Sentinel past the requested range to catch overruns
         out[n].timestamp = 0xBEEF;
         count = 0xFFFF;
-        STRG_RET ret = message_history_get_list(&rb, &storage, n, &count, out.data());
+        // get_list is get_range from the newest message
+        STRG_RET ret = message_history_get_range(&rb, &storage, 0, n, &count, out.data());
         EXPECT_EQ(out[n].timestamp, 0xBEEF) << "get_list wrote past n";
         return ret;
+    }
+
+    STRG_RET get_range(size_t start, size_t n, std::vector<Message> &out, size_t &count)
+    {
+        out.assign(n + 1, Message{});
+        // Sentinel past the requested range to catch overruns
+        out[n].timestamp = 0xBEEF;
+        count = 0xFFFF;
+        STRG_RET ret = message_history_get_range(&rb, &storage, start, n, &count, out.data());
+        EXPECT_EQ(out[n].timestamp, 0xBEEF) << "get_range wrote past n";
+        return ret;
+    }
+
+    /** @brief Expect out[0..count) to be messages start..start+count from newest, newest first. */
+    void expect_range(const std::vector<Message> &out, size_t start, size_t count)
+    {
+        for (size_t i = 0; i < count; i++)
+        {
+            Message want = make_message(static_cast<uint16_t>(added - 1 - start - i));
+            EXPECT_EQ(out[i].timestamp, want.timestamp) << "start=" << start << " out[" << i << "]";
+            EXPECT_STREQ(out[i].str, want.str) << "start=" << start << " out[" << i << "]";
+        }
     }
 };
 
@@ -139,16 +163,6 @@ TEST_F(MessageHistoryTest, GetListWithZeroRequestedReturnsZero)
     size_t count;
     EXPECT_EQ(get_list(0, out, count), STRG_OK);
     EXPECT_EQ(count, 0u);
-}
-
-TEST_F(MessageHistoryTest, GetListRejectsNullArguments)
-{
-    Message out[1];
-    size_t count;
-    EXPECT_EQ(message_history_get_list(nullptr, &storage, 1, &count, out), STRG_FAIL);
-    EXPECT_EQ(message_history_get_list(&rb, nullptr, 1, &count, out), STRG_FAIL);
-    EXPECT_EQ(message_history_get_list(&rb, &storage, 1, nullptr, out), STRG_FAIL);
-    EXPECT_EQ(message_history_get_list(&rb, &storage, 1, &count, nullptr), STRG_FAIL);
 }
 
 /* ---- add: first sector --------------------------------------------------- */
@@ -371,6 +385,261 @@ TEST_F(MessageHistoryTest, GetListPropagatesReadFailure)
     std::vector<Message> out;
     size_t count;
     EXPECT_EQ(get_list(2, out, count), STRG_FAIL);
+}
+
+/* ---- get_range ----------------------------------------------------------- */
+
+/**
+ * @brief Number of messages still held on the card after `added` adds.
+ *        Once wrapped, the current sector holds 1..kCap and the rest are full.
+ */
+static size_t stored_after(size_t added, size_t sectors, size_t cap)
+{
+    if (added <= sectors * cap)
+    {
+        return added;
+    }
+    size_t cur_cnt = ((added - 1) % cap) + 1;
+    return cur_cnt + (sectors - 1) * cap;
+}
+
+/**
+ * @brief get_range(0, 10) returns the 10 newest messages, newest first.
+ */
+TEST_F(MessageHistoryTest, GetRangeReturnsFirstTenMessages)
+{
+    add(10);
+    std::vector<Message> out;
+    size_t count;
+    ASSERT_EQ(get_range(0, 10, out, count), STRG_OK);
+    EXPECT_EQ(count, 10u);
+    expect_range(out, 0, count);
+}
+
+/**
+ * @brief With 20 messages stored, get_range(10, 10) returns the second 10 -
+ *        disjoint from the first 10, and together the two pages cover every
+ *        added message in newest-first order.
+ */
+TEST_F(MessageHistoryTest, GetRangeReturnsSecondTenMessages)
+{
+    add(20);
+
+    std::vector<Message> first_page;
+    size_t first_count;
+    ASSERT_EQ(get_range(0, 10, first_page, first_count), STRG_OK);
+    ASSERT_EQ(first_count, 10u);
+
+    std::vector<Message> second_page;
+    size_t second_count;
+    ASSERT_EQ(get_range(10, 10, second_page, second_count), STRG_OK);
+    ASSERT_EQ(second_count, 10u);
+
+    expect_range(first_page, 0, first_count);
+    expect_range(second_page, 10, second_count);
+
+    // The two pages together must be a partition of every added message:
+    // no duplicates between them and nothing missing.
+    std::vector<uint16_t> returned;
+    for (size_t i = 0; i < first_count; i++)
+    {
+        returned.push_back(first_page[i].timestamp);
+    }
+    for (size_t i = 0; i < second_count; i++)
+    {
+        returned.push_back(second_page[i].timestamp);
+    }
+    std::vector<uint16_t> expected;
+    for (int i = 19; i >= 0; i--)
+    {
+        expected.push_back(static_cast<uint16_t>(i));
+    }
+    EXPECT_EQ(returned, expected);
+}
+
+TEST_F(MessageHistoryTest, GetRangeOnEmptyBufferReturnsZero)
+{
+    std::vector<Message> out;
+    size_t count;
+    EXPECT_EQ(get_range(0, 5, out, count), STRG_OK);
+    EXPECT_EQ(count, 0u);
+}
+
+TEST_F(MessageHistoryTest, GetRangeWithZeroRequestedReturnsZero)
+{
+    add(5);
+    std::vector<Message> out;
+    size_t count;
+    EXPECT_EQ(get_range(2, 0, out, count), STRG_OK);
+    EXPECT_EQ(count, 0u);
+}
+
+TEST_F(MessageHistoryTest, GetRangeRejectsNullArguments)
+{
+    Message out[1];
+    size_t count;
+    EXPECT_EQ(message_history_get_range(nullptr, &storage, 0, 1, &count, out), STRG_FAIL);
+    EXPECT_EQ(message_history_get_range(&rb, nullptr, 0, 1, &count, out), STRG_FAIL);
+    EXPECT_EQ(message_history_get_range(&rb, &storage, 0, 1, nullptr, out), STRG_FAIL);
+    EXPECT_EQ(message_history_get_range(&rb, &storage, 0, 1, &count, nullptr), STRG_FAIL);
+}
+
+TEST_F(MessageHistoryTest, GetRangeStartInsidePartialCurrentSector)
+{
+    // Current sector holds 2 messages, start at the older of the two
+    add(kCap + 2);
+    std::vector<Message> out;
+    size_t count;
+    ASSERT_EQ(get_range(1, 3, out, count), STRG_OK);
+    EXPECT_EQ(count, 3u);
+    expect_range(out, 1, count);
+}
+
+TEST_F(MessageHistoryTest, GetRangeStartOnSectorBoundary)
+{
+    // start == messages in current sector: first (newest) message of previous sector
+    add(kCap + 2);
+    std::vector<Message> out;
+    size_t count;
+    ASSERT_EQ(get_range(2, 2, out, count), STRG_OK);
+    EXPECT_EQ(count, 2u);
+    expect_range(out, 2, count);
+}
+
+TEST_F(MessageHistoryTest, GetRangeStartOnOldestSlotOfFullSector)
+{
+    // start lands on slot 0 of the sector behind the current one
+    add(2 * kCap + 1);
+    std::vector<Message> out;
+    size_t count;
+    ASSERT_EQ(get_range(kCap, 2, out, count), STRG_OK);
+    EXPECT_EQ(count, 2u);
+    expect_range(out, kCap, count);
+}
+
+TEST_F(MessageHistoryTest, GetRangeWithFullCurrentSector)
+{
+    add(3 * kCap);
+    std::vector<Message> out;
+    size_t count;
+    ASSERT_EQ(get_range(kCap, kCap, out, count), STRG_OK);
+    EXPECT_EQ(count, static_cast<size_t>(kCap));
+    expect_range(out, kCap, count);
+}
+
+TEST_F(MessageHistoryTest, GetRangePastOldestIsTruncatedNoDuplicates)
+{
+    add(10);
+    std::vector<Message> out;
+    size_t count;
+    ASSERT_EQ(get_range(8, 10, out, count), STRG_OK);
+    EXPECT_EQ(count, 2u);
+    expect_range(out, 8, count);
+}
+
+TEST_F(MessageHistoryTest, GetRangeStartOnOldestMessageReturnsOne)
+{
+    add(10);
+    std::vector<Message> out;
+    size_t count;
+    ASSERT_EQ(get_range(9, 5, out, count), STRG_OK);
+    EXPECT_EQ(count, 1u);
+    expect_range(out, 9, count);
+}
+
+TEST_F(MessageHistoryTest, GetRangeStartPastStoredFails)
+{
+    // Partial current sector and full current sector
+    for (int n : {10, 9})
+    {
+        SetUp();
+        added = 0;
+        add(n);
+        std::vector<Message> out;
+        size_t count;
+        EXPECT_EQ(get_range(n, 5, out, count), STRG_FAIL) << "n=" << n;
+        EXPECT_EQ(get_range(n + 50, 5, out, count), STRG_FAIL) << "n=" << n;
+    }
+}
+
+TEST_F(MessageHistoryTest, GetRangeOnWrappedBufferCrossesWrap)
+{
+    // current_index == 0 with 2 messages, older sectors are kSectors-1..1
+    add(kSectors * kCap + 2);
+    ASSERT_EQ(rb.current_index, 0);
+    const size_t stored_count = stored_after(added, kSectors, kCap);
+
+    std::vector<Message> out;
+    size_t count;
+
+    // Starts in sector 0 and crosses back into sector kSectors-1
+    ASSERT_EQ(get_range(1, 4, out, count), STRG_OK);
+    EXPECT_EQ(count, 4u);
+    expect_range(out, 1, count);
+
+    // Starts behind the wrap (negative index handling)
+    ASSERT_EQ(get_range(2 + kCap + 1, 4, out, count), STRG_OK);
+    EXPECT_EQ(count, 4u);
+    expect_range(out, 2 + kCap + 1, count);
+
+    // Reads to the oldest message and stops
+    ASSERT_EQ(get_range(10, 1000, out, count), STRG_OK);
+    EXPECT_EQ(count, stored_count - 10);
+    expect_range(out, 10, count);
+}
+
+/**
+ * @brief Sweep every valid start for a spread of fill levels (partial, full,
+ *        wrapped) and check each page against the expected newest-first slice.
+ */
+TEST_F(MessageHistoryTest, GetRangeEveryStartMatchesExpectedSlice)
+{
+    const int counts[] = {1, kCap, kCap + 1, 20, kSectors * kCap, kSectors * kCap + 1,
+                          kSectors * kCap + kCap, 2 * kSectors * kCap + 2};
+    const size_t page = 4;
+    for (int n : counts)
+    {
+        SetUp();
+        added = 0;
+        add(n);
+        const size_t stored_count = stored_after(added, kSectors, kCap);
+
+        for (size_t start = 0; start < stored_count; start++)
+        {
+            std::vector<Message> out;
+            size_t count;
+            ASSERT_EQ(get_range(start, page, out, count), STRG_OK) << "n=" << n << " start=" << start;
+            EXPECT_EQ(count, std::min(page, stored_count - start)) << "n=" << n << " start=" << start;
+            expect_range(out, start, count);
+        }
+    }
+}
+
+TEST_F(MessageHistoryTest, GetRangeDoesNotModifyStorage)
+{
+    add(20);
+    std::vector<uint8_t> before = mem;
+    std::vector<Message> out;
+    size_t count;
+    ASSERT_EQ(get_range(10, 10, out, count), STRG_OK);
+    EXPECT_EQ(mem, before);
+}
+
+TEST_F(MessageHistoryTest, GetRangePropagatesReadFailure)
+{
+    add(10);
+    std::vector<Message> out;
+    size_t count;
+
+    // Failure on the current-sector read
+    ctx.read_calls = 0;
+    ctx.fail_after_read = 1;
+    EXPECT_EQ(get_range(5, 5, out, count), STRG_FAIL);
+
+    // Failure on a later sector read
+    ctx.read_calls = 0;
+    ctx.fail_after_read = 3;
+    EXPECT_EQ(get_range(0, 10, out, count), STRG_FAIL);
 }
 
 /* ---- persistence --------------------------------------------------------- */

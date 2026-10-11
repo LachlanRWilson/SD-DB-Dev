@@ -153,7 +153,7 @@ bool test_extent_chaining(MessageExtent *extent)
     Message msg = {0};
 
 
-    for(uint32_t i = 0; i < MESSAGE_BLOCK_CAPACITY + 10; i++)
+    for(uint32_t i = 0; i < MESSAGE_SECTOR_CAPACITY + 10; i++)
     {
         msg.timestamp = i;
 

@@ -48,7 +48,7 @@ TEST_F(RingBufferIteratorTest, GetReturnsRingBuffersCurrentIndex)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     uint16_t value = 0;
     ASSERT_TRUE(iterator_get_fn(&it, &value));
@@ -64,7 +64,7 @@ TEST_F(RingBufferIteratorTest, NextWalksSequentiallyThroughOccupiedRange)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     for (uint16_t expected = 1; expected <= 3; expected++)
     {
@@ -85,7 +85,7 @@ TEST_F(RingBufferIteratorTest, NextWrapsAtUpperLimit)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     // Walk to the upper limit (occupancy - 1).
     for (int i = 0; i < 3; i++)
@@ -112,7 +112,7 @@ TEST_F(RingBufferIteratorTest, PrevWrapsAtLowerLimit)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     uint16_t value = 0;
     ASSERT_TRUE(iterator_get_fn(&it, &value));
@@ -133,7 +133,7 @@ TEST_F(RingBufferIteratorTest, IteratorCursorIsIndependentOfRingBufferCursor)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     ASSERT_TRUE(iterator_next_fn(&it));
     ASSERT_TRUE(iterator_next_fn(&it));
@@ -167,7 +167,7 @@ TEST_F(RingBufferIteratorTest, RejectsNullArguments)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
     EXPECT_FALSE(iterator_get_fn(&it, nullptr));
 }
 
@@ -180,7 +180,7 @@ TEST_F(RingBufferIteratorTest, PrevWalksSequentiallyThroughOccupiedRange)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     for (int expected = 2; expected >= 0; expected--)
     {
@@ -205,7 +205,7 @@ TEST_F(RingBufferIteratorTest, NextFullCycleReturnsToStart)
         fill(kOccupancy);
 
         RBIteratorCtx ctx;
-        Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+        Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
         for (int i = 0; i < kOccupancy; i++)
         {
@@ -228,7 +228,7 @@ TEST_F(RingBufferIteratorTest, NextThenPrevReturnsToSameIndex)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     for (int i = 0; i < 6; i++)
     {
@@ -256,7 +256,7 @@ TEST_F(RingBufferIteratorTest, EmptyBufferStaysAtIndexZero)
     ASSERT_TRUE(set_ring_buffer(&rb, 8, 0));
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     uint16_t value = 1;
     ASSERT_TRUE(iterator_next_fn(&it));
@@ -279,7 +279,7 @@ TEST_F(RingBufferIteratorTest, GetFailsWhenStartIsOutsideOccupiedRange)
     fill(4);
 
     RBIteratorCtx ctx;
-    Iterator it = ring_buffer_iterator_init(&ctx, &rb);
+    Iterator it = ring_buffer_iterator_init(&ctx, &rb, rb.current_index);
 
     uint16_t value = 0;
     EXPECT_FALSE(iterator_get_fn(&it, &value));
@@ -299,8 +299,8 @@ TEST_F(RingBufferIteratorTest, MultipleIteratorsAreIndependent)
 
     RBIteratorCtx ctx_a;
     RBIteratorCtx ctx_b;
-    Iterator a = ring_buffer_iterator_init(&ctx_a, &rb);
-    Iterator b = ring_buffer_iterator_init(&ctx_b, &rb);
+    Iterator a = ring_buffer_iterator_init(&ctx_a, &rb, rb.current_index);
+    Iterator b = ring_buffer_iterator_init(&ctx_b, &rb, rb.current_index);
 
     ASSERT_TRUE(iterator_next_fn(&a));
     ASSERT_TRUE(iterator_next_fn(&a));

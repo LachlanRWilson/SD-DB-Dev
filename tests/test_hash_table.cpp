@@ -638,12 +638,12 @@ TEST_F(HashTableTest, FindNMessagesWithinOneSector)
  *        over onto a new, linked sector, and the latest message is
  *        still the one just sent.
  *
- * MESSAGE_BLOCK_CAPACITY is small (computed from a 512B sector), so
+ * MESSAGE_SECTOR_CAPACITY is small (computed from a 512B sector), so
  * three messages is enough to force a rollover.
  */
 TEST_F(HashTableTest, MessageChatRollsOverToNewSector)
 {
-    for (int i = 0; i < MESSAGE_BLOCK_CAPACITY + 1; i++)
+    for (int i = 0; i < MESSAGE_SECTOR_CAPACITY + 1; i++)
     {
         ASSERT_TRUE(send("0412345678", static_cast<uint16_t>(100 + i), true,
                           "msg " + std::to_string(i)))
@@ -652,7 +652,7 @@ TEST_F(HashTableTest, MessageChatRollsOverToNewSector)
 
     MessageBuffer latest{};
     ASSERT_TRUE(hash_find_message(&htable, "0412345678", &latest));
-    EXPECT_EQ(latest.msg.timestamp, 100 + MESSAGE_BLOCK_CAPACITY);
+    EXPECT_EQ(latest.msg.timestamp, 100 + MESSAGE_SECTOR_CAPACITY);
 }
 
 /**
@@ -661,7 +661,7 @@ TEST_F(HashTableTest, MessageChatRollsOverToNewSector)
  */
 TEST_F(HashTableTest, FindNMessagesAcrossSectorBoundary)
 {
-    const int total = MESSAGE_BLOCK_CAPACITY + 1;
+    const int total = MESSAGE_SECTOR_CAPACITY + 1;
 
     for (int i = 0; i < total; i++)
     {
@@ -708,7 +708,7 @@ TEST_F(HashTableTest, RemoveMessageChatClearsMessagesOnly)
  */
 TEST_F(HashTableTest, RemoveMessageChatAcrossMultipleSectors)
 {
-    const int total = MESSAGE_BLOCK_CAPACITY + 1;
+    const int total = MESSAGE_SECTOR_CAPACITY + 1;
 
     for (int i = 0; i < total; i++)
     {

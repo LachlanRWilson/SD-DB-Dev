@@ -708,13 +708,13 @@ static void test_FindNMessagesWithinOneSector(void)
     CHECK(TEXT_IS(results[1], "first"));
 }
 
-/* MESSAGE_BLOCK_CAPACITY is small (computed from a 512B sector), so
+/* MESSAGE_SECTOR_CAPACITY is small (computed from a 512B sector), so
  * capacity + 1 messages is enough to force a rollover. */
 static void test_MessageChatRollsOverToNewSector(void)
 {
     char text[16];
 
-    for (int i = 0; i < (int)MESSAGE_BLOCK_CAPACITY + 1; i++)
+    for (int i = 0; i < (int)MESSAGE_SECTOR_CAPACITY + 1; i++)
     {
         snprintf(text, sizeof(text), "msg %d", i);
         CHECK(send("0412345678", (uint16_t)(100 + i), true, text));
@@ -723,12 +723,12 @@ static void test_MessageChatRollsOverToNewSector(void)
     MessageBuffer latest;
     memset(&latest, 0, sizeof(latest));
     CHECK(hash_find_message(&g_table, "0412345678", &latest));
-    CHECK(latest.msg.timestamp == 100 + MESSAGE_BLOCK_CAPACITY);
+    CHECK(latest.msg.timestamp == 100 + MESSAGE_SECTOR_CAPACITY);
 }
 
 static void test_FindNMessagesAcrossSectorBoundary(void)
 {
-    const int total = (int)MESSAGE_BLOCK_CAPACITY + 1;
+    const int total = (int)MESSAGE_SECTOR_CAPACITY + 1;
     char text[16];
 
     for (int i = 0; i < total; i++)
@@ -737,7 +737,7 @@ static void test_FindNMessagesAcrossSectorBoundary(void)
         CHECK(send("0412345678", (uint16_t)(100 + i), true, text));
     }
 
-    MessageBuffer results[MESSAGE_BLOCK_CAPACITY + 1];
+    MessageBuffer results[MESSAGE_SECTOR_CAPACITY + 1];
     memset(results, 0, sizeof(results));
     int n = hash_find_n_message(&g_table, "0412345678", total, results);
 
@@ -769,7 +769,7 @@ static void test_RemoveMessageChatClearsMessagesOnly(void)
 
 static void test_RemoveMessageChatAcrossMultipleSectors(void)
 {
-    const int total = (int)MESSAGE_BLOCK_CAPACITY + 1;
+    const int total = (int)MESSAGE_SECTOR_CAPACITY + 1;
     char text[16];
 
     for (int i = 0; i < total; i++)
@@ -978,7 +978,7 @@ static void test_GetContactListIterReturnsSecondTenContacts(void) { check_second
 
 /* Chat left on the card for Charlie: forces a second linked sector. */
 #define PERSIST_CHAT_PHONE "0433333333"
-#define PERSIST_CHAT_LEN   ((int)MESSAGE_BLOCK_CAPACITY + 1)
+#define PERSIST_CHAT_LEN   ((int)MESSAGE_SECTOR_CAPACITY + 1)
 
 #if DB_TEST_WRITE
 
@@ -1188,7 +1188,7 @@ void dbTask(void *arg)
     g_db_report.total = (uint32_t)N_TESTS;
     g_db_report.magic = DB_REPORT_MAGIC;
 
-    htest_ui_init((uint32_t)N_TESTS);
+    htest_ui_init("HW UNIT TESTS", (uint32_t)N_TESTS);
 
     if (!storage_bringup())
     {

@@ -260,7 +260,7 @@ TEST_F(HashTableEdgeTest, FindNMessagesMoreThanAvailableReturnsOnlyWhatExists)
  */
 TEST_F(HashTableEdgeTest, TwoContactsWithMultiSectorChatsDoNotInterfere)
 {
-    const int total = MESSAGE_BLOCK_CAPACITY + 1;
+    const int total = MESSAGE_SECTOR_CAPACITY + 1;
 
     for (int i = 0; i < total; i++)
     {

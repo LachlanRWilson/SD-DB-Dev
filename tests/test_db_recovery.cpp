@@ -208,7 +208,7 @@ TEST_F(DbRecoveryTest, FullMessageSectorLeavesJournalCommitted)
     MessageBuffer m = create_message(1, true, (char *)"x");
 
     ASSERT_EQ(write_new_message_sector(storage, &journal, "0411111111", 0, &m), STRG_OK);
-    for (uint32_t i = 1; i < MESSAGE_BLOCK_CAPACITY; i++)
+    for (uint32_t i = 1; i < MESSAGE_SECTOR_CAPACITY; i++)
     {
         ASSERT_EQ(write_message(storage, &journal, 0, &m), STRG_OK);
     }
@@ -240,7 +240,7 @@ TEST_F(DbRecoveryTest, ReconstructMessageRestoresLatestSectors)
 
     // "0411111111" spans two message sectors, "0422222222" one
     const char *phones[] = {"0411111111", "0422222222", "0433333333"};
-    const int counts[] = {MESSAGE_BLOCK_CAPACITY + 1, 1, 0};
+    const int counts[] = {MESSAGE_SECTOR_CAPACITY + 1, 1, 0};
 
     for (int p = 0; p < 3; p++)
     {
