@@ -132,3 +132,6 @@ else ()
     target_link_libraries(app_logic PRIVATE platform_host)
     target_compile_definitions(app_logic PUBLIC HOST_BUILD=1)
 endif()
+
+# Benchmarks (own targets, never part of app_logic): see source/benchmark/
+add_subdirectory(benchmark)

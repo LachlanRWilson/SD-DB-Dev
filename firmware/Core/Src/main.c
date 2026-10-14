@@ -34,6 +34,9 @@
 #include "mh_main.h"
 #include "mh_demo.h"
 #include "test_fmc.h"
+#if NAME_INDEX_BENCH
+#include "name_index_bench.h"
+#endif
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -117,6 +120,8 @@ int main(void)
   MH_Test_Init();
 #elif MH_DEMO
   MH_Demo_Init();
+#elif NAME_INDEX_BENCH
+  NameIndexBench_Init();
 #else
   DB_Init();
 #endif

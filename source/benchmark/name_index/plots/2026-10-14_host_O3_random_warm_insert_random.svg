@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="420" font-family="sans-serif" font-size="11">
+<rect width="640" height="420" fill="white"/>
+<text x="70" y="18" font-size="13">insert_random: random, warm, dcache n/a (2026-10-14_host_O3)</text>
+<rect x="70" y="30" width="400" height="340" fill="none" stroke="#888"/>
+<line x1="70" y1="370.0" x2="470" y2="370.0" stroke="#eee"/>
+<text x="64" y="374.0" text-anchor="end">100</text>
+<line x1="70" y1="200.0" x2="470" y2="200.0" stroke="#eee"/>
+<text x="64" y="204.0" text-anchor="end">1000</text>
+<line x1="70" y1="30.0" x2="470" y2="30.0" stroke="#eee"/>
+<text x="64" y="34.0" text-anchor="end">10000</text>
+<line x1="70.0" y1="370" x2="70.0" y2="374" stroke="#888"/>
+<text x="70.0" y="386" text-anchor="middle" font-size="9">100</text>
+<line x1="209.8" y1="370" x2="209.8" y2="374" stroke="#888"/>
+<text x="209.8" y="386" text-anchor="middle" font-size="9">500</text>
+<line x1="270.0" y1="370" x2="270.0" y2="374" stroke="#888"/>
+<text x="270.0" y="386" text-anchor="middle" font-size="9">1000</text>
+<line x1="305.2" y1="370" x2="305.2" y2="374" stroke="#888"/>
+<text x="305.2" y="386" text-anchor="middle" font-size="9">1500</text>
+<line x1="330.2" y1="370" x2="330.2" y2="374" stroke="#888"/>
+<text x="330.2" y="386" text-anchor="middle" font-size="9">2000</text>
+<line x1="349.6" y1="370" x2="349.6" y2="374" stroke="#888"/>
+<text x="349.6" y="386" text-anchor="middle" font-size="9">2500</text>
+<line x1="365.4" y1="370" x2="365.4" y2="374" stroke="#888"/>
+<text x="365.4" y="386" text-anchor="middle" font-size="9">3000</text>
+<line x1="390.4" y1="370" x2="390.4" y2="374" stroke="#888"/>
+<text x="390.4" y="386" text-anchor="middle" font-size="9">4000</text>
+<line x1="409.8" y1="370" x2="409.8" y2="374" stroke="#888"/>
+<text x="409.8" y="386" text-anchor="middle" font-size="9">5000</text>
+<line x1="445.0" y1="370" x2="445.0" y2="374" stroke="#888"/>
+<text x="445.0" y="386" text-anchor="middle" font-size="9">7500</text>
+<line x1="470.0" y1="370" x2="470.0" y2="374" stroke="#888"/>
+<text x="470.0" y="386" text-anchor="middle" font-size="9">10000</text>
+<text x="270.0" y="410" text-anchor="middle">N (entries)</text>
+<text x="14" y="200.0" transform="rotate(-90 14 200.0)" text-anchor="middle">ns (host, non-authoritative)</text>
+<polyline points="70.0,332.6 209.8,349.5 270.0,341.1 305.2,334.4 330.2,333.5 349.6,327.8 365.4,327.0 390.4,321.1 409.8,319.2 445.0,314.2 470.0,306.9" fill="none" stroke="#d62728" stroke-width="1.6"/>
+<polyline points="70.0,262.0 209.8,258.3 270.0,275.0 305.2,277.9 330.2,271.6 349.6,257.5 365.4,219.8 390.4,223.3 409.8,81.6 445.0,257.0 470.0,245.4" fill="none" stroke="#d62728" stroke-width="1.6" stroke-dasharray="5,3"/>
+<line x1="480" y1="44" x2="500" y2="44" stroke="#d62728" stroke-width="1.6"/>
+<text x="504" y="48">avl_tree median</text>
+<line x1="480" y1="57" x2="500" y2="57" stroke="#d62728" stroke-width="1.6" stroke-dasharray="5,3"/>
+<text x="504" y="61">avl_tree max</text>
+<polyline points="70.0,341.6 209.8,351.2 270.0,334.4 305.2,321.5 330.2,315.2 349.6,305.1 365.4,299.2 390.4,285.1 409.8,277.1 445.0,253.1 470.0,225.0" fill="none" stroke="#1f77b4" stroke-width="1.6"/>
+<polyline points="70.0,270.7 209.8,208.0 270.0,264.0 305.2,214.3 330.2,257.0 349.6,189.9 365.4,240.3 390.4,129.1 409.8,217.7 445.0,182.5 470.0,154.2" fill="none" stroke="#1f77b4" stroke-width="1.6" stroke-dasharray="5,3"/>
+<line x1="480" y1="74" x2="500" y2="74" stroke="#1f77b4" stroke-width="1.6"/>
+<text x="504" y="78">sorted_array median</text>
+<line x1="480" y1="87" x2="500" y2="87" stroke="#1f77b4" stroke-width="1.6" stroke-dasharray="5,3"/>
+<text x="504" y="91">sorted_array max</text>
+<polyline points="70.0,359.7 209.8,337.6 270.0,314.5 305.2,296.1 330.2,287.7 349.6,273.4 365.4,264.6 390.4,250.0 409.8,238.7 445.0,213.4 470.0,189.4" fill="none" stroke="#2ca02c" stroke-width="1.6"/>
+<polyline points="70.0,300.3 209.8,245.1 270.0,208.1 305.2,164.9 330.2,78.7 349.6,146.0 365.4,215.4 390.4,198.9 409.8,123.9 445.0,154.1 470.0,122.9" fill="none" stroke="#2ca02c" stroke-width="1.6" stroke-dasharray="5,3"/>
+<line x1="480" y1="104" x2="500" y2="104" stroke="#2ca02c" stroke-width="1.6"/>
+<text x="504" y="108">sorted_array_wordcopy median</text>
+<line x1="480" y1="117" x2="500" y2="117" stroke="#2ca02c" stroke-width="1.6" stroke-dasharray="5,3"/>
+<text x="504" y="121">sorted_array_wordcopy max</text>
+</svg>
