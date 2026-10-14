@@ -39,24 +39,31 @@ if (BUILD_STM32)
         app/src/crc_stm32.c
         app/src/sd_storage.c
         # db_main.c runs the contact + message DB hardware tests (journalling + hash-table reconstruction)
-        app/src/db_main.c
+        app/hw_tests/src/db_main.c
         # LCD view of the db_main.c hardware unit tests
-        app/src/htest_ui.c
+        app/hw_tests/src/htest_ui.c
         # SD bus read-integrity diagnostic (-DSD_BUS_TEST=ON runs it instead of db_main.c)
-        app/src/sd_bus_test.c
+        app/hw_tests/src/sd_bus_test.c
         # SD persistence demo on the LCD (-DPERSIST_DEMO=ON runs it instead of db_main.c)
-        app/src/persist_demo.c
+        app/demos/src/persist_demo.c
         # Message history hardware unit tests (-DMH_TEST=ON runs them instead of db_main.c)
-        app/src/mh_main.c
+        app/hw_tests/src/mh_main.c
         # Message history ring buffer demo on the LCD (-DMH_DEMO=ON runs it instead of db_main.c)
-        app/src/mh_demo.c
+        app/demos/src/mh_demo.c
         # Scrolling text log on the LCD, shared by the demos
         app/src/lcd_log.c
         # AFR240320A0-2.0INTM LCD driver (over the FMC bus) + its on-hardware smoke tests
         app/src/fmc_func.c
-        app/src/test_fmc.c
+        app/hw_tests/src/test_fmc.c
         app/src/lcd_font.c
-        app/src/fmc_ui_test.c
+        app/hw_tests/src/fmc_ui_test.c
+    )
+
+    # On-hardware unit tests and LCD demos live in their own folders; PUBLIC so
+    # firmware/Core/Src/main.c and freertos.c can still #include their headers
+    target_include_directories(app_logic PUBLIC
+        app/hw_tests/include
+        app/demos/include
     )
 
     # PRIVATE as only app sources #include "platform_*.h"

@@ -274,8 +274,9 @@ not the first.
 the contact doesn't exist at all.
 
 ### FindNMessagesWithinOneSector
-Two messages (fits in one sector, `MESSAGE_SECTOR_CAPACITY == 2`); `hash_find_n_message(n=2)`
-must return them **newest-first**.
+Two messages (fits in one sector, `MESSAGE_SECTOR_CAPACITY == 2`); `hash_find_n_message(start=0, n=2)`
+must return them **newest-first**. Like every `hash_find_n_message()` caller, results go into a
+`Message` array (`results[i].timestamp`), not `MessageBuffer`.
 
 ### MessageChatRollsOverToNewSector
 Sends `MESSAGE_SECTOR_CAPACITY + 1` (3) messages — more than fit in one sector — and checks the
@@ -297,7 +298,9 @@ full newest-first ordering across the sector boundary.
 (undefined behaviour) as soon as more than one message is read back — the `msg_read %
 CAPACITY` term doesn't correspond to "position within the current sector" once you've crossed a
 sector boundary or read more than one message from a partially-full sector. Simplified to
-`msg_count - 1` (since `msg_count` is already a per-sector countdown).
+`msg_count - 1` (since `msg_count` is already a per-sector countdown). `read_n_messages()` has
+since been rewritten to take a start index (chat paging); the per-slot logic is now covered in
+detail by [test_message_range.md](test_message_range.md).
 
 ### RemoveMessageChatClearsMessagesOnly
 Insert a contact, send one message, remove the message chat (`hash_remove_message`) — the
@@ -433,7 +436,7 @@ Same at 10000 contacts (~70% load, just under the 75% `hash_cleanup()` threshold
 
 ### FiveThousandMessagesForSingleContact
 5000 messages to one contact, rolling over many linked message sectors. `hash_find_message()`
-returns the newest, and `hash_find_n_message(…, 5000, …)` returns all 5000 newest-first with the
+returns the newest, and `hash_find_n_message(…, 0, 5000, …)` returns all 5000 newest-first with the
 right timestamps.
 
 ### FiveThousandMessagesBetweenTwoContacts

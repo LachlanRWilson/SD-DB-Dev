@@ -1,6 +1,6 @@
 # Hardware Unit Tests (`db_main.c`)
 
-[`source/app/src/db_main.c`](../source/app/src/db_main.c) runs the host `HashTableTest` suite
+[`source/app/hw_tests/src/db_main.c`](../source/app/hw_tests/src/db_main.c) runs the host `HashTableTest` suite
 ([`tests/test_hash_table.cpp`](../tests/test_hash_table.cpp)) on the NUCLEO-H723ZG against the
 real SD card ([`sd_storage.c`](../source/app/src/sd_storage.c)) instead of the heap-backed mock.
 Each `TEST_F` has a `test_<Name>()` function with the same checks. Build options are in
@@ -18,7 +18,7 @@ Last result (2026-10-10): **41/41 pass** with `DB_TEST_WRITE=ON` and **1/1** wit
   usage bitmap from the card and calls `hash_reconstruct_contact()`.
 - A failed `CHECK()` records the line and ends that test. The suite then moves on to the next
   test.
-- Results go to the LCD ([`htest_ui.c`](../source/app/src/htest_ui.c)), to `g_db_report`
+- Results go to the LCD ([`htest_ui.c`](../source/app/hw_tests/src/htest_ui.c)), to `g_db_report`
   (readable over SWD) and to the PB0 LED.
 
 ## Differences from the host suite

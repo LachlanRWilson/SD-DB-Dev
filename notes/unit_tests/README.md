@@ -3,7 +3,7 @@
 One file per active GTest test file in [`tests/`](../../tests), each explaining what every test
 checks and why, with a per-test checklist for tracking your own read-through. All suites below
 are currently wired into [`tests/CMakeLists.txt`](../../tests/CMakeLists.txt) and pass via
-`ctest` (317 tests total, run from `build-host/`, last checked 2026-10-11).
+`ctest` (336 tests total, run from `build-host/`, last checked 2026-10-14).
 
 | Suite | File | Tests | Covers |
 |---|---|---|---|
@@ -19,8 +19,9 @@ are currently wired into [`tests/CMakeLists.txt`](../../tests/CMakeLists.txt) an
 | `RingBufferIteratorTest` / `RingBufferStateTest` / `RingBufferReconstructTest` **(new)** | [test_ring_buffer.md](test_ring_buffer.md) | 33 | [`ring_buffer.c`](../../source/app/src/ring_buffer.c) |
 | `SectorCrcTest` **(new)** | [test_sector_crc.md](test_sector_crc.md) | 20 | per-sector CRC trailer in [`storage.c`](../../source/app/src/storage.c), plus contacts, messages, bitmap, [`superheader.c`](../../source/app/src/superheader.c) |
 | `DbRecoveryTest` **(new)** | [test_db_recovery.md](test_db_recovery.md) | 7 | cross-module: message addressing, power-cut rollback, `hash_reconstruct_message()` |
-| `MessageHistoryTest` **(new)** | [test_message_history.md](test_message_history.md) | 36 | [`message_history.c`](../../source/app/src/message_history.c) |
+| `MessageHistoryTest` **(new)** | [test_message_history.md](test_message_history.md) | 38 | [`message_history.c`](../../source/app/src/message_history.c) |
 | `CallHistoryTest` **(new)** | [test_call_history.md](test_call_history.md) | 40 | [`call_history.c`](../../source/app/src/call_history.c), port of `MessageHistoryTest` |
+| `MessageRangeTest` **(new)** | [test_message_range.md](test_message_range.md) | 19 | `read_n_messages()` in [`message.c`](../../source/app/src/message.c): paging back through one chat |
 
 Plus [test_support.md](test_support.md) — not a test suite, but the shared `FailableStorageCtx`
 mock most of the failure-path suites use to inject storage read/write failures. Worth reading
@@ -41,6 +42,12 @@ before the test body runs) that shows up in several of them.
   range includes `index == occupancy`; `move_next`/`move_prev` wrap at different points) that
   look like off-by-ones worth a decision.
 - **Contact list paging and scale tests (`22cd532`, `b941475`)** in `HashTableTest`.
+- **Chat paging (2026-10-14).** `read_n_messages()` now takes a `startMsg` index and returns
+  `STRG_RET` with the count in `out_count`, writing into a `Message` array.
+  `hash_find_n_message()` became `(table, phone, start, n, Message *out)`, so every
+  `HashTableTest`/`HashTableEdgeTest` caller passes `start = 0` and reads `results[i].timestamp`
+  instead of `results[i].msg.timestamp`. `MessageRangeTest` covers the new read, including a
+  hop limit that stops a looping `prev` chain.
 
 ## Not covered here
 
@@ -51,7 +58,7 @@ nothing currently passing to verify — worth deciding whether to revive, rewrit
 (Stale build artefacts for some of them, e.g. `tests/test_message_extent`, are still sitting in
 `tests/`.)
 
-The hardware runner (`test_db_main.c`, see [`hw_unit_test.md`](../hw_unit_test.md)) runs the same
+The hardware runner (`db_main.c`, see [`hw_unit_test.md`](../hw_unit_test.md)) runs the same
 logic on the STM32 and isn't documented test-by-test here.
 
 ## Suggested reading order
@@ -68,6 +75,7 @@ logic on the STM32 and isn't documented test-by-test here.
    at the top first.
    Then `test_message_history.md` (history layer on top of the ring buffer) and
    `test_call_history.md` (only the differences from message history).
+   `test_message_range.md` is the same paging idea for a single chat's linked sectors.
 5. `test_hash_table.md` + `test_hash_table_edge.md` + `test_hash_table_iterator.md` — the largest and most consequential, since
    it drives contact/message storage through the journal and usage bitmap underneath. Several
    tests across both files were written to pin down bugs found during review (marked

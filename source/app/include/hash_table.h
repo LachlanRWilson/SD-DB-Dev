@@ -19,12 +19,7 @@ extern "C" {
 #include "contact.h"
 #include "message.h"
 #include "iterator.h"
-
-// Struct Sizes
-#define HASH_ENTRY_BYTES 8
-
-#define HASH_TABLE_SIZE 14293
-
+#include "mem_layout.h"
 
 // Opaque Declarations
 typedef struct FreeList FreeList;
@@ -43,11 +38,11 @@ enum
 // Hash Entry that points to SD Card sector (8B)
 typedef struct
 {
-    uint16_t id; // Contact ID (2B) PHONE NUMBER
-    uint16_t sector; // SD Sector (2B)
+    uint16_t id;                // Contact ID (2B) PHONE NUMBER
+    uint16_t sector;            // SD Sector (2B)
     uint16_t latest_msg_extent; // Latest Message Extent offset (2B)
-    ENTRY_STATE state;  // Entry occupation state (1B)
-    uint8_t padding; // (1B)
+    ENTRY_STATE state;          // Entry occupation state (1B)
+    uint8_t padding;            // (1B)
 } HashEntry;
 
 // Static checks to ensure the size of the structs are correct
@@ -57,14 +52,14 @@ STATIC_ASSERT(sizeof(HashEntry) == HASH_ENTRY_BYTES, "Unexpected HashEntry size"
 // Information Struct about hash table
 typedef struct
 {
-    HashEntry *htable; // In RAM hash table (allocated in RAM D1)
-    Storage *storage; // Pointer to storage struct (allocated in database struct)
-    FreeList *contact_allocator; // Pointer to contat FLS struct (allocates in database struct)
-    FreeList *message_allocator; // Pointer to message FLS struct (allocated in database struct)
-    size_t num_elems; // amount of elements in table
-    size_t size; // total space in table
+    HashEntry *htable;              // In RAM hash table (allocated in RAM D1)
+    Storage *storage;               // Pointer to storage struct (allocated in database struct)
+    FreeList *contact_allocator;    // Pointer to contat FLS struct (allocates in database struct)
+    FreeList *message_allocator;    // Pointer to message FLS struct (allocated in database struct)
+    size_t num_elems;               // amount of elements in table
+    size_t size;                    // total space in table
 #if defined (HOST_BUILD)
-    size_t collision_count; // for benchmarking hash functions
+    size_t collision_count;         // for benchmarking hash functions
 #endif
 } HashTable;
 

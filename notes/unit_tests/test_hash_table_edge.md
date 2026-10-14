@@ -89,9 +89,14 @@ the global macro instead of `table->size` is itself worth fixing.
 
 ## `hash_find_n_message()` boundary requests
 
+Both tests call `hash_find_n_message(table, phone, start = 0, n, Message *out)`. The `start`
+argument and `Message` output came in with chat paging; see [test_message_range.md](test_message_range.md)
+for `read_n_messages()` itself.
+
 ### FindNMessagesZeroRequestedReturnsZero
-`n = 0` returns `0` messages read, without touching the output buffer or crashing on a
-zero-iteration edge in the read loop.
+`n = 0` returns `0` messages read, without touching the output buffer. `read_n_messages()`
+returns `STRG_OK` with a count of 0 for `n == 0` before reading anything, so this doesn't come
+back as the -1 error value.
 
 ### FindNMessagesMoreThanAvailableReturnsOnlyWhatExists
 Requesting 10 messages when only 2 exist returns exactly `2` — the "walk back through linked
