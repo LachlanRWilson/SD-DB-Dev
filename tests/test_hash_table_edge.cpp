@@ -234,8 +234,8 @@ TEST_F(HashTableEdgeTest, FindNMessagesZeroRequestedReturnsZero)
 {
     ASSERT_TRUE(send("0412345678", 100, true, "hello"));
 
-    MessageBuffer out{};
-    EXPECT_EQ(hash_find_n_message(&htable, "0412345678", 0, &out), 0);
+    Message out{};
+    EXPECT_EQ(hash_find_n_message(&htable, "0412345678", 0, 0, &out), 0);
 }
 
 TEST_F(HashTableEdgeTest, FindNMessagesMoreThanAvailableReturnsOnlyWhatExists)
@@ -243,8 +243,8 @@ TEST_F(HashTableEdgeTest, FindNMessagesMoreThanAvailableReturnsOnlyWhatExists)
     ASSERT_TRUE(send("0412345678", 100, true, "first"));
     ASSERT_TRUE(send("0412345678", 200, true, "second"));
 
-    MessageBuffer out[10]{};
-    int n = hash_find_n_message(&htable, "0412345678", 10, out);
+    Message out[10]{};
+    int n = hash_find_n_message(&htable, "0412345678", 0, 10, out);
 
     EXPECT_EQ(n, 2);
 }

@@ -63,11 +63,11 @@ typedef struct {               // response (DB -> UI), static buffer owned by db
 - DBMS calls to wire in (from `thesis/dev/source/app/include/hash_table.h`; it's the phone-keyed API and is newer than `database.h`):
   - contact GET → `hash_find_contact(table, phone, &ContactBuffer)`
   - contact SET → `hash_insert_contact(table, journal, &ContactBuffer)` (`create_contact(name, phone)` in `contact.h:144`)
-  - contact LIST → `hash_get_contact_list(table, start, n, ContactBuffer*)`
+  - contact LIST → `hash_get_contact_list(table, start, n, &count, ContactBuffer*)`. Returns contacts in **hash table slot order, not alphabetical order**.
   - message GET (latest) → `hash_find_message(table, phone, &MessageBuffer)`
   - message ADD → `hash_insert_message(table, journal, phone, &MessageBuffer)` (`create_message(ts, dir, str)` in `message.h:232`)
   - message LIST (per phone) → `hash_find_n_message(table, phone, n, MessageBuffer*)`
-  - conversation list (for "All Messages") → `hash_table_iterator_*` over entries that have a message index. This is still WIP in the DBMS (latest commit "iterator … needs to be added to hash table"), so stub it until the iterator lands.
+  - conversation list (for "All Messages") → `hash_get_message_list(table, start, n, &count, MessageBuffer*)`. Returns the latest message of each chat in **hash table slot order**, not alphabetical or by recency.
 - Convert `ContactBuffer`/`MessageBuffer` ↔ `DbContact`/`DbMessage` here, and only here.
 - Stack: `DB_TASK_STACK_SIZE 2048` is tight with 512 B sector buffers, journal and list buffers. Raise it to about 4096, or make the buffers `static`.
 
@@ -110,12 +110,12 @@ Source: `thesis/dev/source/app/src/hash_table.c` (working tree, including uncomm
 | 1 | **GET contact** by phone | contact details, caller/sender name on incoming call/SMS overlays, "From:" in messages | `hash_find_contact(table, phone, out)` | ✅ Implemented |
 | 2 | **SET contact** (add or edit) by phone | Edit Contact, "Add to Contacts" from call page | `hash_insert_contact(table, journal, contact)` | ✅ Implemented. It upserts: if the phone exists, it overwrites in place. |
 | 3 | **DELETE contact** by phone | Delete Contact | `hash_remove_contact(table, journal, phone, out)` | ✅ Implemented |
-| 4 | **LIST contacts**, paged (`start`, `n` = 9) | contacts page | `hash_get_contact_list(table, start, n, out)` via `get_nth_contact_index` | ⚠️ Implemented, but returns contacts in **SD sector/storage order, not alphabetical**. The old B+ tree gave name order. Each page also rescans the usage bitmap from the start, so cost is O(start). |
+| 4 | **LIST contacts**, paged (`start`, `n` = 9) | contacts page | `hash_get_contact_list(table, start, n, &count, out)` (hash table iterator) | ⚠️ Implemented, but the list is in **hash table slot order, not alphabetical**. The order comes from the DJB2 hash of the phone number, so it looks random to the user. The old B+ tree gave name order. Each page re-walks the slots from the start, so cost is O(start). Inserting or deleting a contact can shift which contacts fall on which page, so re-request the current page after a SET/DELETE. (`hash_get_contact_list_by_usage` gives SD storage order instead.) |
 | 5 | **LIST contacts sorted by name** / name prefix search | contacts page (expected UX), new-SMS recipient picker | none | ❌ Not implemented. Needs a sorted secondary index (name → phone) or sorting in RAM. |
 | 6 | **GET latest message** for a phone | conversation-list preview line | `hash_find_message(table, phone, out)` | ✅ Implemented (reads position 0 of `latest_msg_extent`) |
 | 7 | **ADD message** to a phone (sent/received) | `PAGE_REQUEST_SMS_SEND`, incoming SMS in `handle_show_sms` | `hash_insert_message(table, journal, phone, in)` | ✅ Implemented. An unknown number auto-creates a contact with an **empty name**, so the contacts list must show the phone when `name_len == 0`, or filter those out. |
 | 8 | **LIST messages for a phone**, latest N | messages (conversation) page | `hash_find_n_message(table, phone, n, out)` → `read_n_messages` | ⚠️ Partial. Only "latest N" works; there is **no start offset**, so the UI can't page back through older history. Needs a `start` parameter or a `ring_buffer`/extent iterator. |
-| 9 | **LIST conversations** (phones that have messages, most recent first) | SMS "All Messages" | `hash_table_iterator_*` | ❌ Not usable yet. The iterator walks hash slots in **slot order**. It returns only the slot index (`uint16_t`), not contact or message data. It also includes entries with no messages (`latest_msg_extent == UINT16_MAX`). Needs: filter to entries with messages, return phone and name, and order by recency (e.g. a ring buffer of recent conversation phones, which matches the WIP `ring_buffer.c`). |
+| 9 | **LIST conversations** (phones that have messages, most recent first) | SMS "All Messages" | `hash_get_message_list(table, start, n, &count, out)` | ⚠️ Implemented: returns the latest message of each chat and skips contacts with no messages. The list is in **hash table slot order**, not alphabetical and not most-recent-first. Recency order would need something like the `message_history` ring buffer. |
 | 10 | **DELETE conversation** / single message | future SMS options | `hash_remove_message(table, journal, phone, out)` | ✅ Implemented in `hash_table.c`. `remove_message` / `add_message` in `message.h` are declared but **not implemented**. |
 | 11 | **Count** contacts / messages for a phone | scroll bounds (`cursor.max_y`) | `hash_size` (contacts) | ⚠️ Contacts ✅. There's no per-phone message count in `hash_table.c`. `database_message_count` is in `database.h`, which is the older ID-keyed API. |
 | 12 | **Boot reconstruct** (rebuild RAM hash table from SD) | `db_task` startup | `hash_reconstruct_contact`, `hash_reconstruct_message` | ⚠️ Both parts are implemented, but the top-level `hash_reconstruct()` declared in `hash_table.h` has **no definition**. Call the two parts directly or implement it. |
@@ -126,7 +126,7 @@ Source: `thesis/dev/source/app/src/hash_table.c` (working tree, including uncomm
 - `database.h` (ID-keyed `database_contact_get(db, uint16_t id, …)`) and `hash_table.h` (phone-keyed) overlap. Pick `hash_table.h` as the API for `db_task` and treat `database.h` as legacy, or update it to wrap the phone-keyed calls.
 - `hash_table.h` and `hash_table_phone.h` both declare `hash_find_entry`, `hash_init` and others with different signatures. Only include `hash_table.h` in UniQOS.
 
-**Priority for the UI integration:** #4 and #7 unblock the contacts page and SMS persistence now. #8 (offset) and #9 (conversation list) are needed before "All Messages" can stop being hardcoded. #5 (sorted names) is a UX improvement, not a blocker.
+**Priority for the UI integration:** #4 and #7 unblock the contacts page and SMS persistence now. #9 lets "All Messages" stop being hardcoded, and #8 (offset) is needed to page back through a chat. Both lists come back in hash table order, so #5 (sorted names) and recency ordering are UX improvements, not blockers.
 
 ## 5. Verification
 1. **Host unit tests:** the DBMS already has them in `thesis/dev/tests`. Add a test for the `ContactBuffer ↔ DbContact` conversion helpers.

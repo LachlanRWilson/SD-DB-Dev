@@ -175,11 +175,13 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
  *
  * @param storage Pointer to the storage abstraction.
  * @param startIndex memory index of the latest message sector
+ * @param startMsg start of the message range
  * @param n number of message to be read to the output message buffer array
- * @param out array of messages
- * @retval number of messages read, if failure return negative number. Follows STRG_RET enum except -1 if failure
+ * @param out_count pointer to message read count
+ * @param out pointer array of messages
+ * @retval STRG_RET
  */
-int read_n_messages(Storage *storage, uint16_t startIndex, int n, MessageBuffer *out);
+STRG_RET read_n_messages(Storage *storage, uint16_t startIndex, size_t startMsg, size_t n, size_t *out_count, Message *out);
 
 /**
  * @brief Remove the message to the sd card from the appropriate message sector

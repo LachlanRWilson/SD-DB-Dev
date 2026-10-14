@@ -623,14 +623,14 @@ TEST_F(HashTableTest, FindNMessagesWithinOneSector)
     ASSERT_TRUE(send("0412345678", 100, true, "first"));
     ASSERT_TRUE(send("0412345678", 200, false, "second"));
 
-    MessageBuffer results[2]{};
-    int n = hash_find_n_message(&htable, "0412345678", 2, results);
+    Message results[2]{};
+    int n = hash_find_n_message(&htable, "0412345678", 0, 2, results);
 
     ASSERT_EQ(n, 2);
-    EXPECT_EQ(results[0].msg.timestamp, 200);
-    EXPECT_STREQ(results[0].msg.str, "second");
-    EXPECT_EQ(results[1].msg.timestamp, 100);
-    EXPECT_STREQ(results[1].msg.str, "first");
+    EXPECT_EQ(results[0].timestamp, 200);
+    EXPECT_STREQ(results[0].str, "second");
+    EXPECT_EQ(results[1].timestamp, 100);
+    EXPECT_STREQ(results[1].str, "first");
 }
 
 /**
@@ -669,15 +669,15 @@ TEST_F(HashTableTest, FindNMessagesAcrossSectorBoundary)
                           "msg " + std::to_string(i)));
     }
 
-    std::vector<MessageBuffer> results(total);
-    int n = hash_find_n_message(&htable, "0412345678", total, results.data());
+    std::vector<Message> results(total);
+    int n = hash_find_n_message(&htable, "0412345678", 0, total, results.data());
 
     ASSERT_EQ(n, total);
     for (int i = 0; i < total; i++)
     {
         // Newest first: message (total - 1 - i) was the i-th most recent.
         uint16_t expected_ts = static_cast<uint16_t>(100 + (total - 1 - i));
-        EXPECT_EQ(results[i].msg.timestamp, expected_ts) << "at position " << i;
+        EXPECT_EQ(results[i].timestamp, expected_ts) << "at position " << i;
     }
 }
 
@@ -1345,15 +1345,15 @@ TEST_F(HashTableTest, FiveThousandMessagesForSingleContact)
     ASSERT_TRUE(hash_find_message(&htable, phone, &latest));
     EXPECT_EQ(latest.msg.timestamp, kNumMessages);
 
-    std::vector<MessageBuffer> results(kNumMessages);
-    int n = hash_find_n_message(&htable, phone, kNumMessages, results.data());
+    std::vector<Message> results(kNumMessages);
+    int n = hash_find_n_message(&htable, phone, 0, kNumMessages, results.data());
 
     ASSERT_EQ(n, kNumMessages);
     for (int i = 0; i < kNumMessages; i++)
     {
         // Newest first: message (kNumMessages - i) was the i-th most recent.
         uint16_t expected_ts = static_cast<uint16_t>(kNumMessages - i);
-        EXPECT_EQ(results[i].msg.timestamp, expected_ts) << "at position " << i;
+        EXPECT_EQ(results[i].timestamp, expected_ts) << "at position " << i;
     }
 }
 
@@ -1380,12 +1380,12 @@ TEST_F(HashTableTest, FiveThousandMessagesBetweenTwoContacts)
 
     EXPECT_EQ(hash_size(&htable), 2u);
 
-    std::vector<MessageBuffer> results_a(kPerContact);
-    int n_a = hash_find_n_message(&htable, phone_a, kPerContact, results_a.data());
+    std::vector<Message> results_a(kPerContact);
+    int n_a = hash_find_n_message(&htable, phone_a, 0, kPerContact, results_a.data());
     ASSERT_EQ(n_a, kPerContact);
 
-    std::vector<MessageBuffer> results_b(kPerContact);
-    int n_b = hash_find_n_message(&htable, phone_b, kPerContact, results_b.data());
+    std::vector<Message> results_b(kPerContact);
+    int n_b = hash_find_n_message(&htable, phone_b, 0, kPerContact, results_b.data());
     ASSERT_EQ(n_b, kPerContact);
 
     for (int i = 0; i < kPerContact; i++)
@@ -1393,14 +1393,14 @@ TEST_F(HashTableTest, FiveThousandMessagesBetweenTwoContacts)
         // Newest first: message (kPerContact - i) was the i-th most recent.
         uint16_t expected_ts = static_cast<uint16_t>(kPerContact - i);
 
-        EXPECT_EQ(results_a[i].msg.timestamp, expected_ts) << "phone_a at position " << i;
-        EXPECT_TRUE(results_a[i].msg.direction) << "phone_a at position " << i;
-        EXPECT_EQ(std::string(results_a[i].msg.str), "a" + std::to_string(expected_ts - 1))
+        EXPECT_EQ(results_a[i].timestamp, expected_ts) << "phone_a at position " << i;
+        EXPECT_TRUE(results_a[i].direction) << "phone_a at position " << i;
+        EXPECT_EQ(std::string(results_a[i].str), "a" + std::to_string(expected_ts - 1))
             << "phone_a at position " << i;
 
-        EXPECT_EQ(results_b[i].msg.timestamp, expected_ts) << "phone_b at position " << i;
-        EXPECT_FALSE(results_b[i].msg.direction) << "phone_b at position " << i;
-        EXPECT_EQ(std::string(results_b[i].msg.str), "b" + std::to_string(expected_ts - 1))
+        EXPECT_EQ(results_b[i].timestamp, expected_ts) << "phone_b at position " << i;
+        EXPECT_FALSE(results_b[i].direction) << "phone_b at position " << i;
+        EXPECT_EQ(std::string(results_b[i].str), "b" + std::to_string(expected_ts - 1))
             << "phone_b at position " << i;
     }
 }

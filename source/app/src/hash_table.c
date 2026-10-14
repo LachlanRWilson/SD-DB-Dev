@@ -653,28 +653,36 @@ bool hash_find_message(HashTable *table, const char *phone, MessageBuffer *out)
   * @param out: pointer to message buffer array
   * @retval the number of messages read from the sd card, -1 if fault
   */
-int hash_find_n_message(HashTable *table, const char *phone, int n, MessageBuffer *out)
+int hash_find_n_message(HashTable *table, const char *phone, size_t start, size_t n, Message *out)
 {
     HashEntry *entry;
+    size_t out_count = 0;
 
     if (table == NULL || table->htable == NULL || table->storage == NULL ||
             out == NULL || phone == NULL || table->size == 0)
     {
-        return false;
+        return -1;
     }
 
     if (!hash_find_entry(table, phone, &entry))
     {
-        return false;
+        return -1;
     }
 
     if (entry->state != ENTRY_OCCUPIED || entry->latest_msg_extent == UINT16_MAX)
     {
-        return false;
+        return -1;
     }
 
     // read messages from latest backwards
-    return read_n_messages(table->storage, entry->latest_msg_extent, n, out);
+    STRG_RET ret = read_n_messages(table->storage, entry->latest_msg_extent, start, n, &out_count, out);
+
+    if (ret != STRG_OK)
+    {
+        return -1;
+    }
+
+    return out_count;
 }
 
 /**

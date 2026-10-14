@@ -340,85 +340,207 @@ STRG_RET read_message(Storage *storage, uint16_t index, uint8_t pos, MessageBuff
     return STRG_OK;
 }
 
+/**
+ * @brief Find the sector index where the remainder of messages have been passed
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param startIndex memory index of the latest message sector
+ * @param rem remainding number of message to pass to get to the sector
+ * @param target_index pointer to the target index where all the messages have been passed
+ * @retval STRG_RET
+ */
+static STRG_RET find_message_n_index(Storage *storage, uint16_t startIndex, size_t startMsg, size_t *num_hops, uint8_t *startOffset, uint16_t *target_index, MessageSectorBuffer *mSector)
+{
+    STRG_RET ret;
+    MessageSectorHeader *mHeader;
+    size_t msg_passed = 0;
+    bool is_used = false;
+
+    // preset previous index as target/current index such that the while loop
+    // move to previous at start of every iteration
+    uint16_t prev_index = startIndex;
+
+    // iterate until read passed or equal to the start message count
+    while ((msg_passed <= startMsg))
+    {
+
+        // Start index is passed the end of the chat
+        if (prev_index == UINT16_MAX)
+        {
+            return STRG_FAIL;
+        }
+
+        if (*num_hops >= TOTAL_MESSAGE_SECTOR_SIZE)
+        {
+            return STRG_FAIL;
+        }
+
+        *target_index = prev_index;
+
+        is_used = check_usage_bit(MESSAGE_DATA_SECTOR(*target_index));
+        if (!is_used)
+        {
+            return STRG_EMPTY;
+        }
+
+        // Read the message sector
+        ret = read_message_sector(storage, *target_index, mSector);
+
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        mHeader = &(mSector->var.header);
+        msg_passed += mHeader->msg_count;
+        (*num_hops)++;
+        prev_index = mHeader->prev;
+    }
+
+    // the start offset for the current sector to start reading messages from
+    *startOffset = (msg_passed - 1) - startMsg;
+    return STRG_OK;
+}
+
+static bool read_messages_from_p_in_sector(size_t n, size_t p, size_t *out_count, MessageSector *mSector, Message* out)
+{
+    if ((out_count == NULL) || (out == NULL) || (mSector == NULL) || (n == 0))
+    {
+        return false;
+    }
+
+    MessageSectorHeader *mHeader = &(mSector->header);
+
+    // ensure p is bounded by number of positions in sector (0 -> msg_count - 1)
+    if ((p >= mHeader->msg_count) || (mHeader->msg_count > MESSAGE_SECTOR_CAPACITY))
+    {
+        return false;
+    }
+
+    for (int slots = p; (slots >= 0) && (*out_count < n); slots--)
+    {
+        memcpy(&(out[*out_count]), &(mSector->messages[slots].msg), sizeof(Message));
+        (*out_count)++;
+    }
+    return true;
+}
+
+static bool read_messages_from_sector(size_t n, size_t *out_count, MessageSector *mSector, Message* out)
+{
+    if ((out_count == NULL) || (out == NULL) || (mSector == NULL) || (n == 0))
+    {
+        return false;
+    }
+
+    MessageSectorHeader *mHeader = &(mSector->header);
+
+    if (mHeader->msg_count > MESSAGE_SECTOR_CAPACITY)
+    {
+        return false;
+    }
+
+    for (int slots = mHeader->msg_count - 1; (slots >= 0) && (*out_count < n); slots--)
+    {
+        memcpy(&(out[*out_count]), &(mSector->messages[slots].msg), sizeof(Message));
+        (*out_count)++;
+    }
+    return true;
+}
 
 /**
  * @brief Read n number of messages from the sd card of the associated phone number
  *
  * @param storage Pointer to the storage abstraction.
  * @param startIndex memory index of the latest message sector
+ * @param startMsg start of the message range
  * @param n number of message to be read to the output message buffer array
- * @param out array of messages
- * @retval number of messages read, if failure return negative number. Follows STRG_RET enum except -1 if failure
+ * @param out_count pointer to message read count
+ * @param out pointer array of messages
+ * @retval STRG_RET
  */
-int read_n_messages(Storage *storage, uint16_t startIndex, int n, MessageBuffer *out)
+STRG_RET read_n_messages(Storage *storage, uint16_t startIndex, size_t startMsg, size_t n, size_t *out_count, Message *out)
 {
     MessageSectorBuffer curMSector;
     STRG_RET ret;
-    int msg_count;
-    int msg_read = 0;
+    uint8_t pos;
 
-    bool is_used = check_usage_bit(MESSAGE_DATA_SECTOR(startIndex));
-
-    if (!is_used)
+    if ((storage == NULL) || (out_count == NULL) || (out == NULL))
     {
-        return -1 * STRG_EMPTY;
+        return STRG_FAIL;
+    } else if (n == 0) {
+        *out_count = 0;
+        return STRG_OK;
     }
 
-    ret = read_message_sector(storage, startIndex, &curMSector);
+    *out_count = 0;
 
+    // empty chat: no sectors, nothing to read
+    if (startIndex == UINT16_MAX)
+    {
+        return STRG_OK;
+    }
+
+    uint16_t current_index = startIndex;
+    uint16_t prev_index;
+    size_t hops = 0;
+    bool is_used = false;
+
+    ret = find_message_n_index(storage, startIndex, startMsg, &hops, &pos, &current_index, &curMSector);
     if (ret != STRG_OK)
     {
-        return -1 * ret;
+        return ret;
     }
 
-    // Get message count from header
-    msg_count = curMSector.var.header.msg_count;
+    // don't need to re-read message sector since stored in curMSector pointer from find_message_n_index
 
-    // iterate over the first message sector (could be partially full)
-    for (; (msg_count > 0) && (msg_read < n ); msg_read++, msg_count--)
+    if (!read_messages_from_p_in_sector(n, pos, out_count, &curMSector.var, out))
     {
-        // Copy message to array
-        memcpy(out[msg_read].buffer,
-            curMSector.var.messages[msg_count - 1].buffer,
-            sizeof(Message));
+        return STRG_FAIL;
     }
 
+    // set prev to the next message sector
+    prev_index = curMSector.var.header.prev;
 
-    // iterate over n messages
-    while (msg_read < n)
+    // stop if the message count meets n OR number of sectors read has reached the cap
+    while ((*out_count < n) )
     {
-        // When all messages are read from message sector move to the next sector
-        if (msg_count <= 0)
+
+        // if the previous index is the end of the chat, return
+        if (prev_index == UINT16_MAX)
         {
-            // Reached the end of the messages
-            if (curMSector.var.header.prev == UINT16_MAX)
-            {
-                return msg_read;
-            }
-
-            // read previous message sector
-            ret = read_message_sector(storage, curMSector.var.header.prev, &curMSector);
-
-            if (ret != STRG_OK)
-            {
-                return STRG_FAIL - 1; // return -1 for failue (need to do this because normally fail is 0)
-            }
-
-            // set message count to number of messages in new sector (should always be MESSAGE_SECTOR_CAPACITY)
-            msg_count = curMSector.var.header.msg_count;
+            return STRG_OK;
         }
 
-        // Copy message to array
-        memcpy(out[msg_read].buffer,
-            curMSector.var.messages[msg_count - 1].buffer,
-            sizeof(Message));
+        if (hops >= TOTAL_MESSAGE_SECTOR_SIZE)
+        {
+            return STRG_FAIL;
+        }
 
-        // decrement message sector count and increment number of messages read
-        msg_count--;
-        msg_read++;
+        current_index = prev_index;
+
+        is_used = check_usage_bit(MESSAGE_DATA_SECTOR(current_index));
+        if (!is_used)
+        {
+            return STRG_EMPTY;
+        }
+
+        ret = read_message_sector(storage, current_index, &curMSector);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        if (!read_messages_from_sector(n, out_count, &(curMSector.var), out))
+        {
+            return STRG_FAIL;
+        }
+
+        prev_index = curMSector.var.header.prev;
+        hops++;
+
     }
 
-    return msg_read;
+    return STRG_OK;
 }
 
 

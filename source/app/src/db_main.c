@@ -228,6 +228,7 @@ static bool field_eq(const char *field, size_t cap, const char *expected)
 #define NAME_IS(cb, s)  field_eq((cb).contact.name, MAX_NAME_LEN, (s))
 #define PHONE_IS(cb, s) field_eq((cb).contact.phone, MAX_PHONE_LEN, (s))
 #define TEXT_IS(mb, s)  field_eq((mb).msg.str, SMS_MAX_MESSAGE_LENGTH, (s))
+#define MSG_TEXT_IS(m, s) field_eq((m).str, SMS_MAX_MESSAGE_LENGTH, (s))
 
 #if DB_TEST_WRITE
 /* Format the i-th generated phone number the list tests use ("04%08d"). */
@@ -697,15 +698,15 @@ static void test_FindNMessagesWithinOneSector(void)
     CHECK(send("0412345678", 100, true, "first"));
     CHECK(send("0412345678", 200, false, "second"));
 
-    MessageBuffer results[2];
+    Message results[2];
     memset(results, 0, sizeof(results));
-    int n = hash_find_n_message(&g_table, "0412345678", 2, results);
+    int n = hash_find_n_message(&g_table, "0412345678", 0, 2, results);
 
     CHECK(n == 2);
-    CHECK(results[0].msg.timestamp == 200);
-    CHECK(TEXT_IS(results[0], "second"));
-    CHECK(results[1].msg.timestamp == 100);
-    CHECK(TEXT_IS(results[1], "first"));
+    CHECK(results[0].timestamp == 200);
+    CHECK(MSG_TEXT_IS(results[0], "second"));
+    CHECK(results[1].timestamp == 100);
+    CHECK(MSG_TEXT_IS(results[1], "first"));
 }
 
 /* MESSAGE_SECTOR_CAPACITY is small (computed from a 512B sector), so
@@ -737,16 +738,16 @@ static void test_FindNMessagesAcrossSectorBoundary(void)
         CHECK(send("0412345678", (uint16_t)(100 + i), true, text));
     }
 
-    MessageBuffer results[MESSAGE_SECTOR_CAPACITY + 1];
+    Message results[MESSAGE_SECTOR_CAPACITY + 1];
     memset(results, 0, sizeof(results));
-    int n = hash_find_n_message(&g_table, "0412345678", total, results);
+    int n = hash_find_n_message(&g_table, "0412345678", 0, total, results);
 
     CHECK(n == total);
     for (int i = 0; i < total; i++)
     {
         /* Newest first: message (total - 1 - i) was the i-th most recent. */
         uint16_t expected_ts = (uint16_t)(100 + (total - 1 - i));
-        CHECK(results[i].msg.timestamp == expected_ts);
+        CHECK(results[i].timestamp == expected_ts);
     }
 }
 
@@ -1194,17 +1195,17 @@ static void test_PersistVerify(void)
     CHECK(hash_find_message(&g_table, PERSIST_CHAT_PHONE, &latest));
     CHECK(latest.msg.timestamp == PERSIST_CHAT_LEN);
 
-    MessageBuffer chat[PERSIST_CHAT_LEN];
+    Message chat[PERSIST_CHAT_LEN];
     char expected[16];
     memset(chat, 0, sizeof(chat));
-    CHECK(hash_find_n_message(&g_table, PERSIST_CHAT_PHONE, PERSIST_CHAT_LEN, chat) == PERSIST_CHAT_LEN);
+    CHECK(hash_find_n_message(&g_table, PERSIST_CHAT_PHONE, 0, PERSIST_CHAT_LEN, chat) == PERSIST_CHAT_LEN);
     for (int i = 0; i < PERSIST_CHAT_LEN; i++)
     {
         /* Newest first; PersistSeed sent "msg k" with timestamp k + 1. */
         uint16_t ts = (uint16_t)(PERSIST_CHAT_LEN - i);
         snprintf(expected, sizeof(expected), "msg %d", ts - 1);
-        CHECK(chat[i].msg.timestamp == ts);
-        CHECK(TEXT_IS(chat[i], expected));
+        CHECK(chat[i].timestamp == ts);
+        CHECK(MSG_TEXT_IS(chat[i], expected));
     }
 
     CHECK(!hash_find_message(&g_table, g_people[0].phone, &latest));

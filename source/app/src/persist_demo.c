@@ -364,7 +364,7 @@ static void show_contacts_and_chats(void)
     ContactBuffer contacts[DEMO_MAX_CONTACTS];
     char phones[DEMO_MAX_CONTACTS][MAX_PHONE_LEN + 1];
     char names[DEMO_MAX_CONTACTS][MAX_NAME_LEN + 1];
-    MessageBuffer chat[DEMO_MAX_CHAT];
+    Message chat[DEMO_MAX_CHAT];
     int n = (int)hash_size(&g_table);
 
     if (n > DEMO_MAX_CONTACTS) { n = DEMO_MAX_CONTACTS; }
@@ -389,7 +389,7 @@ static void show_contacts_and_chats(void)
     for (int i = 0; i < n; i++)
     {
         memset(chat, 0, sizeof(chat));
-        int k = hash_find_n_message(&g_table, phones[i], DEMO_MAX_CHAT, chat);
+        int k = hash_find_n_message(&g_table, phones[i], 0, DEMO_MAX_CHAT, chat);
         if (k <= 0)
         {
             continue;
@@ -399,7 +399,7 @@ static void show_contacts_and_chats(void)
         SECTION("CHAT %s (%d)", names[i], k);
         for (int j = k - 1; j >= 0; j--)
         {
-            message_row(phones[i], &chat[j].msg);
+            message_row(phones[i], &chat[j]);
         }
     }
 }

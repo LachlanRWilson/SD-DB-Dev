@@ -201,7 +201,7 @@ STRG_RET hash_get_message_list(HashTable *table, int start, int n, size_t *out_c
   * @param  phone: phone number the message is associated with
   * @retval the number of messages read from the sd card, -1 if fault
   */
-int hash_find_n_message(HashTable *table, const char *phone, int n, MessageBuffer *out);
+int hash_find_n_message(HashTable *table, const char *phone, size_t start, size_t n, Message *out);
 
 /**
   * @brief  Remove an entry from the hash table. That include removed the contact and message chat from the SD card
