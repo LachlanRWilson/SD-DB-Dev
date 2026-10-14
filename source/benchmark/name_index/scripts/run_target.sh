@@ -23,7 +23,9 @@ cd "$work"
 openocd -f interface/stlink.cfg -f target/stm32h7x.cfg \
     -c "init" -c "reset halt" -c "program $elf verify" -c "arm semihosting enable" -c "reset run" > openocd.log 2>&1 &
 ocd=$!
-trap 'kill $ocd 2>/dev/null || true' EXIT
+python3 "$here/scripts/ocd_resume.py" > resume.log 2>&1 &
+wd=$!
+trap 'kill $ocd $wd 2>/dev/null || true' EXIT
 
 echo "running (progress lines from the target appear in $work/openocd.log)"
 until grep -q '^done,1' target_meta.txt 2>/dev/null; do
@@ -34,4 +36,5 @@ done
 prefix="$here/results/$(date +%F)_target_${tag}"
 mv target.csv "${prefix}.csv"
 mv target_meta.txt "${prefix}_meta.txt"
+[ -s resume.log ] && { echo "spurious halts resumed (outside timed regions):"; cat resume.log; }
 echo "wrote ${prefix}.csv and ${prefix}_meta.txt"

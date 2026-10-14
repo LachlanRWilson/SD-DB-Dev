@@ -33,7 +33,7 @@ static void OPS(bulk_insert)(void)
     {
         IMPL_INIT();
         bench_prepare();
-        TIMED(for (uint16_t i = 0; i < g_n; i++) { IMPL_INSERT_KEY(nb_keys[g_order[i]], g_order[i]); });
+        TIMED_STEPS(i, g_n, IMPL_INSERT_KEY(nb_keys[g_order[i]], g_order[i]));
     }
     end_op("bulk_insert", 1);
 }

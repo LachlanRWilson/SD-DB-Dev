@@ -1,0 +1,110 @@
+platform,target
+compiler,13.2.1 20231009
+c_flags,-mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard  -Wall -fdata-sections -ffunction-sections -fstack-usage -Os -g0
+opt_level,-Os
+seed,0x01352896 (xorshift32; per-op seed = seed ^ dist<<28 ^ N<<8 ^ op)
+capacity,10001
+sizeof,SortedEntry=12,AvlNode=18,NameArray=120020,AvlTree=180028,arena=180028
+name_table_bytes,120012
+address,arena=0x24000000,name_table=0x2403f7c4,array_base_align4=1
+core_clock_hz,64000000
+dcache_geometry,bytes=32768,ways=4,sets=256,line=32
+mpu_ctrl,0x00000005
+mpu_region,0,rbar=0x00000000,rasr=0x1004873f
+mpu_region,1,rbar=0x60000001,rasr=0x13040033
+mpu_note,no enabled region covers 0x24000000 unless listed above; the default memory map then applies (AXI SRAM: Normal, write-back write-allocate)
+hash_table_bytes,114344 (HashEntry 8 B x HASH_TABLE_SIZE 14293)
+preemption,FreeRTOS running; PRIMASK set (all maskable IRQs off) around every timed region
+sd_baseline,sd_read_block,ok=200/200,irqs enabled (driver polls with osDelay)
+sd_baseline,sd_write_block,ok=200/200,irqs enabled (driver polls with osDelay)
+sd_baseline,sd_read_sector_crc,ok=200/200,irqs enabled (driver polls with osDelay)
+sd_baseline,sd_write_contact_journaled,ok=100/100,irqs enabled (driver polls with osDelay)
+keyshare,random,100,12,12.0%
+avl_depth,random,100,max_recursion=9,height_after_build=8
+keyshare,random,500,137,27.4%
+avl_depth,random,500,max_recursion=12,height_after_build=11
+keyshare,random,1000,294,29.4%
+avl_depth,random,1000,max_recursion=13,height_after_build=12
+keyshare,random,1500,502,33.4%
+avl_depth,random,1500,max_recursion=13,height_after_build=13
+keyshare,random,2000,726,36.3%
+avl_depth,random,2000,max_recursion=14,height_after_build=13
+keyshare,random,2500,941,37.6%
+avl_depth,random,2500,max_recursion=15,height_after_build=14
+keyshare,random,3000,1193,39.7%
+avl_depth,random,3000,max_recursion=15,height_after_build=14
+keyshare,random,4000,1770,44.2%
+avl_depth,random,4000,max_recursion=15,height_after_build=14
+keyshare,random,5000,2366,47.3%
+avl_depth,random,5000,max_recursion=16,height_after_build=15
+keyshare,random,7500,3978,53.0%
+avl_depth,random,7500,max_recursion=16,height_after_build=15
+keyshare,random,10000,5729,57.2%
+avl_depth,random,10000,max_recursion=17,height_after_build=16
+keyshare,ascending,100,17,17.0%
+avl_depth,ascending,100,max_recursion=9,height_after_build=7
+keyshare,ascending,500,123,24.6%
+avl_depth,ascending,500,max_recursion=11,height_after_build=9
+keyshare,ascending,1000,305,30.5%
+avl_depth,ascending,1000,max_recursion=12,height_after_build=10
+keyshare,ascending,1500,513,34.2%
+avl_depth,ascending,1500,max_recursion=13,height_after_build=11
+keyshare,ascending,2000,747,37.3%
+avl_depth,ascending,2000,max_recursion=13,height_after_build=11
+keyshare,ascending,2500,974,38.9%
+avl_depth,ascending,2500,max_recursion=14,height_after_build=12
+keyshare,ascending,3000,1220,40.6%
+avl_depth,ascending,3000,max_recursion=14,height_after_build=12
+keyshare,ascending,4000,1760,44.0%
+avl_depth,ascending,4000,max_recursion=14,height_after_build=12
+keyshare,ascending,5000,2335,46.7%
+avl_depth,ascending,5000,max_recursion=14,height_after_build=13
+keyshare,ascending,7500,3908,52.1%
+avl_depth,ascending,7500,max_recursion=15,height_after_build=13
+keyshare,ascending,10000,5713,57.1%
+avl_depth,ascending,10000,max_recursion=15,height_after_build=14
+keyshare,descending,100,15,15.0%
+avl_depth,descending,100,max_recursion=9,height_after_build=7
+keyshare,descending,500,117,23.4%
+avl_depth,descending,500,max_recursion=11,height_after_build=9
+keyshare,descending,1000,304,30.4%
+avl_depth,descending,1000,max_recursion=12,height_after_build=10
+keyshare,descending,1500,485,32.3%
+avl_depth,descending,1500,max_recursion=13,height_after_build=11
+keyshare,descending,2000,686,34.3%
+avl_depth,descending,2000,max_recursion=13,height_after_build=11
+keyshare,descending,2500,942,37.6%
+avl_depth,descending,2500,max_recursion=13,height_after_build=12
+keyshare,descending,3000,1203,40.1%
+avl_depth,descending,3000,max_recursion=13,height_after_build=12
+keyshare,descending,4000,1760,44.0%
+avl_depth,descending,4000,max_recursion=14,height_after_build=12
+keyshare,descending,5000,2338,46.7%
+avl_depth,descending,5000,max_recursion=14,height_after_build=13
+keyshare,descending,7500,3955,52.7%
+avl_depth,descending,7500,max_recursion=15,height_after_build=13
+keyshare,descending,10000,5702,57.0%
+avl_depth,descending,10000,max_recursion=16,height_after_build=14
+keyshare,prefix,100,23,23.0%
+avl_depth,prefix,100,max_recursion=9,height_after_build=8
+keyshare,prefix,500,149,29.8%
+avl_depth,prefix,500,max_recursion=12,height_after_build=11
+keyshare,prefix,1000,324,32.4%
+avl_depth,prefix,1000,max_recursion=13,height_after_build=12
+keyshare,prefix,1500,538,35.8%
+avl_depth,prefix,1500,max_recursion=13,height_after_build=13
+keyshare,prefix,2000,760,38.0%
+avl_depth,prefix,2000,max_recursion=14,height_after_build=13
+keyshare,prefix,2500,1000,40.0%
+avl_depth,prefix,2500,max_recursion=15,height_after_build=14
+keyshare,prefix,3000,1243,41.4%
+avl_depth,prefix,3000,max_recursion=15,height_after_build=14
+keyshare,prefix,4000,1770,44.2%
+avl_depth,prefix,4000,max_recursion=15,height_after_build=14
+keyshare,prefix,5000,2340,46.8%
+avl_depth,prefix,5000,max_recursion=16,height_after_build=15
+keyshare,prefix,7500,3852,51.3%
+avl_depth,prefix,7500,max_recursion=16,height_after_build=15
+keyshare,prefix,10000,5552,55.5%
+avl_depth,prefix,10000,max_recursion=17,height_after_build=16
+done,1

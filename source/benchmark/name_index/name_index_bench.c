@@ -56,7 +56,7 @@ typedef union {
 NI_PLACE static Arena g_arena;
 
 static uint16_t g_order[NI_MAX_CONTACTS];  // insertion order of sectors 0..g_n-1
-static uint32_t g_samples[REPS_MAX];
+static uint64_t g_samples[REPS_MAX];
 static uint32_t g_calls[REPS_MAX];
 
 static uint16_t g_n;
@@ -227,7 +227,38 @@ static void out_printf(Out *o, const char *fmt, ...)
         record(t1_ - t0_, nb_tiebreak_calls - c0_); \
     } while (0)
 
-static void record(uint32_t ticks, uint32_t calls)
+/*
+ * Time `count` steps of one statement block (step index `i`) as a single region. The counter
+ * is read after every step and the 32-bit deltas are summed in 64 bits, so a
+ * region longer than one counter period (2^32 cycles) is still measured
+ * correctly as long as every single step is shorter than that period. The
+ * host keeps one region: a clock read per step costs ~20 ns there, and its
+ * 32-bit ns counter cannot wrap within these runtimes.
+ */
+#if NI_TARGET
+#define TIMED_STEPS(i, count, ...) do { \
+        uint32_t c0_ = nb_tiebreak_calls; \
+        uint32_t irq_ = bench_irq_off(); \
+        uint64_t acc_ = 0; \
+        BARRIER(); \
+        uint32_t prev_ = bench_now(); \
+        BARRIER(); \
+        for (uint32_t i = 0; i < (count); i++) { \
+            __VA_ARGS__; \
+            BARRIER(); \
+            uint32_t now_ = bench_now(); \
+            BARRIER(); \
+            acc_ += (uint32_t)(now_ - prev_); \
+            prev_ = now_; \
+        } \
+        bench_irq_restore(irq_); \
+        record(acc_, nb_tiebreak_calls - c0_); \
+    } while (0)
+#else
+#define TIMED_STEPS(i, count, ...) TIMED(for (uint32_t i = 0; i < (count); i++) { __VA_ARGS__; })
+#endif
+
+static void record(uint64_t ticks, uint32_t calls)
 {
     if (g_iter++ < g_warm || g_stored >= g_reps) { return; }
     g_samples[g_stored] = ticks;
@@ -279,13 +310,13 @@ static uint32_t bulk_reps(void)
     return 5u;
 }
 
-static void sort_u32(uint32_t *v, uint32_t n)
+static void sort_u64(uint64_t *v, uint32_t n)
 {
     for (uint32_t gap = n / 2u; gap > 0u; gap /= 2u)
     {
         for (uint32_t i = gap; i < n; i++)
         {
-            uint32_t x = v[i];
+            uint64_t x = v[i];
             uint32_t j = i;
             for (; j >= gap && v[j - gap] > x; j -= gap) { v[j] = v[j - gap]; }
             v[j] = x;
@@ -293,10 +324,21 @@ static void sort_u32(uint32_t *v, uint32_t n)
     }
 }
 
-static void emit_row(const char *impl, uint16_t n, const char *dist, const char *op, const char *dcache, const char *mode, uint32_t *s, uint32_t reps, const uint32_t *calls, uint32_t divisor, uint32_t bytes)
+/**
+ * @brief Decimal string of a 64-bit value (newlib-nano printf has no %llu).
+ */
+static const char *u64_str(char buf[24], uint64_t v)
+{
+    char *p = buf + 23;
+    *p = '\0';
+    do { *--p = (char)('0' + (int)(v % 10u)); v /= 10u; } while (v != 0u);
+    return p;
+}
+
+static void emit_row(const char *impl, uint16_t n, const char *dist, const char *op, const char *dcache, const char *mode, uint64_t *s, uint32_t reps, const uint32_t *calls, uint32_t divisor, uint32_t bytes)
 {
     if (reps == 0u) { return; }
-    sort_u32(s, reps);
+    sort_u64(s, reps);
     uint64_t call_sum = 0;
     uint32_t call_max = 0;
     for (uint32_t i = 0; i < reps && calls != NULL; i++)
@@ -306,10 +348,11 @@ static void emit_row(const char *impl, uint16_t n, const char *dist, const char 
     }
     uint32_t avg100 = (uint32_t)((call_sum * 100u + reps / 2u) / reps);
     uint32_t p99 = (99u * reps + 99u) / 100u - 1u;
-    out_printf(&g_csv, "%s,%u,%s,%s,%s,%s,%s,%s,%lu,%lu,%lu,%lu,%lu,%lu.%02lu,%lu,%lu\n",
+    char v0[24], v1[24], v2[24], v3[24];
+    out_printf(&g_csv, "%s,%u,%s,%s,%s,%s,%s,%s,%lu,%s,%s,%s,%s,%lu.%02lu,%lu,%lu\n",
                impl, n, dist, op, MEM_REGION, dcache, mode, NI_OPT_LEVEL, (unsigned long)reps,
-               (unsigned long)(s[0] / divisor), (unsigned long)(s[(reps - 1u) / 2u] / divisor),
-               (unsigned long)(s[p99] / divisor), (unsigned long)(s[reps - 1u] / divisor),
+               u64_str(v0, s[0] / divisor), u64_str(v1, s[(reps - 1u) / 2u] / divisor),
+               u64_str(v2, s[p99] / divisor), u64_str(v3, s[reps - 1u] / divisor),
                (unsigned long)(avg100 / 100u), (unsigned long)(avg100 % 100u), (unsigned long)call_max, (unsigned long)bytes);
 }
 
@@ -552,7 +595,8 @@ static void sd_section(void)
     for (int op = 0; op < SDB_COUNT; op++)
     {
         uint32_t reps = (op == SDB_WRITE_CONTACT) ? 100u : 200u;
-        uint32_t got = sd_baseline_measure((SdbOp)op, g_samples, reps);
+        uint32_t got = sd_baseline_measure((SdbOp)op, g_calls, reps);
+        for (uint32_t i = 0; i < got; i++) { g_samples[i] = g_calls[i]; }
         emit_row("sd", 0, "n/a", sd_baseline_name((SdbOp)op), "off", "n/a", g_samples, got, NULL, 1, 0);
         out_printf(&g_meta, "sd_baseline,%s,ok=%lu/%lu,irqs enabled (driver polls with osDelay)\n", sd_baseline_name((SdbOp)op), (unsigned long)got, (unsigned long)reps);
     }
@@ -574,7 +618,7 @@ int name_index_bench_run(const char *out_prefix)
     write_meta_static();
 
 #if NI_TARGET
-    SCB_DisableDCache();
+    if (SCB->CCR & SCB_CCR_DC_Msk) { SCB_DisableDCache(); }
     g_dcache = "off";
     sd_section();
 

@@ -86,7 +86,7 @@ def main():
         if r["distribution"] == args.dist and r["cache_mode"] == args.mode and r["dcache"] == dcache and r["impl"] in COLOURS:
             by_op[r["operation"]][r["impl"]].append((int(r["N"]), int(r["cycles_median"]), int(r["cycles_max"])))
     for op, series in by_op.items():
-        name = f"{stem}_{args.dist}_{args.mode}_{op}.svg"
+        name = f"{stem}_{args.dist}_{args.mode}_{op}.svg" if host else f"{stem}_{args.dist}_dcache-{dcache}_{args.mode}_{op}.svg"
         plot(op, series, unit, f"{op}: {args.dist}, {args.mode}, dcache {dcache} ({stem})", os.path.join(out_dir, name))
         print(os.path.join(out_dir, name))
 
