@@ -76,6 +76,7 @@ Names and message text can be quoted (`"Amy Lee"`) or left unquoted (all remaini
 | `powercut <writes> <command...>` | Lets `<writes>` sector writes land, makes every later write fail, runs the command, then reboots. Use it to show journal rollback. |
 | `format` | `database_format()`: wipes the card to an empty database |
 | `stats` | contacts, name index size, contact and message allocator use, history ring use, card size |
+| `run` | full screen phone UI, see [Phone UI](#phone-ui-run) |
 | `help`, `quit` | |
 
 ## Example session
@@ -114,6 +115,48 @@ db> stats
 
 The half-written contact is gone after the power cut: the journal rolled it back at boot. For contact slots, used + free always equals 10,000 (this is the reconstruction bug fixed on 2026-10-17).
 
+## Phone UI (`run`)
+
+`run` switches to a full screen rendering of the UniQOS phone menus ([`../UniQOS/ui/pages`](../../UniQOS/ui/pages)), backed by the database. The code is in [`phone_ui.c`](../source/demo/db_cli/phone_ui.c).
+
+```
+┌──────────────────────────────────┐
+│ 20:09                     UniQOS │
+├──────────────────────────────────┤
+│            Zara Patel            │
+├──────────────────────────────────┤
+│ Name                             │
+│  Zara Patel                      │
+│ Phone                            │
+│  0400000003                      │
+│                                  │
+│>Messages                         │
+│ Call                             │
+│ Send Message                     │
+│ Edit Contact                     │
+│ Delete Contact                   │
+├──────────────────────────────────┤
+│ Select                      Back │
+└──────────────────────────────────┘
+  ↑↓ move  ⏎ select  ⌫ back  q quit
+  last key: 2 reads, 0 writes
+```
+
+| Screen | Source | Actions |
+|---|---|---|
+| Menu | | Phone, SMS, Contacts |
+| Phone | | Call (prompts for a number), Call History |
+| Call History | `database_call_recent`, all of it | open contact details (`unknown` = number not a contact) |
+| SMS | | New Message (number, then text), All Messages |
+| All Messages | `database_message_recent` → each entry's sector header → contact; latest from `database_message_get_chat` | one row per chat, newest first; open chat |
+| Contacts | `database_contact_list` for the 10 visible rows only | `/` prefix search (`database_contact_seek`), open details |
+| Contact details | `database_contact_get` | Messages, Call, Send Message, Edit Contact, Delete Contact (Add Contact for an unknown number) |
+| Chat | `database_message_get_chat`, all of it | Enter replies (sent), `i` adds a received message, ↑ scrolls back |
+
+Keys: arrows (or `hjkl`/`wasd`) move, `←`/`→` page by 10, Enter selects, Backspace/Esc goes back, `q` returns to `db>`. Text is typed on a normal line under the screen. The line `last key` is the sector reads/writes the last key press cost (including reloading the screen), and the last action's `STRG_RET` is shown below it.
+
+All Messages has no chat list API to call, so it walks the whole message history: a few sector reads per history entry whose chat isn't already listed. Entries left by a deleted chat are skipped because their chat no longer resolves. `run` needs a terminal; with piped input it prints `` `run` needs an interactive terminal ``.
+
 ## Scripted demo
 
 [`scripts/demo.txt`](../source/demo/db_cli/scripts/demo.txt) starts with `format`, so its output is the same every run. It has 10 steps:
@@ -144,6 +187,7 @@ db_cli.c ──► database.c ──► Storage interface ──► card_image.c
 
 ## Limitations
 
+- `run` uses ANSI escapes and box drawing characters, so it needs a UTF-8 terminal at least 36 columns by 22 rows.
 - The demo only runs on the host. The firmware equivalent is `db_demo.c`.
 - Times are host times. For target timings, see the `DATABASE_TEST` hardware suite ([`database_main.c`](../source/app/hw_tests/src/database_main.c), about 64 ms per contact add at 520 MHz with the worst-case tiebreak).
 - `chat`, `recent` and `calls` show at most 20 rows per call. Use `start` to page through more.

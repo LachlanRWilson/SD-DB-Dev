@@ -8,7 +8,7 @@
  *
  *   db_cli [--image card.img] [--script file] [--interactive] [--echo]
  *
- * Type `help` for the commands. See README.md for an example session.
+ * Type `help` for the commands, or `run` for the phone menus (phone_ui.c). See README.md for an example session.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -26,6 +26,7 @@
 #include "usage_bitmap.h"
 #include "free_list_stack.h"
 #include "card_image.h"
+#include "phone_ui.h"
 
 #define MAX_TOKENS 32
 #define LINE_LEN   512
@@ -46,7 +47,7 @@ static uint32_t g_last_ts;
  * @param ret storage return code
  * @retval constant string
  */
-static const char *strg_name(STRG_RET ret)
+const char *strg_name(STRG_RET ret)
 {
     switch (ret)
     {
@@ -78,7 +79,7 @@ static double now_ms(void)
  *
  * @retval unix time (s)
  */
-static uint32_t next_ts(void)
+uint32_t next_ts(void)
 {
     uint32_t t = (uint32_t)time(NULL);
     g_last_ts = (t > g_last_ts) ? t : (g_last_ts + 1);
@@ -492,6 +493,13 @@ static void cmd_stats(int argc, char **argv)
     printf("  card              %zu sectors (%.1f MB)\n", CARD_RAW_SECTORS, CARD_BYTES / 1e6);
 }
 
+static void cmd_run(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    phone_ui_run(&g_db);
+}
+
 static void cmd_help(int argc, char **argv);
 static void cmd_quit(int argc, char **argv);
 
@@ -514,6 +522,7 @@ static const Command g_cmds[] = {
     {"powercut", "<writes> <command...>",           "cut power after N sector writes, then reboot", 3, cmd_powercut},
     {"format",   "",                                "wipe the card to an empty database", 1, cmd_format},
     {"stats",    "",                                "allocator and ring buffer usage", 1, cmd_stats},
+    {"run",      "",                                "phone UI: contacts, messages, call history", 1, cmd_run},
     {"help",     "",                                "this list", 1, cmd_help},
     {"quit",     "",                                "exit (data is already on the card)", 1, cmd_quit},
 };

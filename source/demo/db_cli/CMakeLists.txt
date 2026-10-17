@@ -18,6 +18,7 @@ endif()
 add_executable(db_cli
     db_cli.c
     card_image.c
+    phone_ui.c
 )
 
 target_link_libraries(db_cli

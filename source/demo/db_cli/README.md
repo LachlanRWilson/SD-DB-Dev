@@ -37,9 +37,27 @@ Flags:
 | `powercut <writes> <command...>` | let `<writes>` sector writes land, drop the rest, then reboot |
 | `format` | wipe the card to an empty database |
 | `stats` | allocator and ring buffer usage |
+| `run` | full screen phone UI (see below) |
 | `help` / `quit` | |
 
 Names and text can be quoted (`add 0400000001 "Amy Lee"`) or left unquoted (all remaining words are used).
+
+## Phone UI (`run`)
+`run` renders the UniQOS phone menus (`../UniQOS/ui/pages`) in the terminal, backed by the database:
+
+```
+Menu ─┬─ Phone ──── Call / Call History ──► contact details
+      ├─ SMS ────── New Message / All Messages ──► chat
+      └─ Contacts ─ name ordered list ──► contact details ──► chat
+```
+- Keys: arrows (or `hjkl`/`wasd`) move, `←`/`→` page, Enter selects, Backspace/Esc goes back, `q` returns to `db>`.
+- Contacts: `/` searches by name prefix (`database_contact_seek`). Only the 10 visible rows are fetched (`database_contact_list`).
+- Contact details: Messages, Call, Send Message, Edit Contact, Delete Contact (Add Contact for an unknown number).
+- Chat: sent bubbles on the right, received on the left, newest at the bottom. Up scrolls back, Enter replies, `i` adds an incoming message.
+- All Messages: one row per chat, newest first, built from the message history.
+- Under the screen: the sector reads/writes of the last key press, and the `STRG_RET` of the last action.
+
+It needs a terminal (it prints a message instead when stdin/stdout is piped). The code is in `phone_ui.c`.
 
 ## How it works
 - On start, the image is loaded into `database.c`'s host `heap_mem`, then `database_init()` runs. A blank image formats itself.
