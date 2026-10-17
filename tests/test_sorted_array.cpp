@@ -65,7 +65,7 @@ protected:
         sa_mem = new SortedArrayEntry[SORTED_ARRAY_ENTRIES];
         std::memset(sa_mem, 0, sizeof(SortedArrayEntry) * SORTED_ARRAY_ENTRIES);
 
-        contact_fls_pool = new uint16_t[HASH_TABLE_SIZE];
+        contact_fls_pool = new uint16_t[HASH_TABLE_ENTRIES];
         message_fls_pool = new uint16_t[TOTAL_MESSAGE_SECTOR_SIZE];
 
         storage_mem = new uint8_t[static_cast<size_t>(SECTOR_SIZE) * STORAGE_SECTOR_COUNT];
@@ -81,7 +81,7 @@ protected:
         std::memset(&journal, 0, sizeof(Journal));
         ASSERT_TRUE(journal_init(&journal, storage));
 
-        ASSERT_TRUE(free_list_init(&contact_allocator, contact_fls_pool, HASH_TABLE_SIZE));
+        ASSERT_TRUE(free_list_init(&contact_allocator, contact_fls_pool, HASH_TABLE_ENTRIES));
         ASSERT_TRUE(free_list_init(&message_allocator, message_fls_pool, TOTAL_MESSAGE_SECTOR_SIZE));
 
         hash_init(&htable, storage, &contact_allocator, &message_allocator, entries, HASH_TABLE_SIZE);

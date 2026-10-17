@@ -68,7 +68,7 @@ protected:
         ASSERT_NE(entries, nullptr);
         memset(entries, 0, sizeof(HashEntry) * HASH_TABLE_SIZE);
 
-        contact_fls_pool = new uint16_t[HASH_TABLE_SIZE];
+        contact_fls_pool = new uint16_t[HASH_TABLE_ENTRIES];
         message_fls_pool = new uint16_t[TOTAL_MESSAGE_SECTOR_SIZE];
         ASSERT_NE(contact_fls_pool, nullptr);
         ASSERT_NE(message_fls_pool, nullptr);
@@ -85,7 +85,7 @@ protected:
         memset(&journal, 0, sizeof(Journal));
         ASSERT_TRUE(journal_init(&journal, &storage));
 
-        ASSERT_TRUE(free_list_init(&contact_allocator, contact_fls_pool, HASH_TABLE_SIZE));
+        ASSERT_TRUE(free_list_init(&contact_allocator, contact_fls_pool, HASH_TABLE_ENTRIES));
         ASSERT_TRUE(free_list_init(&message_allocator, message_fls_pool, TOTAL_MESSAGE_SECTOR_SIZE));
 
         hash_init(&htable, &storage, &contact_allocator, &message_allocator, entries, HASH_TABLE_SIZE);
@@ -187,7 +187,7 @@ TEST(HashTableSmallTableTest, TableFullRejectsNewInsert)
     const size_t small_size = 7;
 
     std::vector<HashEntry> small_entries(HASH_TABLE_SIZE, HashEntry{});
-    std::vector<uint16_t> contact_pool(HASH_TABLE_SIZE, 0);
+    std::vector<uint16_t> contact_pool(HASH_TABLE_ENTRIES, 0);
     std::vector<uint16_t> message_pool(TOTAL_MESSAGE_SECTOR_SIZE, 0);
 
     std::vector<uint8_t> storage_mem(
@@ -206,7 +206,7 @@ TEST(HashTableSmallTableTest, TableFullRejectsNewInsert)
 
     FreeList contact_allocator{};
     FreeList message_allocator{};
-    ASSERT_TRUE(free_list_init(&contact_allocator, contact_pool.data(), HASH_TABLE_SIZE));
+    ASSERT_TRUE(free_list_init(&contact_allocator, contact_pool.data(), HASH_TABLE_ENTRIES));
     ASSERT_TRUE(free_list_init(&message_allocator, message_pool.data(), TOTAL_MESSAGE_SECTOR_SIZE));
 
     HashTable table{};

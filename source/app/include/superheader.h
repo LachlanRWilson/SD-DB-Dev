@@ -107,6 +107,14 @@ SUPR_HEAD_STATUS get_superheader_status(SuperHeaderBuffer* superHeaderBuf);
   */
  SUPR_HEAD_STATUS superheader_check(Storage* storage, SuperHeaderBuffer* superheader);
 
+/**
+  * @brief  Initialise superheader and write to the SD card if the superheader read is uninitialised. Only do this after successful journal and usage bitmap initialisations.
+  * @param  storage pointer to storage struct
+  * @param superheader sector buffer
+  * @retval STRG_RET
+  */
+STRG_RET superheader_init(Storage *storage, SuperHeaderBuffer *superheader);
+
 
 #ifdef __cplusplus
 }

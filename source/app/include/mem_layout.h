@@ -64,9 +64,9 @@ enum {
 #define CONTACT_MEMORY_SECTORS(numContacts, contactSecCapacity) \
     (((numContacts) + (contactSecCapacity) - 1) / (contactSecCapacity))
 
-// Total sectors required to store HASH_TABLE_SIZE contacts.
+// Total sectors required to store HASH_TABLE_ENTRIES contacts. (Although hash table is 14,293, only 10,000 allocated)
 #define CONTACT_MEMORY_SECTOR_SIZE \
-    CONTACT_MEMORY_SECTORS(HASH_TABLE_SIZE, CONTACT_SECTOR_CAPACITY)
+    CONTACT_MEMORY_SECTORS(HASH_TABLE_ENTRIES, CONTACT_SECTOR_CAPACITY)
 
 #define TOTAL_CONTACT_SECTOR_SIZE CONTACT_MEMORY_SECTOR_SIZE
 
@@ -212,6 +212,8 @@ enum {
 #define MESSAGE_DATA_START_SECTOR  (CONTACT_DATA_START_SECTOR + TOTAL_CONTACT_SECTOR_SIZE)
 #define MESSAGE_HISTORY_DATA_START_SECTOR (MESSAGE_DATA_START_SECTOR + TOTAL_MESSAGE_SECTOR_SIZE)
 #define CALL_HISTORY_DATA_START_SECTOR (MESSAGE_HISTORY_DATA_START_SECTOR + TOTAL_MESSAGE_HISTORY_SECTOR_SIZE)
+
+#define TOTAL_DATABASE_SECTOR_SIZE (CALL_HISTORY_DATA_START_SECTOR + TOTAL_CALL_HISTORY_SECTOR_SIZE)
 
 /* ---- Index conversions ----------------------------------------
  * Three index spaces exist:

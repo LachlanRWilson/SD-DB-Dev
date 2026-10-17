@@ -7,117 +7,193 @@ extern "C" {
 
 #include <stdbool.h>
 #include <stdint.h>
-
-#include "hash_table.h"
-#include "message_extent.h"
-#include "free_list_stack.h"
 #include "storage.h"
+#include "journal.h"
+#include "contact.h"
+#include "message.h"
+#include "hash_table.h"
+#include "sorted_array.h"
+#include "free_list_stack.h"
+#include "ring_buffer.h"
+#include "message_history.h"
+#include "call_history.h"
+#include "mem_layout.h"
 
-/**
- * @brief Top-level database object.
- *
- * Owns all state required for the contact database, including:
- * - Contact hash table
- * - Message extent manager
- * - Storage backend
- * - Free-list allocators
- *
- * The database is responsible for coordinating interactions between
- * contacts and their associated message chains.
- */
 typedef struct
 {
-    /** Contact hash table. */
-    HashTable contacts;
-
-    /** Message extent manager. */
-    MessageExtent messages;
-
-    /** Storage backend (SD card or heap). */
-    Storage contact_storage;
-
-    /** Contact allocator. */
+    Storage storage;
+    Journal journal;
+    HashTable htable;
     FreeList contact_allocator;
-
-    /** Message extent allocator. */
     FreeList message_allocator;
-
+    RingBuffer message_history;
+    RingBuffer call_history;
+    SortedArray name_index;
 } Database;
 
+
 /**
- * @brief Initialise the database.
+ * @brief Initialise the storage and mount the database. If the superheader is
+ * uninitialised the storage is formatted, otherwise the journal is recovered and
+ * the in RAM structures are rebuilt from storage.
  *
- * Initialises the contact hash table, message extent manager,
- * storage backend and allocators.
+ * @param db database struct pointer
+ * @retval STRG_OK database mounted or formatted
+ * @retval STRG_CORRUPT superheader corrupted or outdated (call database_format to wipe)
+ * @retval STRG_FAIL storage or rebuild failure
+ */
+STRG_RET database_init(Database *db);
+
+/**
+ * @brief Format the storage to an empty database. Writes the journal, usage
+ * bitmap, empty ring buffers and then the superheader.
  *
- * @param[out] db Database instance.
- * @param[in] storage Storage backend.
- * @param[in] contact_entries Hash table backing array.
- * @param[in] contact_stack Memory for the contact free-list.
- * @param[in] contact_capacity Number of contacts.
- * @param[in] extent_stack Memory for the message extent free-list.
- * @param[in] extent_capacity Number of message extents.
+ * @param db database struct pointer (storage must be initialised)
+ * @retval STRG_RET
+ */
+STRG_RET database_format(Database *db);
+
+/**
+ * @brief Add a new contact to the hash table, storage and name index
  *
- * @retval true Initialisation successful.
- * @retval false Initialisation failed.
+ * @param db database struct pointer
+ * @param name contact name
+ * @param phone contact phone number
+ * @retval STRG_OK if added, STRG_EXISTS if phone number already exists, else STRG_* error code
  */
-bool database_init(Database *db, Storage storage, HashEntry *entries, uint16_t *contact_fls_mem,
-        uint16_t *message_fls_mem);
+STRG_RET database_contact_add(Database *db, const char *name, const char *phone);
 
 /**
- * @brief Create a new contact.
+ * @brief Find a contact by phone number
  *
- * @param db Database.
- * @param contact Contact information.
+ * @param db database struct pointer
+ * @param phone contact phone number
+ * @param out found contact
+ * @retval STRG_OK if found, STRG_EMPTY if not found, else STRG_* error code
+ */
+STRG_RET database_contact_get(Database *db, const char *phone, ContactBuffer *out);
+
+/**
+ * @brief Update the name and/or phone number of a contact
  *
- * @return Assigned contact ID, or INVALID_ID.
+ * @param db database struct pointer
+ * @param phone current contact phone number
+ * @param new_name new contact name
+ * @param new_phone new contact phone number
+ * @retval STRG_OK if updated, STRG_EMPTY if not found, STRG_EXISTS if new phone already exists
  */
-bool database_contact_create(Database *db, ContactBuffer *contact);
+STRG_RET database_contact_update(Database *db, const char *phone, const char *new_name, const char *new_phone);
 
 /**
- * @brief Find a contact.
- */
-bool database_contact_get(Database *db, uint16_t id, ContactBuffer *out);
-
-/**
- * @brief Update an existing contact.
- */
-bool database_contact_update(Database *db, uint16_t id, ContactBuffer *contact);
-
-/**
- * @brief Read latest message block from contact message
- */
-bool database_message_read_latest(Database *db, uint16_t id, MessageBlock messageBlock);
-
-/**
- * @brief Append a message to a contact.
- */
-bool database_message_append(Database *db, uint16_t contact_id, const Message *message);
-
-/**
- * @brief Count messages belonging to a contact.
- */
-uint16_t database_message_count(Database *db, uint16_t contact_id);
-
-/**
- * @brief Delete all messages belonging to a contact.
- */
-bool database_message_delete(Database *db, uint16_t contact_id);
-
-/**
- * @brief Reset the database to an empty state.
+ * @brief Remove a contact and its message chat
  *
- * Frees all allocated contacts and message extents and reinitialises
- * the internal data structures.
- *
- * @param[in,out] db Database instance.
+ * @param db database struct pointer
+ * @param phone contact phone number
+ * @retval STRG_OK if removed, STRG_EMPTY if not found, else STRG_* error code
  */
-void database_clear(Database *db);
+STRG_RET database_contact_remove(Database *db, const char *phone);
 
 /**
- * @brief Flush pending changes to storage.
+ * @brief Get a range of contacts in alphabetical order
+ *
+ * @param db database struct pointer
+ * @param start rank of the first contact
+ * @param n max number of contacts to read
+ * @param out_count number of contacts read
+ * @param out contact array (at least n long)
+ * @retval STRG_OK if read, STRG_EMPTY if start is past the last contact, else STRG_* error code
  */
-bool database_sync(Database *db);
+STRG_RET database_contact_list(Database *db, size_t start, size_t n, size_t *out_count, ContactBuffer *out);
+
+/**
+ * @brief Find the rank of the first contact whose name is >= prefix. Use with
+ * database_contact_list for search
+ *
+ * @param db database struct pointer
+ * @param prefix name prefix
+ * @param rank rank of the first contact >= prefix
+ * @retval STRG_RET
+ */
+STRG_RET database_contact_seek(Database *db, const char *prefix, size_t *rank);
+
+/**
+ * @brief Get the number of contacts in the database
+ *
+ * @param db database struct pointer
+ * @retval number of contacts
+ */
+size_t database_contact_count(Database *db);
+
+/**
+ * @brief Add a message to a contacts chat and the message history. If the
+ * phone number has no contact an unnamed contact is created
+ *
+ * @param db database struct pointer
+ * @param phone phone number the message is associated with
+ * @param timestamp message timestamp (must not be 0)
+ * @param direction sending or receiving
+ * @param str message string
+ * @retval STRG_RET
+ */
+STRG_RET database_message_add(Database *db, const char *phone, uint32_t timestamp, bool direction, char *str);
+
+/**
+ * @brief Read a range of messages from a contacts chat, from latest backwards
+ *
+ * @param db database struct pointer
+ * @param phone phone number the chat is associated with
+ * @param start start message (0 = latest)
+ * @param n max number of messages to read
+ * @param out_count number of messages read
+ * @param out message array (at least n long)
+ * @retval STRG_OK if read, STRG_EMPTY if no contact or chat, else STRG_* error code
+ */
+STRG_RET database_message_get_chat(Database *db, const char *phone, size_t start, size_t n, size_t *out_count,
+        Message *out);
+
+/**
+ * @brief Remove a contacts entire message chat. The contact is kept
+ *
+ * @param db database struct pointer
+ * @param phone phone number the chat is associated with
+ * @retval STRG_OK if removed, STRG_EMPTY if no contact or chat, else STRG_* error code
+ */
+STRG_RET database_message_remove_chat(Database *db, const char *phone);
+
+/**
+ * @brief Get a range of the latest messages across all chats
+ *
+ * @param db database struct pointer
+ * @param start start message (0 = latest)
+ * @param n max number of messages to read
+ * @param out_count number of messages read
+ * @param out message history array (at least n long)
+ * @retval STRG_RET
+ */
+STRG_RET database_message_recent(Database *db, size_t start, size_t n, size_t *out_count, MessageHistoryEntry *out);
+
+/**
+ * @brief Add a call to the call history. If the phone number has no contact
+ * the entry is stored with only the phone number
+ *
+ * @param db database struct pointer
+ * @param phone phone number of the call
+ * @retval STRG_RET
+ */
+STRG_RET database_call_add(Database *db, const char *phone);
+
+/**
+ * @brief Get a range of the latest calls
+ *
+ * @param db database struct pointer
+ * @param start start call (0 = latest)
+ * @param n max number of calls to read
+ * @param out_count number of calls read
+ * @param out call history array (at least n long)
+ * @retval STRG_RET
+ */
+STRG_RET database_call_recent(Database *db, size_t start, size_t n, size_t *out_count, CallHistoryEntry *out);
+
 
 #ifdef __cplusplus
 }

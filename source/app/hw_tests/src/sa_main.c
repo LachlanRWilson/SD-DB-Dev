@@ -106,7 +106,7 @@ __attribute__((section(".ram_d1")))
 static HashEntry g_entries[HASH_TABLE_SIZE];
 
 __attribute__((section(".ram_d1")))
-static uint16_t g_contact_fls_mem[HASH_TABLE_SIZE];
+static uint16_t g_contact_fls_mem[HASH_TABLE_ENTRIES];
 
 __attribute__((section(".ram_d1")))
 static SortedArrayEntry g_sa_mem[SORTED_ARRAY_ENTRIES];
@@ -178,7 +178,7 @@ static bool fixture_setup(void)
     memset(&g_journal, 0, sizeof(g_journal));
     if (!journal_init(&g_journal, storage)) { return false; }
 
-    if (!free_list_init(&g_contact_fls, g_contact_fls_mem, HASH_TABLE_SIZE))      { return false; }
+    if (!free_list_init(&g_contact_fls, g_contact_fls_mem, HASH_TABLE_ENTRIES))      { return false; }
     if (!free_list_init(&g_message_fls, g_message_fls_mem, SA_MESSAGE_FLS_SIZE)) { return false; }
 
     hash_init(&g_table, storage, &g_contact_fls, &g_message_fls, g_entries, HASH_TABLE_SIZE);
@@ -781,7 +781,7 @@ static bool rebuild(void)
 {
     memset(g_entries, 0, sizeof(g_entries));
 
-    if (!free_list_empty_init(&g_contact_fls, g_contact_fls_mem, HASH_TABLE_SIZE))
+    if (!free_list_empty_init(&g_contact_fls, g_contact_fls_mem, HASH_TABLE_ENTRIES))
     {
         return false;
     }

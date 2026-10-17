@@ -64,7 +64,7 @@ protected:
         ASSERT_NE(entries, nullptr);
         std::memset(entries, 0, sizeof(HashEntry) * HASH_TABLE_SIZE);
 
-        contact_fls_pool = new uint16_t[HASH_TABLE_SIZE];
+        contact_fls_pool = new uint16_t[HASH_TABLE_ENTRIES];
         ASSERT_NE(contact_fls_pool, nullptr);
 
         message_fls_pool = new uint16_t[TOTAL_MESSAGE_SECTOR_SIZE];
@@ -84,7 +84,7 @@ protected:
         std::memset(&journal, 0, sizeof(Journal));
         ASSERT_TRUE(journal_init(&journal, storage));
 
-        ASSERT_TRUE(free_list_init(&contact_allocator, contact_fls_pool, HASH_TABLE_SIZE));
+        ASSERT_TRUE(free_list_init(&contact_allocator, contact_fls_pool, HASH_TABLE_ENTRIES));
         ASSERT_TRUE(free_list_init(&message_allocator, message_fls_pool, TOTAL_MESSAGE_SECTOR_SIZE));
 
         hash_init(&htable, storage, &contact_allocator, &message_allocator, entries, HASH_TABLE_SIZE);

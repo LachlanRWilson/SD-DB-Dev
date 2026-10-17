@@ -41,6 +41,11 @@ bool SDStorage_WriteBlock( void *context, uint32_t index, uint8_t *in);
 
 uint32_t SDStorage_Capacity( void *context);
 
+/*
+ * SD card implementation of the Storage interface.
+ */
+extern Storage sd_storage;
+
 #ifdef __cplusplus
 }
 #endif

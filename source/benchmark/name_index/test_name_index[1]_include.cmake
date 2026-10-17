@@ -1,0 +1,5 @@
+if(EXISTS "/home/lachlan-wilson/Documents/University/thesis/dev/source/benchmark/name_index/test_name_index[1]_tests.cmake")
+  include("/home/lachlan-wilson/Documents/University/thesis/dev/source/benchmark/name_index/test_name_index[1]_tests.cmake")
+else()
+  add_test(test_name_index_NOT_BUILT test_name_index_NOT_BUILT)
+endif()

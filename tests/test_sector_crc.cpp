@@ -410,13 +410,13 @@ TEST_F(SectorCrcTest, SuperheaderReadFailureIsFail)
 TEST_F(SectorCrcTest, ReconstructSkipsCorruptContactSector)
 {
     std::vector<HashEntry> entries(HASH_TABLE_SIZE);
-    std::vector<uint16_t> contact_pool(HASH_TABLE_SIZE);
+    std::vector<uint16_t> contact_pool(HASH_TABLE_ENTRIES);
     std::vector<uint16_t> message_pool(TOTAL_MESSAGE_SECTOR_SIZE);
     FreeList contact_fls{};
     FreeList message_fls{};
     HashTable table{};
 
-    ASSERT_TRUE(free_list_empty_init(&contact_fls, contact_pool.data(), HASH_TABLE_SIZE));
+    ASSERT_TRUE(free_list_empty_init(&contact_fls, contact_pool.data(), HASH_TABLE_ENTRIES));
     ASSERT_TRUE(free_list_init(&message_fls, message_pool.data(), TOTAL_MESSAGE_SECTOR_SIZE));
 
     // contact 0 in sector 0 (corrupted), contact in sector 1 (healthy)

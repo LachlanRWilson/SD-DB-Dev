@@ -79,14 +79,16 @@ void MX_FMC_Init(void)
   /* The CubeMX defaults above (~270 HCLK per access) make full-screen LCD
    * redraws visibly slow. Re-apply a timing that fits the ST7789V 8080
    * write cycle (AFR240320A0-2.0INTM-spec.pdf 7.1: twc >= 66ns,
-   * twrl/twrh >= 15ns) at HCLK = 64MHz (15.6ns): ADDSET 2 + DATAST 3 + 1
-   * = 6 HCLK ~= 94ns per write. Kept here in USER CODE so a CubeMX regen
-   * doesn't revert it. Reads (DATAST) would need to be much slower, but
-   * nothing reads from the panel. */
-  Timing.AddressSetupTime = 2;
+   * twrl/twrh >= 15ns): ADDSET >= 30ns + DATAST >= 45ns + 1 HCLK. The
+   * cycle counts are worked out from the running HCLK so the write stays
+   * ~80-95ns whatever the clock tree (HCLK 64MHz: 2 + 3, 260MHz: 8 + 12).
+   * Kept here in USER CODE so a CubeMX regen doesn't revert it. Reads
+   * (DATAST) would need to be much slower, but nothing reads from the panel. */
+  uint32_t hclk_mhz = HAL_RCC_GetHCLKFreq() / 1000000U;
+  Timing.AddressSetupTime = ((30U * hclk_mhz) + 999U) / 1000U;
   Timing.AddressHoldTime = 1;
-  Timing.DataSetupTime = 3;
-  Timing.BusTurnAroundDuration = 1;
+  Timing.DataSetupTime = ((45U * hclk_mhz) + 999U) / 1000U;
+  Timing.BusTurnAroundDuration = ((15U * hclk_mhz) + 999U) / 1000U;
   if (FMC_NORSRAM_Timing_Init(hsram1.Instance, &Timing, hsram1.Init.NSBank) != HAL_OK)
   {
     Error_Handler( );

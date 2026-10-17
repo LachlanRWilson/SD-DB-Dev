@@ -24,6 +24,8 @@ add_library(app_logic
     app/src/message_history.c
     app/src/call_history.c
     app/src/sorted_array.c
+    app/src/superheader.c
+    app/src/database.c
 )
 
 # Make the include directory PUBLIC so other files such as tests/test_my_logic.cpp and firmware/Core/Src/main.c
@@ -53,6 +55,8 @@ if (BUILD_STM32)
         app/demos/src/mh_demo.c
         # Sorted array hardware unit tests (-DSA_TEST=ON runs them instead of db_main.c)
         app/hw_tests/src/sa_main.c
+        # Database API hardware unit tests (-DDATABASE_TEST=ON runs them instead of db_main.c)
+        app/hw_tests/src/database_main.c
         # Scrolling text log on the LCD, shared by the demos
         app/src/lcd_log.c
         # AFR240320A0-2.0INTM LCD driver (over the FMC bus) + its on-hardware smoke tests
@@ -119,6 +123,12 @@ if (BUILD_STM32)
         target_compile_definitions(app_logic PUBLIC SA_TEST=1)
     endif()
 
+    # -DDATABASE_TEST=ON : main.c starts the database API hardware unit tests (database_main.c) instead of DB_Init()
+    option(DATABASE_TEST "Run the database API hardware unit tests instead of the DB tests" OFF)
+    if (DATABASE_TEST)
+        target_compile_definitions(app_logic PUBLIC DATABASE_TEST=1)
+    endif()
+
     # -DMH_DEMO=ON : main.c starts the message history demo (mh_demo.c) instead of DB_Init()
     #   -DMH_DEMO_WRITE=ON  (default) fill (and wrap) a small history ring buffer on the card
     #   -DMH_DEMO_WRITE=OFF           rebuild it from the card and page through it with get_range
@@ -135,7 +145,6 @@ if (BUILD_STM32)
 else ()
     target_sources(app_logic PRIVATE
         app/src/heap_storage.c
-        app/src/superheader.c
     )
 
     target_link_libraries(app_logic PRIVATE platform_host)

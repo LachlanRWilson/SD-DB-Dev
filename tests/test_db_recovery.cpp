@@ -228,13 +228,13 @@ TEST_F(DbRecoveryTest, FullMessageSectorLeavesJournalCommitted)
 TEST_F(DbRecoveryTest, ReconstructMessageRestoresLatestSectors)
 {
     std::vector<HashEntry> entries(HASH_TABLE_SIZE);
-    std::vector<uint16_t> contact_pool(HASH_TABLE_SIZE);
+    std::vector<uint16_t> contact_pool(HASH_TABLE_ENTRIES);
     std::vector<uint16_t> message_pool(TOTAL_MESSAGE_SECTOR_SIZE);
     FreeList contact_fls{};
     FreeList message_fls{};
     HashTable table{};
 
-    ASSERT_TRUE(free_list_init(&contact_fls, contact_pool.data(), HASH_TABLE_SIZE));
+    ASSERT_TRUE(free_list_init(&contact_fls, contact_pool.data(), HASH_TABLE_ENTRIES));
     ASSERT_TRUE(free_list_init(&message_fls, message_pool.data(), TOTAL_MESSAGE_SECTOR_SIZE));
     hash_init(&table, storage, &contact_fls, &message_fls, entries.data(), HASH_TABLE_SIZE);
 
@@ -266,13 +266,13 @@ TEST_F(DbRecoveryTest, ReconstructMessageRestoresLatestSectors)
 
     // Rebuild into a fresh table, as a boot would
     std::vector<HashEntry> r_entries(HASH_TABLE_SIZE);
-    std::vector<uint16_t> r_contact_pool(HASH_TABLE_SIZE);
+    std::vector<uint16_t> r_contact_pool(HASH_TABLE_ENTRIES);
     std::vector<uint16_t> r_message_pool(TOTAL_MESSAGE_SECTOR_SIZE);
     FreeList r_contact_fls{};
     FreeList r_message_fls{};
     HashTable rebuilt{};
 
-    ASSERT_TRUE(free_list_empty_init(&r_contact_fls, r_contact_pool.data(), HASH_TABLE_SIZE));
+    ASSERT_TRUE(free_list_empty_init(&r_contact_fls, r_contact_pool.data(), HASH_TABLE_ENTRIES));
     ASSERT_TRUE(free_list_empty_init(&r_message_fls, r_message_pool.data(), TOTAL_MESSAGE_SECTOR_SIZE));
     hash_init(&rebuilt, storage, &r_contact_fls, &r_message_fls, r_entries.data(), HASH_TABLE_SIZE);
 
@@ -310,13 +310,13 @@ TEST_F(DbRecoveryTest, ReconstructMessageRestoresLatestSectors)
 TEST_F(DbRecoveryTest, ReconstructMessageEmptyDatabase)
 {
     std::vector<HashEntry> entries(HASH_TABLE_SIZE);
-    std::vector<uint16_t> contact_pool(HASH_TABLE_SIZE);
+    std::vector<uint16_t> contact_pool(HASH_TABLE_ENTRIES);
     std::vector<uint16_t> message_pool(TOTAL_MESSAGE_SECTOR_SIZE);
     FreeList contact_fls{};
     FreeList message_fls{};
     HashTable table{};
 
-    ASSERT_TRUE(free_list_empty_init(&contact_fls, contact_pool.data(), HASH_TABLE_SIZE));
+    ASSERT_TRUE(free_list_empty_init(&contact_fls, contact_pool.data(), HASH_TABLE_ENTRIES));
     ASSERT_TRUE(free_list_empty_init(&message_fls, message_pool.data(), TOTAL_MESSAGE_SECTOR_SIZE));
     hash_init(&table, storage, &contact_fls, &message_fls, entries.data(), HASH_TABLE_SIZE);
 

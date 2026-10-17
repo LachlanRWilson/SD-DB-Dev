@@ -1,0 +1,5 @@
+if(EXISTS "/home/lachlan-wilson/Documents/University/thesis/dev/tests/test_contact_index_recovery[1]_tests.cmake")
+  include("/home/lachlan-wilson/Documents/University/thesis/dev/tests/test_contact_index_recovery[1]_tests.cmake")
+else()
+  add_test(test_contact_index_recovery_NOT_BUILT test_contact_index_recovery_NOT_BUILT)
+endif()

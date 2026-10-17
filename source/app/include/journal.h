@@ -110,8 +110,6 @@ bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *cont
 
 STRG_RET journal_free(Journal *journal);
 
-#if defined (HOST_BUILD)
-
 /**
  * @brief Initialise header and write to storage
  *
@@ -121,6 +119,8 @@ STRG_RET journal_free(Journal *journal);
  * @retval false journal init header write fail
  */
 bool journal_header_init(Journal* journal);
+
+#if defined (HOST_BUILD)
 
 /**
  * @brief Write to the journal

@@ -133,7 +133,7 @@ __attribute__((section(".ram_d1")))
 static HashEntry g_entries[HASH_TABLE_SIZE];
 
 __attribute__((section(".ram_d1")))
-static uint16_t g_contact_fls_mem[HASH_TABLE_SIZE];
+static uint16_t g_contact_fls_mem[HASH_TABLE_ENTRIES];
 
 __attribute__((section(".ram_d1")))
 static SortedArrayEntry g_sa_mem[SORTED_ARRAY_ENTRIES];
@@ -182,7 +182,7 @@ static bool format(void)
     memset(&g_journal, 0, sizeof(g_journal));
     if (!journal_init(&g_journal, storage)) { return false; }
 
-    if (!free_list_init(&g_contact_fls, g_contact_fls_mem, HASH_TABLE_SIZE))        { return false; }
+    if (!free_list_init(&g_contact_fls, g_contact_fls_mem, HASH_TABLE_ENTRIES))        { return false; }
     if (!free_list_init(&g_message_fls, g_message_fls_mem, DEMO_MESSAGE_FLS_SIZE)) { return false; }
 
     hash_init(&g_table, storage, &g_contact_fls, &g_message_fls, g_entries, HASH_TABLE_SIZE);
@@ -477,7 +477,7 @@ static void step_reboot(void)
     memset(g_sa_mem, 0, sizeof(g_sa_mem));
     memset(usage_bitmap, 0, sizeof(usage_bitmap));
 
-    ok = free_list_empty_init(&g_contact_fls, g_contact_fls_mem, HASH_TABLE_SIZE);
+    ok = free_list_empty_init(&g_contact_fls, g_contact_fls_mem, HASH_TABLE_ENTRIES);
     hash_init(&g_table, storage, &g_contact_fls, &g_message_fls, g_entries, HASH_TABLE_SIZE);
     ok = ok && read_usage_bitmap(storage) && hash_reconstruct_contact(&g_table);
     lcd_log_line(ok ? LOG_COLOR_PASS : LOG_COLOR_FAIL, " hash table rebuilt: %u contacts",

@@ -87,6 +87,7 @@ STATIC_ASSERT(MESSAGE_SECTOR_CAPACITY == 3, "CRC trailer changed the message sec
 // Opaque Declaration of FreeList
 typedef struct FreeList FreeList;
 typedef struct Journal Journal;
+typedef struct Storage Storage;
 
 typedef struct
 {

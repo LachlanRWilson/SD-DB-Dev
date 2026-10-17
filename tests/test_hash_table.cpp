@@ -69,7 +69,7 @@ protected:
         ASSERT_NE(entries, nullptr);
         std::memset(entries, 0, sizeof(HashEntry) * HASH_TABLE_SIZE);
 
-        contact_fls_pool = new uint16_t[HASH_TABLE_SIZE];
+        contact_fls_pool = new uint16_t[HASH_TABLE_ENTRIES];
         ASSERT_NE(contact_fls_pool, nullptr);
 
         message_fls_pool = new uint16_t[TOTAL_MESSAGE_SECTOR_SIZE];
@@ -93,7 +93,7 @@ protected:
         std::memset(&journal, 0, sizeof(Journal));
         ASSERT_TRUE(journal_init(&journal, storage));
 
-        ASSERT_TRUE(free_list_init(&contact_allocator, contact_fls_pool, HASH_TABLE_SIZE));
+        ASSERT_TRUE(free_list_init(&contact_allocator, contact_fls_pool, HASH_TABLE_ENTRIES));
         ASSERT_TRUE(free_list_init(&message_allocator, message_fls_pool, TOTAL_MESSAGE_SECTOR_SIZE));
 
         hash_init(&htable, storage, &contact_allocator, &message_allocator, entries, HASH_TABLE_SIZE);
@@ -155,11 +155,11 @@ protected:
     bool rebuild()
     {
         rebuilt_entries.assign(HASH_TABLE_SIZE, HashEntry{});
-        rebuilt_pool.assign(HASH_TABLE_SIZE, 0);
+        rebuilt_pool.assign(HASH_TABLE_ENTRIES, 0);
 
         // Reconstruction starts from an allocator with nothing free and
         // frees back the slots the usage bitmap says are unused.
-        if (!free_list_empty_init(&rebuilt_fls, rebuilt_pool.data(), HASH_TABLE_SIZE))
+        if (!free_list_empty_init(&rebuilt_fls, rebuilt_pool.data(), HASH_TABLE_ENTRIES))
         {
             return false;
         }

@@ -82,7 +82,7 @@ protected:
     void init_table(bool empty)
     {
         entries.assign(HASH_TABLE_SIZE, HashEntry{});
-        contact_pool.assign(HASH_TABLE_SIZE, 0);
+        contact_pool.assign(HASH_TABLE_ENTRIES, 0);
         message_pool.assign(TOTAL_MESSAGE_SECTOR_SIZE, 0);
         contact_fls = FreeList{};
         message_fls = FreeList{};
@@ -90,12 +90,12 @@ protected:
 
         if (empty)
         {
-            ASSERT_TRUE(free_list_empty_init(&contact_fls, contact_pool.data(), HASH_TABLE_SIZE));
+            ASSERT_TRUE(free_list_empty_init(&contact_fls, contact_pool.data(), HASH_TABLE_ENTRIES));
             ASSERT_TRUE(free_list_empty_init(&message_fls, message_pool.data(), TOTAL_MESSAGE_SECTOR_SIZE));
         }
         else
         {
-            ASSERT_TRUE(free_list_init(&contact_fls, contact_pool.data(), HASH_TABLE_SIZE));
+            ASSERT_TRUE(free_list_init(&contact_fls, contact_pool.data(), HASH_TABLE_ENTRIES));
             ASSERT_TRUE(free_list_init(&message_fls, message_pool.data(), TOTAL_MESSAGE_SECTOR_SIZE));
         }
         hash_init(&table, storage, &contact_fls, &message_fls, entries.data(), HASH_TABLE_SIZE);
