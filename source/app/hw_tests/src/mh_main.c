@@ -58,13 +58,17 @@
 #include "sd_storage.h"
 #include "htest_ui.h"
 #include "mh_main.h"
+#include "msg_ts.h"
 
 #define MH_TASK_STACK_SIZE (8 * 1024)
 #define MH_TASK_PRIORITY   osPriorityNormal
 
-/* Large enough to hold 20+ messages for the get_range paging tests. */
-#define MH_SECTORS   8
 #define MH_CAP       MESSAGE_HISTORY_SECTOR_CAPACITY
+/* At least 8 sectors, and large enough to hold MH_MIN_MESSAGES (without
+ * wrapping) for the get_range paging tests, whatever the sector capacity is. */
+#define MH_MIN_MESSAGES 24
+#define MH_SECTORS_FOR_MIN ((MH_MIN_MESSAGES + MH_CAP - 1) / MH_CAP)
+#define MH_SECTORS   (MH_SECTORS_FOR_MIN > 8 ? MH_SECTORS_FOR_MIN : 8)
 #define MH_START     (DATA_REGION_START_SECTOR + MESSAGE_HISTORY_DATA_START_SECTOR)
 #define MH_GUARD     (MH_START + MH_SECTORS)
 #define MH_GUARD_SEQ 0xDEADBEEFu
@@ -77,6 +81,7 @@
 #define MH_REPORT_MAGIC 0x4D487E57u
 
 _Static_assert(MH_SECTORS * MH_CAP < MH_MANY, "MH_OUT_MAX too small for the region");
+_Static_assert(MH_CAP >= 2, "need at least 2 entries per sector to test appending");
 
 extern Storage sd_storage;
 
@@ -283,7 +288,7 @@ static MessageHistoryEntry make_entry(uint16_t id)
     MessageHistoryEntry e;
     memset(&e, 0, sizeof(e));
     e.msgInd = msg_ind_for(id);
-    e.message.timestamp = id;
+    msg_set_ts(&e.message, id);
     e.message.direction = (id % 2) != 0;
     snprintf(e.message.str, sizeof(e.message.str), "message %u", id);
     return e;
@@ -308,10 +313,10 @@ static bool add(int n)
 static STRG_RET range_into(MessageHistoryEntry *out, size_t start, size_t n, size_t *count, int line)
 {
     memset(out, 0, sizeof(MessageHistoryEntry) * (n + 1));
-    out[n].message.timestamp = 0xBEEF;
+    msg_set_ts(&out[n].message, 0xBEEF);
     *count = 0xFFFF;
     STRG_RET ret = message_history_get_range(&g_rb, storage, start, n, count, out);
-    if (out[n].message.timestamp != 0xBEEF)
+    if (msg_ts(&out[n].message) != 0xBEEF)
     {
         fail_at(line);
     }
@@ -329,7 +334,7 @@ static bool range_is(const MessageHistoryEntry *out, size_t start, size_t count)
     {
         MessageHistoryEntry want = make_entry((uint16_t)(g_added - 1 - start - i));
         if (out[i].msgInd != want.msgInd ||
-            out[i].message.timestamp != want.message.timestamp ||
+            msg_ts(&out[i].message) != msg_ts(&want.message) ||
             out[i].message.direction != want.message.direction ||
             strcmp(out[i].message.str, want.message.str) != 0)
         {
@@ -409,7 +414,7 @@ static void test_FirstAddClaimsSectorZero(void)
     CHECK(s.sector.header.state == RB_OCCUPIED);
     CHECK(s.sector.header.head == 0);
     CHECK(s.sector.header.seq == 0);
-    CHECK(s.sector.data.mh_entry[0].message.timestamp == 0);
+    CHECK(msg_ts(&s.sector.data.mh_entry[0].message) == 0);
     CHECK(s.sector.data.mh_entry[0].msgInd == msg_ind_for(0));
 }
 
@@ -426,7 +431,7 @@ static void test_AddsWithinSectorAdvanceHead(void)
     CHECK(s.sector.header.head == MH_CAP - 1);
     for (uint16_t i = 0; i < MH_CAP; i++)
     {
-        CHECK(s.sector.data.mh_entry[i].message.timestamp == i);
+        CHECK(msg_ts(&s.sector.data.mh_entry[i].message) == i);
         CHECK(s.sector.data.mh_entry[i].msgInd == msg_ind_for(i));
     }
 }
@@ -463,7 +468,7 @@ static void test_AddKeepsFullRangeMessageIndex(void)
     for (size_t i = 0; i < count; i++)
     {
         CHECK(g_out[i].msgInd == inds[4 - i]);
-        CHECK(g_out[i].message.timestamp == 4 - i);
+        CHECK(msg_ts(&g_out[i].message) == 4 - i);
     }
 }
 
@@ -488,7 +493,7 @@ static void test_AddPastFullSectorMovesToNextSector(void)
     CHECK(s1.sector.header.state == RB_OCCUPIED);
     CHECK(s1.sector.header.head == 0);
     CHECK(s1.sector.header.seq == 1);
-    CHECK(s1.sector.data.mh_entry[0].message.timestamp == MH_CAP);
+    CHECK(msg_ts(&s1.sector.data.mh_entry[0].message) == MH_CAP);
 }
 
 static void test_SectorsFillSequentiallyWithIncreasingSeq(void)
@@ -505,7 +510,7 @@ static void test_SectorsFillSequentiallyWithIncreasingSeq(void)
         CHECK(stored(i, &s));
         CHECK(s.sector.header.seq == i);
         CHECK(s.sector.header.state == (i == MH_SECTORS - 1 ? RB_OCCUPIED : RB_FULL));
-        CHECK(s.sector.data.mh_entry[0].message.timestamp == i * MH_CAP);
+        CHECK(msg_ts(&s.sector.data.mh_entry[0].message) == i * MH_CAP);
     }
 }
 
@@ -525,22 +530,24 @@ static void test_WrapOverwritesOldestSector(void)
     CHECK(s0.sector.header.state == RB_OCCUPIED);
     CHECK(s0.sector.header.head == 0);
     CHECK(s0.sector.header.seq == MH_SECTORS);
-    CHECK(s0.sector.data.mh_entry[0].message.timestamp == MH_SECTORS * MH_CAP);
+    CHECK(msg_ts(&s0.sector.data.mh_entry[0].message) == MH_SECTORS * MH_CAP);
 }
 
 static void test_AddsAfterWrapKeepFillingReusedSector(void)
 {
     MessageHistorySectorB s0;
 
-    /* After reusing a FULL sector the next add must append, not reset head */
-    CHECK(add(MH_SECTORS * MH_CAP + 3));
+    /* After reusing a FULL sector the next add must append, not reset head.
+     * Fill the reused sector with up to 3 entries (but not past its capacity) */
+    const uint16_t extra = (MH_CAP < 3) ? MH_CAP : 3;
+    CHECK(add(MH_SECTORS * MH_CAP + extra));
 
     CHECK(stored(0, &s0));
     CHECK(s0.sector.header.state == RB_OCCUPIED);
-    CHECK(s0.sector.header.head == 2);
-    for (uint16_t i = 0; i < 3; i++)
+    CHECK(s0.sector.header.head == extra - 1);
+    for (uint16_t i = 0; i < extra; i++)
     {
-        CHECK(s0.sector.data.mh_entry[i].message.timestamp == MH_SECTORS * MH_CAP + i);
+        CHECK(msg_ts(&s0.sector.data.mh_entry[i].message) == MH_SECTORS * MH_CAP + i);
     }
 }
 
@@ -702,7 +709,7 @@ static void test_GetRangeReturnsSecondTenMessages(void)
     for (size_t i = 0; i < 20; i++)
     {
         const MessageHistoryEntry *e = (i < 10) ? &g_out[i] : &g_out2[i - 10];
-        CHECK(e->message.timestamp == 19 - i);
+        CHECK(msg_ts(&e->message) == 19 - i);
     }
 }
 
@@ -911,8 +918,9 @@ static void test_ReconstructAfterAddsMatchesRamState(void)
         /* Continue on the reconstructed state */
         g_rb = after;
         CHECK(add(MH_CAP + 1));
+        const size_t stored_count = stored_after(g_added, MH_SECTORS, MH_CAP);
         CHECK(get_list(5, &count) == STRG_OK);
-        CHECK(count == 5);
+        CHECK(count == (stored_count < 5 ? stored_count : 5));
         CHECK(newest_first(g_out, count));
     }
 }

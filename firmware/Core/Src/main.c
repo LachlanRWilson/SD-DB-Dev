@@ -33,6 +33,7 @@
 #include "persist_demo.h"
 #include "mh_main.h"
 #include "mh_demo.h"
+#include "sa_main.h"
 #include "test_fmc.h"
 #if NAME_INDEX_BENCH
 #include "name_index_bench.h"
@@ -120,6 +121,8 @@ int main(void)
   MH_Test_Init();
 #elif MH_DEMO
   MH_Demo_Init();
+#elif SA_TEST
+  SA_Test_Init();
 #elif NAME_INDEX_BENCH
   NameIndexBench_Init();
 #else

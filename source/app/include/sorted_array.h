@@ -17,6 +17,7 @@ extern "C" {
 
 // Opaque Declarations
 typedef struct Contact Contact;
+typedef struct HashEntry HashEntry;
 
 #define KEY_LEN 8
 
@@ -31,16 +32,16 @@ typedef struct {
 
 // Sorted Array
 typedef struct {
-    char key[KEY_LEN];   // Comparison Key (8B)
-    uint16_t contact_index; // Contact sector index (2B)
-    uint16_t message_index; // Message sector index (2B)
+    char key[KEY_LEN];      // Comparison Key (8B)
+    uint16_t hash_slot;     // hash_slot (2B)
 } SortedArrayEntry;
 
 typedef struct {
     uint16_t occupancy;     // number of entries in sorted array
     Storage *storage;       // Storage abstraciton pointer
     SortedArrayEntry *mem;  // pointer to array memory (in RAM)
-    STRG_RET (*tiebreak) (Storage *storage, const SortedArrayProbe *probe, SortedArrayEntry *entry, int *order);
+    HashEntry *htable_mem;  // pointer to hash table memory (such that SortedArrayEntry hash_slot hash access easy)
+    STRG_RET (*tiebreak) (Storage *storage, HashEntry *htable_mem, const SortedArrayProbe *probe, SortedArrayEntry *entry, int *order);
 } SortedArray;
 
 
@@ -67,17 +68,37 @@ STRG_RET sorted_array_seek(SortedArray *sa, const char *prefix, size_t *rank);
  */
 STRG_RET sorted_array_find(SortedArray *sa, const Contact *in, size_t *rank, bool *match_found);
 
-bool sorted_array_insert(SortedArray *sa, const Contact *contact, uint16_t contact_index, uint16_t message_index);
+/**
+ * @brief Find the lower index of the name of the given contact, then move all the memory greater than index by one 
+ * and place index into lower index + 1
+ *
+ * @param sa sorted array struct
+ * @param in contact that is being searched for
+ * @param contact_index contact sector index
+ * @param message_index message sector index
+ * @retval STRG_RET
+ */
+STRG_RET sorted_array_insert(SortedArray *sa, const Contact *contact, uint16_t contact_index);
 
-bool sorted_array_remove(SortedArray *sa, const Contact *contact);
+STRG_RET sorted_array_remove(SortedArray *sa, const Contact *contact);
 
-bool sorted_array_get_range(SortedArray *sa, size_t start, size_t n, SortedArrayEntry *out);
+bool sorted_array_get_range(SortedArray *sa, size_t start, size_t n, size_t *out_count, SortedArrayEntry *out);
 
-bool sorted_array_append(SortedArray *sa, SortedArrayEntry in);
+bool sorted_array_append(SortedArray *sa, SortedArrayEntry *in);
 
-bool sorted_array_sort_qsort(SortedArray *sa);
+STRG_RET sorted_array_sort(SortedArray *sa);
 
-bool sorted_array_init(SortedArray *sa, Storage *storage, SortedArrayEntry *sa_memory);
+/**
+ * @brief Initialise a sorted array structure
+ *
+ * @param sa sorted array struct
+ * @param storage storage struct
+ * @param sa_memory pre-allocated RAM_D1 memory pointer
+ * @param rank pointer to rank which is <= prefix
+ * @param match_found pointer to bool which stores if the contact is in the sorted array
+ * @retval STRG_RET
+ */
+bool sorted_array_init(SortedArray *sa, HashEntry *htable_mem, Storage *storage, SortedArrayEntry* sa_memory);
 
 
 #ifdef __cplusplus

@@ -73,6 +73,7 @@
 #include "sd_storage.h"
 #include "db_main.h"
 #include "htest_ui.h"
+#include "msg_ts.h"
 
 #ifndef DB_TEST_WRITE
 #define DB_TEST_WRITE 1
@@ -197,7 +198,8 @@ static ContactBuffer make_contact(const char *name, const char *phone)
 static bool insert(const char *name, const char *phone)
 {
     ContactBuffer c = make_contact(name, phone);
-    return hash_insert_contact(&g_table, &g_journal, &c);
+    uint16_t slot;
+    return hash_insert_contact(&g_table, &g_journal, &c, &slot) == STRG_OK;
 }
 
 static bool send(const char *phone, uint16_t timestamp, bool direction, const char *text)
@@ -364,7 +366,8 @@ static void test_InsertContact(void)
 static void test_FindContact(void)
 {
     ContactBuffer original = make_contact("Alice", "0412345678");
-    CHECK(hash_insert_contact(&g_table, &g_journal, &original));
+    uint16_t slot;
+    CHECK(hash_insert_contact(&g_table, &g_journal, &original, &slot) == STRG_OK);
 
     ContactBuffer result;
     memset(&result, 0, sizeof(result));
@@ -452,12 +455,17 @@ static void test_MultipleContacts(void)
     CHECK(NAME_IS(result, "Charlie"));
 }
 
-static void test_DuplicateInsertUpdatesInPlace(void)
+static void test_DuplicateInsertRejectedUpdateInPlace(void)
 {
     CHECK(insert("Alice", "0412345678"));
     uint16_t first_sector = sector_for("0412345678");
 
-    CHECK(insert("Alice Updated", "0412345678"));
+    ContactBuffer dup = make_contact("Alice Updated", "0412345678");
+    uint16_t slot;
+    CHECK(hash_insert_contact(&g_table, &g_journal, &dup, &slot) == STRG_EXISTS);
+
+    ContactBuffer old_c = make_contact("Alice", "0412345678");
+    CHECK(hash_update_contact(&g_table, &g_journal, &old_c.contact, &dup.contact) == STRG_OK);
     uint16_t second_sector = sector_for("0412345678");
 
     /* Same phone -> same slot/sector, no extra contact. */
@@ -554,8 +562,11 @@ static void test_RejectsBadArguments(void)
     ContactBuffer c = make_contact("Alice", "0412345678");
     ContactBuffer out;
 
-    CHECK(!hash_insert_contact(NULL, &g_journal, &c));
-    CHECK(!hash_insert_contact(&g_table, &g_journal, NULL));
+    uint16_t slot;
+
+    CHECK(hash_insert_contact(NULL, &g_journal, &c, &slot) == STRG_FAIL);
+    CHECK(hash_insert_contact(&g_table, &g_journal, NULL, &slot) == STRG_FAIL);
+    CHECK(hash_insert_contact(&g_table, &g_journal, &c, NULL) == STRG_FAIL);
 
     CHECK(!hash_find_contact(NULL, "0412345678", &out));
     CHECK(!hash_find_contact(&g_table, NULL, &out));
@@ -625,7 +636,7 @@ static void test_CreateMessageStoresContent(void)
 {
     MessageBuffer msg = create_message(1234, true, (char *)"hello");
 
-    CHECK(msg.msg.timestamp == 1234);
+    CHECK(msg_ts(&msg.msg) == 1234);
     CHECK(msg.msg.direction);
     CHECK(TEXT_IS(msg, "hello"));
 }
@@ -658,7 +669,7 @@ static void test_InsertFirstMessageCreatesContact(void)
     MessageBuffer result;
     memset(&result, 0, sizeof(result));
     CHECK(hash_find_message(&g_table, "0412345678", &result));
-    CHECK(result.msg.timestamp == 100);
+    CHECK(msg_ts(&result.msg) == 100);
     CHECK(TEXT_IS(result, "hello"));
 }
 
@@ -682,7 +693,7 @@ static void test_FindMessageReturnsLatest(void)
     MessageBuffer result;
     memset(&result, 0, sizeof(result));
     CHECK(hash_find_message(&g_table, "0412345678", &result));
-    CHECK(result.msg.timestamp == 200);
+    CHECK(msg_ts(&result.msg) == 200);
     CHECK(TEXT_IS(result, "second"));
     CHECK(!result.msg.direction);
 }
@@ -703,9 +714,9 @@ static void test_FindNMessagesWithinOneSector(void)
     int n = hash_find_n_message(&g_table, "0412345678", 0, 2, results);
 
     CHECK(n == 2);
-    CHECK(results[0].timestamp == 200);
+    CHECK(msg_ts(&results[0]) == 200);
     CHECK(MSG_TEXT_IS(results[0], "second"));
-    CHECK(results[1].timestamp == 100);
+    CHECK(msg_ts(&results[1]) == 100);
     CHECK(MSG_TEXT_IS(results[1], "first"));
 }
 
@@ -724,7 +735,7 @@ static void test_MessageChatRollsOverToNewSector(void)
     MessageBuffer latest;
     memset(&latest, 0, sizeof(latest));
     CHECK(hash_find_message(&g_table, "0412345678", &latest));
-    CHECK(latest.msg.timestamp == 100 + MESSAGE_SECTOR_CAPACITY);
+    CHECK(msg_ts(&latest.msg) == 100 + MESSAGE_SECTOR_CAPACITY);
 }
 
 static void test_FindNMessagesAcrossSectorBoundary(void)
@@ -747,7 +758,7 @@ static void test_FindNMessagesAcrossSectorBoundary(void)
     {
         /* Newest first: message (total - 1 - i) was the i-th most recent. */
         uint16_t expected_ts = (uint16_t)(100 + (total - 1 - i));
-        CHECK(results[i].timestamp == expected_ts);
+        CHECK(msg_ts(&results[i]) == expected_ts);
     }
 }
 
@@ -900,7 +911,8 @@ static void test_ReconstructedTableAcceptsNewWrites(void)
     CHECK(hash_size(&g_table) == 1u);
 
     ContactBuffer bob = make_contact("Bob", "0422222222");
-    CHECK(hash_insert_contact(&g_table, &g_journal, &bob));
+    uint16_t slot;
+    CHECK(hash_insert_contact(&g_table, &g_journal, &bob, &slot) == STRG_OK);
     CHECK(hash_size(&g_table) == 2u);
 
     ContactBuffer result;
@@ -1066,13 +1078,13 @@ static void test_GetMessageListReturnsLatestMessagePerChat(void)
     {
         if (TEXT_IS(results[i], "0411111111"))
         {
-            CHECK(results[i].msg.timestamp == 101);
+            CHECK(msg_ts(&results[i].msg) == 101);
             CHECK(!results[i].msg.direction);
         }
         else
         {
             CHECK(TEXT_IS(results[i], "0422222222"));
-            CHECK(results[i].msg.timestamp == 200 + total - 1);
+            CHECK(msg_ts(&results[i].msg) == 200 + total - 1);
         }
     }
     CHECK(strncmp(results[0].msg.str, results[1].msg.str, SMS_MAX_MESSAGE_LENGTH) != 0);
@@ -1118,7 +1130,7 @@ static void test_GetMessageListSkipsContactsWithoutChat(void)
     memset(partial, 0, sizeof(partial));
     CHECK(hash_get_message_list(&g_table, 0, 10, &count, partial) == STRG_OK);
     CHECK(count == 3u);
-    CHECK(partial[3].msg.timestamp == 0);
+    CHECK(msg_ts(&partial[3].msg) == 0);
 
     /* past the last chat nothing is written */
     MessageBuffer past;
@@ -1126,7 +1138,7 @@ static void test_GetMessageListSkipsContactsWithoutChat(void)
     count = 99;
     CHECK(hash_get_message_list(&g_table, 3, 1, &count, &past) == STRG_OK);
     CHECK(count == 0u);
-    CHECK(past.msg.timestamp == 0);
+    CHECK(msg_ts(&past.msg) == 0);
     CHECK(past.msg.str[0] == '\0');
 }
 
@@ -1193,7 +1205,7 @@ static void test_PersistVerify(void)
 
     memset(&latest, 0, sizeof(latest));
     CHECK(hash_find_message(&g_table, PERSIST_CHAT_PHONE, &latest));
-    CHECK(latest.msg.timestamp == PERSIST_CHAT_LEN);
+    CHECK(msg_ts(&latest.msg) == PERSIST_CHAT_LEN);
 
     Message chat[PERSIST_CHAT_LEN];
     char expected[16];
@@ -1204,7 +1216,7 @@ static void test_PersistVerify(void)
         /* Newest first; PersistSeed sent "msg k" with timestamp k + 1. */
         uint16_t ts = (uint16_t)(PERSIST_CHAT_LEN - i);
         snprintf(expected, sizeof(expected), "msg %d", ts - 1);
-        CHECK(chat[i].timestamp == ts);
+        CHECK(msg_ts(&chat[i]) == ts);
         CHECK(MSG_TEXT_IS(chat[i], expected));
     }
 
@@ -1229,7 +1241,7 @@ static const TestCase g_tests[] = {
     TEST(RemoveByPhoneRemovesContactAndMessages),
     TEST(RemoveByPhoneMissingFails),
     TEST(MultipleContacts),
-    TEST(DuplicateInsertUpdatesInPlace),
+    TEST(DuplicateInsertRejectedUpdateInPlace),
     TEST(PhoneHashCollisionResolved),
     TEST(RemoveFromCollisionChain),
     TEST(ReinsertAfterRemove),

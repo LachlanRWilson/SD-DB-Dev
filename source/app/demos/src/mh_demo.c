@@ -46,6 +46,7 @@
 #include "sd_storage.h"
 #include "lcd_log.h"
 #include "mh_demo.h"
+#include "msg_ts.h"
 
 #ifndef MH_DEMO_WRITE
 #define MH_DEMO_WRITE 1
@@ -188,7 +189,7 @@ static bool history_add(uint16_t i)
 
     memset(&e, 0, sizeof(e));
     e.msgInd = DEMO_MSG_IND(i);
-    e.message.timestamp = (uint16_t)(i + 1);
+    msg_set_ts(&e.message, (uint16_t)(i + 1));
     e.message.direction = g_msgs[i].sent;
     strncpy(e.message.str, g_msgs[i].text, sizeof(e.message.str) - 1);
 
@@ -251,7 +252,7 @@ static bool message_matches(size_t pos, const MessageHistoryEntry *e)
     const Message *m = &e->message;
     const SeedMessage *s;
 
-    if (pos >= N_MSGS || m->timestamp != want_ts || e->msgInd != DEMO_MSG_IND(want_ts - 1))
+    if (pos >= N_MSGS || msg_ts(m) != want_ts || e->msgInd != DEMO_MSG_IND(want_ts - 1))
     {
         return false;
     }
@@ -310,7 +311,7 @@ static void run_demo(void)
             memcpy(body, page[i].message.str, SMS_MAX_MESSAGE_LENGTH);
             body[SMS_MAX_MESSAGE_LENGTH] = '\0';
             lcd_log_line(ok ? LOG_COLOR_PASS : LOG_COLOR_FAIL, " t%-3u s%-3u%c %s",
-                         page[i].message.timestamp, page[i].msgInd,
+                         (unsigned)msg_ts(&page[i].message), page[i].msgInd,
                          dir_char(page[i].message.direction), body);
             if (ok) { g_ok++; } else { g_bad++; }
             osDelay(DEMO_STEP_MS);

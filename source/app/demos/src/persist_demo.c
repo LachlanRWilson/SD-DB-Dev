@@ -58,6 +58,7 @@
 #include "sd_storage.h"
 #include "lcd_log.h"
 #include "persist_demo.h"
+#include "msg_ts.h"
 
 #ifndef PERSIST_DEMO_WRITE
 #define PERSIST_DEMO_WRITE 1
@@ -232,7 +233,8 @@ static bool seed_contact(const Person *p)
     memcpy(c.contact.name, p->name, c.contact.name_len);
     c.contact.phone_len = (uint8_t)strlen(p->phone);
     memcpy(c.contact.phone, p->phone, c.contact.phone_len);
-    return hash_insert_contact(&g_table, &g_journal, &c);
+    uint16_t slot;
+    return hash_insert_contact(&g_table, &g_journal, &c, &slot) == STRG_OK;
 }
 
 /* One message goes to two places: its contact's chat and the message
@@ -324,7 +326,7 @@ static bool message_matches(const char *phone, const Message *m, const char *tex
     for (size_t i = 0; i < N_MSGS; i++)
     {
         const SeedMessage *s = &g_msgs[i];
-        if (s->timestamp == m->timestamp)
+        if (s->timestamp == msg_ts(m))
         {
             return (phone == NULL || strcmp(s->phone, phone) == 0) &&
                    s->sent == m->direction && strcmp(s->text, text) == 0;
@@ -338,7 +340,7 @@ static void message_row(const char *phone, const Message *m)
     char text[SMS_MAX_MESSAGE_LENGTH + 1];
 
     field_str(text, m->str, strnlen(m->str, SMS_MAX_MESSAGE_LENGTH), SMS_MAX_MESSAGE_LENGTH);
-    record(message_matches(phone, m, text), " %c t%-3u %s", dir_char(m->direction), m->timestamp, text);
+    record(message_matches(phone, m, text), " %c t%-3u %s", dir_char(m->direction), (unsigned)msg_ts(m), text);
 }
 
 /* Boot-time rebuild from the card only: journal recovery, then the hash
@@ -414,7 +416,7 @@ static bool history_sector_matches(const MessageHistoryEntry *e)
 
     for (size_t i = 0; i < N_MSGS; i++)
     {
-        if (g_msgs[i].timestamp == e->message.timestamp)
+        if (g_msgs[i].timestamp == msg_ts(&e->message))
         {
             phone = g_msgs[i].phone;
             break;
@@ -426,7 +428,13 @@ static bool history_sector_matches(const MessageHistoryEntry *e)
         return false;
     }
 
-    field_str(sector_phone, sector.var.header.phone, sector.var.header.phone_len, MAX_PHONE_LEN);
+    /* The chat sector stores its contact's sector index, the phone is read from there */
+    ContactBuffer owner;
+    if (read_contact(storage, sector.var.header.contact_index, &owner) != STRG_OK)
+    {
+        return false;
+    }
+    field_str(sector_phone, owner.contact.phone, owner.contact.phone_len, MAX_PHONE_LEN);
     if (strcmp(sector_phone, phone) != 0)
     {
         return false;

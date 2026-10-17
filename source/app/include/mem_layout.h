@@ -45,7 +45,7 @@ enum {
 
 /* ------------------ SORTED ARRAY ----------------------- */
 #define SORTED_ARRAY_ENTRIES HASH_TABLE_ENTRIES
-#define SORTED_ARRAY_ENTRY_BYTES 12
+#define SORTED_ARRAY_ENTRY_BYTES 10
 
 /* ------------------ CONTACT INFORMATION ----------------------- */
 

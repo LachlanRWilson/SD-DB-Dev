@@ -1,6 +1,7 @@
 #include <string.h>
 #include "sorted_array.h"
 #include "contact.h"
+#include "hash_table.h"
 
 
 
@@ -59,7 +60,7 @@ static int bytes_cmp(const char *a, size_t la, const char *b, size_t lb, bool ig
  * @param order 0 if same, > 0 if key1 larger, < 0 if key 1 smaller
  * @retval STRG_RET
  */
-static STRG_RET tiebreak_fn(Storage *storage, const SortedArrayProbe *probe, SortedArrayEntry *entry, int *order)
+static STRG_RET tiebreak_fn(Storage *storage, HashEntry *htable_mem, const SortedArrayProbe *probe, SortedArrayEntry *entry, int *order)
 {
     STRG_RET ret;
     ContactBuffer cBuffer;
@@ -71,7 +72,10 @@ static STRG_RET tiebreak_fn(Storage *storage, const SortedArrayProbe *probe, Sor
         return STRG_FAIL;
     }
 
-    ret = read_contact(storage, entry->contact_index, &cBuffer);
+    // check the contact sector index from the hash entry stored in this slot
+    uint16_t contact_index = htable_mem[entry->hash_slot].sector;
+
+    ret = read_contact(storage, contact_index, &cBuffer);
     if (ret != STRG_OK)
     {
         return ret;
@@ -185,7 +189,7 @@ static STRG_RET cmp(SortedArray *sa, const SortedArrayProbe *probe, SortedArrayE
     // if the keys are the same do the tiebreak
     if (cmp_val == 0) {
 
-        return sa->tiebreak(sa->storage, probe, entry, order);
+        return sa->tiebreak(sa->storage, sa->htable_mem, probe, entry, order);
     }
 
     *order = cmp_val;
@@ -281,26 +285,280 @@ STRG_RET sorted_array_find(SortedArray *sa, const Contact *in, size_t *rank, boo
 }
 
 
-bool sorted_array_insert(SortedArray *sa, const Contact *contact, uint16_t contact_index, uint16_t message_index)
+/**
+ * @brief Find the lower index of the name of the given contact, then move all the memory greater than index by one
+ * and place index into lower index + 1
+ *
+ * @param sa sorted array struct
+ * @param in contact that is being searched for
+ * @param contact_index contact sector index
+ * @param message_index message sector index
+ * @retval STRG_RET
+ */
+STRG_RET sorted_array_insert(SortedArray *sa, const Contact *contact, uint16_t contact_index)
 {
+    STRG_RET ret;
+    size_t rank;
+    bool match_found;
+
+    if (sa->occupancy >= HASH_TABLE_ENTRIES)
+    {
+        return STRG_FULL;
+    }
+
+    ret = sorted_array_find(sa, contact, &rank, &match_found);
+    if (ret != STRG_OK)
+    {
+        return ret;
+
+    }
+
+    if (match_found)
+    {
+        return false;
+    }
+
+    // insert at rank: shift [rank, occupancy) right by one
+    memmove(&sa->mem[rank + 1], &sa->mem[rank], (sa->occupancy - rank) * sizeof(SortedArrayEntry));
+
+    // populate memory
+    make_key(contact->name, contact->name_len, sa->mem[rank].key);
+    sa->mem[rank].hash_slot = contact_index;
+
+    sa->occupancy++;
     return true;
 }
 
-bool sorted_array_remove(SortedArray *sa, const Contact *contact)
+/**
+ * @brief Find the lower index of the name of the given contact, then move all the memory greater than index back one
+ * and place index into lower index
+ *
+ * @param sa sorted array struct
+ * @param contact contact that is being searched for
+ * @retval STRG_RET
+ */
+STRG_RET sorted_array_remove(SortedArray *sa, const Contact *contact)
 {
+    STRG_RET ret;
+    size_t rank;
+    bool match_found;
+
+    if (sa->occupancy <= 0)
+    {
+        return STRG_FULL;
+    }
+
+    ret = sorted_array_find(sa, contact, &rank, &match_found);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    // if an exact match not found do not delete anything
+    if (!match_found)
+    {
+        return false;
+    }
+
+    // remove at rank: shift (rank, occupancy) left by one
+    memmove(&sa->mem[rank], &sa->mem[rank + 1], (sa->occupancy - rank - 1) * sizeof(SortedArrayEntry));
+
+    sa->occupancy--;
     return true;
 
 }
 
-bool sorted_array_get_range(SortedArray *sa, size_t start, size_t n, SortedArrayEntry *out)
+bool sorted_array_get_range(SortedArray *sa, size_t start, size_t n, size_t *out_count, SortedArrayEntry *out)
 {
+    if ((sa == NULL) || (out == NULL) || (start >= sa->occupancy))
+    {
+        return false;
+    }
+
+    if (n > sa->occupancy - start)
+    {
+        n = sa->occupancy - start;
+    }
+
+    memcpy(out, &sa->mem[start], n * sizeof(SortedArrayEntry));
+    *out_count = n;
     return true;
 
 }
 
-bool sorted_array_append(SortedArray *sa, SortedArrayEntry in)
+/**
+ * @brief Append a SortedArrayEntry to the end of the sorted array, this is only
+ * done on start up for quick population then sorting
+ *
+ * @param sa sorted array struct
+ * @param in sorted array entry being added
+ */
+bool sorted_array_append(SortedArray *sa, SortedArrayEntry *in)
 {
+    if (sa->occupancy >= HASH_TABLE_ENTRIES)
+    {
+        return false;
+    }
+
+    sa->mem[sa->occupancy] = *in;
+    sa->occupancy++;
     return true;
+}
+
+/**
+ * @brief Compare two entries already in the sorted array. The keys are compared
+ * in RAM first, only on a key tie is entry a read from storage and turned into
+ * a probe for the tiebreak against entry b
+ *
+ * @param sa sorted array struct pointer
+ * @param a first entry
+ * @param b second entry
+ * @param order 0 if same, > 0 if a larger, < 0 if a smaller
+ * @retval STRG_RET
+ */
+static STRG_RET entry_cmp(SortedArray *sa, SortedArrayEntry *a, SortedArrayEntry *b, int *order)
+{
+    STRG_RET ret;
+    ContactBuffer cBuffer;
+    SortedArrayProbe probe;
+    int cmp_val;
+
+    // case already ignored by make_key
+    cmp_val = memcmp(a->key, b->key, KEY_LEN);
+    if (cmp_val != 0)
+    {
+        *order = cmp_val;
+        return STRG_OK;
+    }
+
+    // keys tied, read entry a's full contact to build a probe
+    ret = read_contact(sa->storage, sa->htable_mem[a->hash_slot].sector, &cBuffer);
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    if ((cBuffer.contact.name_len > MAX_NAME_LEN) || (cBuffer.contact.phone_len > MAX_PHONE_LEN))
+    {
+        return STRG_CORRUPT;
+    }
+
+    // probe points into cBuffer, which stays alive for the tiebreak call
+    probe_from_contact(&probe, &cBuffer.contact);
+
+    return sa->tiebreak(sa->storage, sa->htable_mem, &probe, b, order);
+}
+
+/**
+ * @brief Swap two entries in the sorted array
+ *
+ * @param a first entry
+ * @param b second entry
+ */
+static void entry_swap(SortedArrayEntry *a, SortedArrayEntry *b)
+{
+    SortedArrayEntry temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+/**
+ * @brief Move the entry at root down the max heap [0, end) until both of its
+ * children are smaller than it
+ *
+ * @param sa sorted array struct pointer
+ * @param root index of the entry being moved down
+ * @param end number of entries in the heap
+ * @retval STRG_RET
+ */
+static STRG_RET sift_down(SortedArray *sa, size_t root, size_t end)
+{
+    STRG_RET ret;
+    int order;
+    size_t child;
+
+    while ((child = (2 * root) + 1) < end)
+    {
+        // pick the larger of the two children
+        if ((child + 1) < end)
+        {
+            ret = entry_cmp(sa, &sa->mem[child], &sa->mem[child + 1], &order);
+            if (ret != STRG_OK)
+            {
+                return ret;
+            }
+
+            if (order < 0)
+            {
+                child++;
+            }
+        }
+
+        // heap property holds once root is not smaller than its larger child
+        ret = entry_cmp(sa, &sa->mem[root], &sa->mem[child], &order);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        if (order >= 0)
+        {
+            break;
+        }
+
+        entry_swap(&sa->mem[root], &sa->mem[child]);
+        root = child;
+    }
+
+    return STRG_OK;
+}
+
+/**
+ * @brief Sort the sorted array in place using heapsort. Used after the array
+ * has been populated with sorted_array_append on start up
+ *
+ * @param sa sorted array struct
+ * @retval STRG_RET
+ */
+STRG_RET sorted_array_sort(SortedArray *sa)
+{
+    STRG_RET ret;
+    size_t n;
+
+    if ((sa == NULL) || (sa->mem == NULL) || (sa->htable_mem == NULL))
+    {
+        return STRG_FAIL;
+    }
+
+    n = sa->occupancy;
+    if (n < 2)
+    {
+        return STRG_OK;
+    }
+
+    // build a max heap, starting from the last entry that has a child
+    for (size_t i = n / 2; i-- > 0;)
+    {
+        ret = sift_down(sa, i, n);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+    }
+
+    // move the largest entry to the end of the array, then repair the heap
+    for (size_t end = n - 1; end > 0; end--)
+    {
+        entry_swap(&sa->mem[0], &sa->mem[end]);
+
+        ret = sift_down(sa, 0, end);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+    }
+
+    return STRG_OK;
 }
 
 /**
@@ -313,7 +571,7 @@ bool sorted_array_append(SortedArray *sa, SortedArrayEntry in)
  * @param match_found pointer to bool which stores if the contact is in the sorted array
  * @retval STRG_RET
  */
-bool sorted_array_init(SortedArray *sa, Storage *storage, SortedArrayEntry* sa_memory)
+bool sorted_array_init(SortedArray *sa, HashEntry *htable_mem, Storage *storage, SortedArrayEntry* sa_memory)
 {
     if ((sa == NULL) || (storage == NULL) || (sa_memory == NULL))
     {
@@ -321,6 +579,7 @@ bool sorted_array_init(SortedArray *sa, Storage *storage, SortedArrayEntry* sa_m
     }
     sa->storage = storage;
     sa->mem = sa_memory;
+    sa->htable_mem = htable_mem;
     sa->tiebreak = tiebreak_fn;
     sa->occupancy = 0;
 

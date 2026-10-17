@@ -16,6 +16,12 @@ typedef enum {
     CONTACT_READ_ERROR
 } PHONE_CHECK;
 
+
+static inline uint16_t hash_slot_of(const HashTable *t, const HashEntry *e)
+ {
+     return (uint16_t)(e - t->htable);
+ }
+
 /**
   * @brief  Primary Hash Function
   * @param  key: entry key
@@ -239,15 +245,16 @@ bool hash_find_entry(HashTable *table, const char *phone, HashEntry **entry)
  * @retval STRG_RET
  */
 STRG_RET hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *contact,
-                         uint16_t *contact_alloc)
+                         uint16_t *contact_hIndex)
 {
     STRG_RET ret;
     HashEntry *entry;
     HashEntry temp;
+    uint16_t contact_alloc;
     bool is_new_entry;
 
     if ((table == NULL) || (table->storage == NULL) || (table->contact_allocator == NULL) ||
-        (contact == NULL) || (contact_alloc == NULL))
+        (contact == NULL) || (contact_hIndex == NULL))
     {
       return STRG_FAIL;
     }
@@ -262,6 +269,9 @@ STRG_RET hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *
         return STRG_FULL; // table full
     }
 
+    // get the entry index in hash table
+    *contact_hIndex = hash_slot_of(table, entry);
+
     temp = *entry;
 
     // If the entry at the hash index (therefore no sector allocated, allocate a new sector)
@@ -273,15 +283,15 @@ STRG_RET hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *
         return STRG_EXISTS;
     }
 
-    *contact_alloc = free_list_allocate(table->contact_allocator);
+    contact_alloc = free_list_allocate(table->contact_allocator);
 
-    if (*contact_alloc == UINT16_MAX)
+    if (contact_alloc == UINT16_MAX)
     {
         return STRG_FULL; // allocator exhausted
     }
 
     // populate the hash entry
-    entry->sector = *contact_alloc;
+    entry->sector = contact_alloc;
     entry->state = ENTRY_OCCUPIED;
     entry->id = hash; // stored hash used for fast re-probing, not a unique key
     entry->latest_msg_extent =  UINT16_MAX;
@@ -296,7 +306,7 @@ STRG_RET hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *
         // undo entry creation for new entry
         if (is_new_entry)
         {
-            free_list_free(table->contact_allocator, *contact_alloc);
+            free_list_free(table->contact_allocator, contact_alloc);
             table->num_elems--;
         }
 

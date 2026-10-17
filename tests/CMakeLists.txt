@@ -84,6 +84,10 @@ add_executable(test_contact_index_recovery
     test_contact_index_recovery.cpp
 )
 
+add_executable(test_sorted_array
+    test_sorted_array.cpp
+)
+
 set(UNIT_TESTS
     test_hash_table
     test_free_list
@@ -96,6 +100,7 @@ set(UNIT_TESTS
     test_call_history
     test_message_range
     test_contact_index_recovery
+    test_sorted_array
 )
 
 foreach(test ${UNIT_TESTS})

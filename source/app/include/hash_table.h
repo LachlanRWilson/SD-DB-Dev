@@ -36,7 +36,7 @@ enum
 };
 
 // Hash Entry that points to SD Card sector (8B)
-typedef struct
+typedef struct HashEntry
 {
     uint16_t id;                // Contact ID (2B) PHONE NUMBER
     uint16_t sector;            // SD Sector (2B)

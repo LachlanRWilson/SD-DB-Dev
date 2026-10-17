@@ -43,7 +43,8 @@ without them stops with a usage error.
 | `-DPERSIST_DEMO=ON` | OFF | `main.c` starts the persistence demo (`persist_demo.c`) instead of the DB tests. A demonstration, not a test suite |
 | `-DPERSIST_DEMO_WRITE=ON` | ON | Demo write half: formats the usage bitmap, journal and a 4-sector message history ring buffer, then writes 5 contacts and 5 messages (to the chats and the message history), showing each record on the LCD as it is written. Footer `WROTE 10/10` |
 | `-DPERSIST_DEMO_WRITE=OFF` | | Demo read half: no writes except journal recovery. Rebuilds the hash table, chats and message history ring buffer from the card and shows them. Green = matches what the write half wrote, red = doesn't. Footer `READ 15/15 OK` |
-| `-DMH_TEST=ON` | OFF | `main.c` starts the message history hardware unit tests (`mh_main.c`, port of `MessageHistoryTest`) instead of the DB tests. Uses an 8-sector ring buffer at the start of the message history region plus a guard sector after it. LCD shows the test list and `36/36 PASSED` |
+| `-DMH_TEST=ON` | OFF | `main.c` starts the message history hardware unit tests (`mh_main.c`, port of `MessageHistoryTest`) instead of the DB tests. Uses a ring buffer of at least 8 sectors (12 at 2 entries per sector) at the start of the message history region plus a guard sector after it. LCD shows the test list and `38/38 PASSED` |
+| `-DSA_TEST=ON` | OFF | `main.c` starts the sorted array hardware unit tests (`sa_main.c`, port of `SortedArrayTest` plus a reboot/rebuild test) instead of the DB tests. Re-formats the usage bitmap and journal each test, so it wipes the `DB_TEST_WRITE` data set. LCD shows the 36-test list and the pass/fail summary |
 | `-DMH_DEMO=ON` | OFF | `main.c` starts the message history demo (`mh_demo.c`) instead of the DB tests |
 | `-DMH_DEMO_WRITE=ON` | ON | Demo write half: formats a 4-sector (12-message) history ring buffer and adds 16 messages, so it wraps and overwrites the oldest sector. Footer `WROTE 16/16` |
 | `-DMH_DEMO_WRITE=OFF` | | Demo read half: no writes except journal recovery. Rebuilds the ring buffer from the card, then pages through it with `message_history_get_range()` 4 at a time, newest first, until it reports the end. Green = right message at that position. Footer `READ 10/10 OK` |
@@ -76,8 +77,15 @@ cmake -S . -B build -DMH_DEMO=ON -DMH_DEMO_WRITE=OFF && cmake --build build --ta
 cmake -S . -B build -DMH_DEMO=OFF          # back to the db_main.c tests afterwards
 ```
 
+Sorted array tests:
+
+```sh
+cmake -S . -B build -DSA_TEST=ON && cmake --build build --target flash
+cmake -S . -B build -DSA_TEST=OFF          # back to the db_main.c tests afterwards
+```
+
 `main.c` picks the first option set in this order: `SD_BUS_TEST`, `PERSIST_DEMO`, `MH_TEST`,
-`MH_DEMO`, else `db_main.c`. `MH_TEST`, `MH_DEMO` and `PERSIST_DEMO` all use the start of the
+`MH_DEMO`, `SA_TEST`, else `db_main.c`. `MH_TEST`, `MH_DEMO` and `PERSIST_DEMO` all use the start of the
 message history region, so each one wipes the others' history data.
 
 ### Targets
@@ -95,7 +103,7 @@ Flashing without sudo:
 
 - **LCD:** live test list and pass/fail summary (`htest_ui.c`). The demos (`persist_demo.c`,
   `mh_demo.c`) draw a scrolling record list (`lcd_log.c`) and report only on the LCD.
-- **SWD, without halting:** `g_db_report` (`g_mh_report` for `MH_TEST`, `g_sd_bus_report` for the
+- **SWD, without halting:** `g_db_report` (`g_mh_report` for `MH_TEST`, `g_sa_report` for `SA_TEST`, `g_sd_bus_report` for the
   bus test). Get the
   address with `arm-none-eabi-nm build/firmware/MyProject.elf | grep g_db_report`, then
   `STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -r32 <addr> 0x100`. The layout is

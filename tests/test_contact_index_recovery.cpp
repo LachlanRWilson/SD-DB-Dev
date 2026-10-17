@@ -162,12 +162,17 @@ protected:
         }
     }
 
+    /** @brief Insert a contact and return the contact sector its hash slot points at. */
     uint16_t insert(const char *name, const char *phone)
     {
         ContactBuffer c = create_contact(name, phone);
-        uint16_t idx = UINT16_MAX;
-        EXPECT_EQ(hash_insert_contact(&table, &journal, &c, &idx), STRG_OK);
-        return idx;
+        uint16_t slot = UINT16_MAX;
+        EXPECT_EQ(hash_insert_contact(&table, &journal, &c, &slot), STRG_OK);
+        if (slot >= table.size)
+        {
+            return UINT16_MAX;
+        }
+        return table.htable[slot].sector;
     }
 
     HashEntry *find(const char *phone)
@@ -185,16 +190,18 @@ protected:
  * hash_insert_contact: insert only
  * ========================================================================== */
 
-TEST_F(ContactIndexRecoveryTest, InsertReturnsAllocatedIndex)
+TEST_F(ContactIndexRecoveryTest, InsertReturnsHashSlot)
 {
     ContactBuffer c = create_contact("Ada", "0411111111");
-    uint16_t idx = UINT16_MAX;
+    uint16_t slot = UINT16_MAX;
 
-    ASSERT_EQ(hash_insert_contact(&table, &journal, &c, &idx), STRG_OK);
+    ASSERT_EQ(hash_insert_contact(&table, &journal, &c, &slot), STRG_OK);
+    ASSERT_LT(slot, table.size);
 
     HashEntry *e = find("0411111111");
     ASSERT_NE(e, nullptr);
-    EXPECT_EQ(e->sector, idx);
+    EXPECT_EQ(e, &table.htable[slot]);
+    EXPECT_EQ(e->state, ENTRY_OCCUPIED);
     EXPECT_EQ(e->latest_msg_extent, UINT16_MAX);
 }
 
