@@ -120,7 +120,7 @@ static STRG_RET tiebreak_fn(Storage *storage, HashEntry *htable_mem, const Sorte
  * @param name_len length of contact name
  * @param out pointer to key array
  */
-static void make_key(const char *name, size_t name_len, char out[KEY_LEN])
+void sorted_array_make_key(const char *name, size_t name_len, char out[KEY_LEN])
 {
     size_t n = (name_len < KEY_LEN) ? name_len : KEY_LEN;
 
@@ -144,7 +144,7 @@ static void make_key(const char *name, size_t name_len, char out[KEY_LEN])
  */
 static void probe_from_contact(SortedArrayProbe *p, const Contact *c)
 {
-    make_key(c->name, c->name_len, p->key);
+    sorted_array_make_key(c->name, c->name_len, p->key);
     p->name = c->name;
     p->name_len = c->name_len;
     p->phone = c->phone;
@@ -161,7 +161,7 @@ static void probe_from_contact(SortedArrayProbe *p, const Contact *c)
  */
 static void probe_from_string(SortedArrayProbe *p, const char *s, size_t len)
 {
-    make_key(s, len, p->key);
+    sorted_array_make_key(s, len, p->key);
     p->name = s;
     p->name_len = len;
     p->phone = NULL;
@@ -183,7 +183,7 @@ static STRG_RET cmp(SortedArray *sa, const SortedArrayProbe *probe, SortedArrayE
     STRG_RET ret;
     int cmp_val;
 
-    // case already ignored by make_key
+    // case already ignored by sorted_array_make_key
     cmp_val = memcmp(probe->key, entry->key, KEY_LEN);
 
     // if the keys are the same do the tiebreak
@@ -322,7 +322,7 @@ STRG_RET sorted_array_insert(SortedArray *sa, const Contact *contact, uint16_t c
     memmove(&sa->mem[rank + 1], &sa->mem[rank], (sa->occupancy - rank) * sizeof(SortedArrayEntry));
 
     // populate memory
-    make_key(contact->name, contact->name_len, sa->mem[rank].key);
+    sorted_array_make_key(contact->name, contact->name_len, sa->mem[rank].key);
     sa->mem[rank].hash_slot = contact_index;
 
     sa->occupancy++;
@@ -423,7 +423,7 @@ static STRG_RET entry_cmp(SortedArray *sa, SortedArrayEntry *a, SortedArrayEntry
     SortedArrayProbe probe;
     int cmp_val;
 
-    // case already ignored by make_key
+    // case already ignored by sorted_array_make_key
     cmp_val = memcmp(a->key, b->key, KEY_LEN);
     if (cmp_val != 0)
     {

@@ -53,6 +53,8 @@ if (BUILD_STM32)
         app/hw_tests/src/mh_main.c
         # Message history ring buffer demo on the LCD (-DMH_DEMO=ON runs it instead of db_main.c)
         app/demos/src/mh_demo.c
+        # Whole database walk-through on the LCD, stepped with the USER button (-DDB_DEMO=ON runs it instead of db_main.c)
+        app/demos/src/db_demo.c
         # Sorted array hardware unit tests (-DSA_TEST=ON runs them instead of db_main.c)
         app/hw_tests/src/sa_main.c
         # Database API hardware unit tests (-DDATABASE_TEST=ON runs them instead of db_main.c)
@@ -129,6 +131,12 @@ if (BUILD_STM32)
         target_compile_definitions(app_logic PUBLIC DATABASE_TEST=1)
     endif()
 
+    # -DDB_DEMO=ON : main.c starts the database demo (db_demo.c) instead of DB_Init()
+    option(DB_DEMO "Run the whole database demo instead of the DB tests" OFF)
+    if (DB_DEMO)
+        target_compile_definitions(app_logic PUBLIC DB_DEMO=1)
+    endif()
+
     # -DMH_DEMO=ON : main.c starts the message history demo (mh_demo.c) instead of DB_Init()
     #   -DMH_DEMO_WRITE=ON  (default) fill (and wrap) a small history ring buffer on the card
     #   -DMH_DEMO_WRITE=OFF           rebuild it from the card and page through it with get_range
@@ -153,3 +161,6 @@ endif()
 
 # Benchmarks (own targets, never part of app_logic): see source/benchmark/
 add_subdirectory(benchmark)
+
+# Host demos (own targets, never part of app_logic): see source/demo/
+add_subdirectory(demo)

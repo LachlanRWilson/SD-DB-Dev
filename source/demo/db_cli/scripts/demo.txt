@@ -1,0 +1,58 @@
+# ==================================================================
+#  UniQOS database demo (run: db_cli --image demo.img --script demo.txt)
+#  Start from a fresh image so the output is the same every time.
+# ==================================================================
+format
+
+# --- 1. Contacts go in any order, the name index keeps them sorted --
+add 0400000003 Zara Patel
+add 0400000001 alice Chen
+add 0400000002 Bob Nguyen
+add 0400000004 Alexandra Smith
+add 0400000005 Alexandra Jones
+list
+
+# --- 2. The phone number is the key: a duplicate is rejected -------
+add 0400000001 Someone Else
+
+# --- 3. Prefix search (case insensitive) ----------------------------
+find al
+
+# --- 4. Messages: each contact has its own chat --------------------
+msg 0400000001 out Hi Alice, lunch tomorrow?
+msg 0400000001 in Sure, 12:30?
+msg 0400000002 in Did you push the fix?
+msg 0400000001 out Perfect, see you then
+chat 0400000001
+
+# --- 5. A message from an unknown number creates an unnamed contact
+msg 0499999999 in Your parcel is on its way
+list
+recent 5
+
+# --- 6. Calls -------------------------------------------------------
+call 0400000003
+call 0488888888
+calls
+
+# --- 7. Rename and change number: the chat follows the contact -----
+update 0400000001 0400000011 Alice Chen-Wu
+get 0400000001
+chat 0400000011
+list
+
+# --- 8. Reboot: RAM is wiped and everything is rebuilt from the card
+reboot
+list
+chat 0400000011
+
+# --- 9. Power cut half way through adding a contact ----------------
+#     The journal rolls the half written change back on the next boot,
+#     so the list is either unchanged or has the new contact, never a mix.
+powercut 2 add 0400000006 Half Written
+list
+
+# --- 10. Remove a contact (its chat goes with it) ------------------
+rm 0400000002
+chat 0400000002
+stats

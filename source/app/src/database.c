@@ -52,17 +52,6 @@ static bool valid_phone(const char *phone)
 }
 
 /**
- * @brief Get the hash slot index of a hash entry
- *
- * @param entry hash entry pointer (in htable_mem)
- * @retval hash slot index
- */
-static inline uint16_t slot_of(const HashEntry *entry)
-{
-    return (uint16_t)(entry - htable_mem);
-}
-
-/**
  * @brief Find the occupied hash entry of a phone number
  *
  * @param db database struct pointer
@@ -78,22 +67,6 @@ static STRG_RET find_occupied(Database *db, const char *phone, HashEntry **entry
     }
 
     return STRG_OK;
-}
-
-/**
- * @brief Create a sorted array key from a contact name. Must match make_key()
- * in sorted_array.c
- *
- * @param contact contact the key is made from
- * @param out pointer to key array
- */
-static void name_key(const Contact *contact, char out[KEY_LEN])
-{
-    for (size_t i = 0; i < KEY_LEN; i++)
-    {
-        char c = (i < contact->name_len) ? contact->name[i] : '\0';
-        out[i] = ((c >= 'A') && (c <= 'Z')) ? (char)(c + ('a' - 'A')) : c;
-    }
 }
 
 /**
@@ -127,7 +100,7 @@ static STRG_RET name_index_build(Database *db)
             return ret;
         }
 
-        name_key(&contact.contact, entry.key);
+        sorted_array_make_key(contact.contact.name, contact.contact.name_len, entry.key);
         entry.hash_slot = slot;
 
         if (!sorted_array_append(&db->name_index, &entry))
@@ -157,34 +130,6 @@ static STRG_RET history_init(Database *db)
                 DATA_SECTOR_TO_RAW(CALL_HISTORY_DATA_START_SECTOR)))
     {
         return STRG_FAIL;
-    }
-
-    return STRG_OK;
-}
-
-/**
- * @brief Write every sector of a ring buffer region as RB_EMPTY
- *
- * @param storage pointer to storage abstraction struct
- * @param raw_sector_start raw sector of the first ring buffer sector
- * @param size number of sectors in the ring buffer
- * @retval STRG_RET
- */
-static STRG_RET ring_buffer_clear(Storage *storage, uint16_t raw_sector_start, uint16_t size)
-{
-    U_RingBufferSector empty;
-    STRG_RET ret;
-
-    memset(&empty, 0, sizeof(empty));
-    empty.sector.header.state = RB_EMPTY;
-
-    for (uint16_t i = 0; i < size; i++)
-    {
-        ret = write_sector(storage, raw_sector_start + i, empty.buffer);
-        if (ret != STRG_OK)
-        {
-            return ret;
-        }
     }
 
     return STRG_OK;
@@ -325,14 +270,14 @@ STRG_RET database_format(Database *db)
         return STRG_FAIL;
     }
 
-    ret = ring_buffer_clear(&db->storage, DATA_SECTOR_TO_RAW(MESSAGE_HISTORY_DATA_START_SECTOR),
+    ret = clear_ring_buffer(&db->storage, DATA_SECTOR_TO_RAW(MESSAGE_HISTORY_DATA_START_SECTOR),
             TOTAL_MESSAGE_HISTORY_SECTOR_SIZE);
     if (ret != STRG_OK)
     {
         return ret;
     }
 
-    ret = ring_buffer_clear(&db->storage, DATA_SECTOR_TO_RAW(CALL_HISTORY_DATA_START_SECTOR),
+    ret = clear_ring_buffer(&db->storage, DATA_SECTOR_TO_RAW(CALL_HISTORY_DATA_START_SECTOR),
             TOTAL_CALL_HISTORY_SECTOR_SIZE);
     if (ret != STRG_OK)
     {
@@ -457,7 +402,7 @@ STRG_RET database_contact_update(Database *db, const char *phone, const char *ne
     {
         return ret;
     }
-    old_slot = slot_of(entry);
+    old_slot = hash_slot_of(&db->htable, entry);
 
     ret = read_contact(&db->storage, entry->sector, &old_contact);
     if (ret != STRG_OK)
@@ -488,7 +433,7 @@ STRG_RET database_contact_update(Database *db, const char *phone, const char *ne
         return STRG_FAIL;
     }
 
-    return sorted_array_insert(&db->name_index, &new_contact.contact, slot_of(entry));
+    return sorted_array_insert(&db->name_index, &new_contact.contact, hash_slot_of(&db->htable, entry));
 }
 
 /**
@@ -515,7 +460,7 @@ STRG_RET database_contact_remove(Database *db, const char *phone)
     {
         return ret;
     }
-    slot = slot_of(entry);
+    slot = hash_slot_of(&db->htable, entry);
 
     ret = read_contact(&db->storage, entry->sector, &contact);
     if (ret != STRG_OK)
@@ -665,7 +610,7 @@ STRG_RET database_message_add(Database *db, const char *phone, uint32_t timestam
     if (is_new_contact)
     {
         contact = create_contact("", phone);
-        ret = sorted_array_insert(&db->name_index, &contact.contact, slot_of(entry));
+        ret = sorted_array_insert(&db->name_index, &contact.contact, hash_slot_of(&db->htable, entry));
         if (ret != STRG_OK)
         {
             return ret;

@@ -137,6 +137,16 @@ bool reconstruct_ring_buffer(Storage* storage, RingBuffer *rb, uint16_t raw_sect
 bool init_ring_buffer(Storage *storage, RingBuffer *rb, uint16_t size, uint16_t raw_sector_start);
 
 /**
+ * @brief Write every sector of a ring buffer region as RB_EMPTY
+ *
+ * @param storage pointer to storage abstraction struct
+ * @param raw_sector_start raw sector of the first ring buffer sector
+ * @param size number of sectors in the ring buffer
+ * @retval STRG_RET
+ */
+STRG_RET clear_ring_buffer(Storage *storage, uint16_t raw_sector_start, uint16_t size);
+
+/**
  * @brief Initialise an iterator over a ring buffer's occupied index range
  *        [0, occupancy], independent of the ring buffer's own read/write
  *        cursor (rb->current_index).

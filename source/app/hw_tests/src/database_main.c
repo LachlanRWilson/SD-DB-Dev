@@ -19,6 +19,8 @@
  *     instead of HASH_TABLE_ENTRIES (10,000), which would take too long over
  *     SD. The full-index rejection is checked by NameIndexFullRollsBack, which
  *     marks the name index as full instead of filling it.
+ *   - The free list rebuild checks (from ContactIndexRecoveryTest) run through
+ *     the database API and use bitmaps instead of std::set.
  *   - FormatAfterCorruptSuperheader is dropped (the format path runs on a blank card).
  *   - A failed check ends that test (gtest's EXPECT_* would carry on).
  *
@@ -50,6 +52,7 @@
 #include <string.h>
 
 #include "database.h"
+#include "free_list_stack.h"
 #include "superheader.h"
 #include "usage_bitmap.h"
 #include "ring_buffer.h"
@@ -192,24 +195,6 @@ static bool storage_bringup(void)
     return true;
 }
 
-/* Write the first DB_RING_CLEAR_SECTORS of a ring buffer as RB_EMPTY. */
-static bool ring_clear_prefix(uint16_t raw_sector_start)
-{
-    U_RingBufferSector empty;
-
-    memset(&empty, 0, sizeof(empty));
-    empty.sector.header.state = RB_EMPTY;
-
-    for (uint16_t i = 0; i < DB_RING_CLEAR_SECTORS; i++)
-    {
-        if (write_sector(storage, raw_sector_start + i, empty.buffer) != STRG_OK)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 /* DatabaseTest::SetUp(): an empty database, mounted from the card. */
 static bool fixture_setup(void)
 {
@@ -225,8 +210,8 @@ static bool fixture_setup(void)
     journal.storage = storage;
     if (!journal_header_init(&journal)) { return false; }
 
-    if (!ring_clear_prefix(DATA_SECTOR_TO_RAW(MESSAGE_HISTORY_DATA_START_SECTOR))) { return false; }
-    if (!ring_clear_prefix(DATA_SECTOR_TO_RAW(CALL_HISTORY_DATA_START_SECTOR)))    { return false; }
+    if (clear_ring_buffer(storage, DATA_SECTOR_TO_RAW(MESSAGE_HISTORY_DATA_START_SECTOR), DB_RING_CLEAR_SECTORS) != STRG_OK) { return false; }
+    if (clear_ring_buffer(storage, DATA_SECTOR_TO_RAW(CALL_HISTORY_DATA_START_SECTOR), DB_RING_CLEAR_SECTORS) != STRG_OK)    { return false; }
 
     memset(usage_bitmap, 0, sizeof(usage_bitmap));
     ret = database_init(&g_db);
@@ -1013,6 +998,126 @@ static void test_CallRejectsInvalidArgs(void)
 }
 
 /* ================================================================== *
+ *  Contact free list rebuild (ports of the ContactIndexRecoveryTest checks)
+ * ================================================================== */
+
+/* One bit per contact slot: live slots, and slots seen on the free list */
+static uint8_t g_slot_live[(HASH_TABLE_ENTRIES + 7) / 8];
+static uint8_t g_slot_seen[(HASH_TABLE_ENTRIES + 7) / 8];
+
+static bool bit_get(const uint8_t *bits, uint16_t i)
+{
+    return (bits[i / 8] >> (i % 8)) & 1U;
+}
+
+static void bit_set(uint8_t *bits, uint16_t i)
+{
+    bits[i / 8] |= (uint8_t)(1U << (i % 8));
+}
+
+/* Mark the contact slot of every occupied hash entry, return how many */
+static size_t mark_live_slots(void)
+{
+    size_t live = 0;
+
+    memset(g_slot_live, 0, sizeof(g_slot_live));
+    for (size_t i = 0; i < g_db.htable.size; i++)
+    {
+        if (g_db.htable.htable[i].state == ENTRY_OCCUPIED)
+        {
+            bit_set(g_slot_live, g_db.htable.htable[i].sector);
+            live++;
+        }
+    }
+    return live;
+}
+
+/* Add n contacts with phones 04110000xx */
+static bool add_numbered(int n)
+{
+    char name[16];
+    char phone[16];
+
+    for (int i = 0; i < n; i++)
+    {
+        snprintf(name, sizeof(name), "C%d", i);
+        snprintf(phone, sizeof(phone), "04110000%02d", i);
+        if (database_contact_add(&g_db, name, phone) != STRG_OK)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* After a reboot the contact free list holds every unused slot exactly once
+ * and no slot a live contact owns. The 8 contacts span two contact sectors
+ * and one is removed, so both sectors have free positions between used ones. */
+static void test_ReconstructContactFreeListHasEveryFreeSlotOnce(void)
+{
+    FreeList *fls = &g_db.contact_allocator;
+
+    CHECK(add_numbered(8));
+    CHECK(database_contact_remove(&g_db, "0411000005") == STRG_OK);
+    CHECK(reboot() == STRG_OK);
+
+    size_t live = mark_live_slots();
+    CHECK(live == 7);
+    CHECK(free_list_used(fls) == live);
+    CHECK(free_list_available(fls) + free_list_used(fls) == HASH_TABLE_ENTRIES);
+
+    // each free slot once, never a live one
+    memset(g_slot_seen, 0, sizeof(g_slot_seen));
+    for (size_t i = 0; i < fls->stack_top; i++)
+    {
+        uint16_t slot = fls->free_stack[i];
+        CHECK(slot < HASH_TABLE_ENTRIES);
+        CHECK(!bit_get(g_slot_seen, slot));
+        CHECK(!bit_get(g_slot_live, slot));
+        bit_set(g_slot_seen, slot);
+    }
+
+    // no unused slot was lost
+    for (uint16_t slot = 0; slot < HASH_TABLE_ENTRIES; slot++)
+    {
+        CHECK(bit_get(g_slot_live, slot) || bit_get(g_slot_seen, slot));
+    }
+}
+
+/* Contacts added after a reboot must never be given a slot a live contact
+ * owns (which would overwrite it on the card). Drains the allocator in RAM
+ * only; the next fixture remounts from the card. */
+static void test_InsertAfterReconstructNeverReusesLiveSlot(void)
+{
+    char phone[16];
+    size_t handed_out = 0;
+    uint16_t slot;
+
+    CHECK(add_numbered(8));
+    CHECK(reboot() == STRG_OK);
+
+    size_t live = mark_live_slots();
+    memset(g_slot_seen, 0, sizeof(g_slot_seen));
+    while ((slot = free_list_allocate(&g_db.contact_allocator)) != UINT16_MAX)
+    {
+        CHECK(slot < HASH_TABLE_ENTRIES);
+        CHECK(!bit_get(g_slot_live, slot)); // belongs to a live contact
+        CHECK(!bit_get(g_slot_seen, slot)); // handed out twice
+        bit_set(g_slot_seen, slot);
+        handed_out++;
+    }
+    CHECK(handed_out + live == HASH_TABLE_ENTRIES);
+
+    // the old contacts are untouched
+    for (int i = 0; i < 8; i++)
+    {
+        ContactBuffer out;
+        snprintf(phone, sizeof(phone), "04110000%02d", i);
+        CHECK(database_contact_get(&g_db, phone, &out) == STRG_OK);
+    }
+}
+
+/* ================================================================== *
  *  Capacity
  * ================================================================== */
 
@@ -1261,6 +1366,8 @@ static const TestCase g_tests[] = {
     TEST(CallKnownAndUnknown),
     TEST(CallHistoryPaging),
     TEST(CallRejectsInvalidArgs),
+    TEST(ReconstructContactFreeListHasEveryFreeSlotOnce),
+    TEST(InsertAfterReconstructNeverReusesLiveSlot),
     TEST(NameIndexFullRollsBack),
     TEST(CapacityRebuild),
     TEST(PowerCutDuringContactAdd),

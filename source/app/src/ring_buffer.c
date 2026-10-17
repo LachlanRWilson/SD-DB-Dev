@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "ring_buffer.h"
 #include "iterator.h"
 
@@ -223,6 +225,34 @@ bool init_ring_buffer(Storage *storage, RingBuffer *rb, uint16_t size, uint16_t 
     rb->size = size;
 
     return reconstruct_ring_buffer(storage, rb, raw_sector_start);
+}
+
+/**
+ * @brief Write every sector of a ring buffer region as RB_EMPTY
+ *
+ * @param storage pointer to storage abstraction struct
+ * @param raw_sector_start raw sector of the first ring buffer sector
+ * @param size number of sectors in the ring buffer
+ * @retval STRG_RET
+ */
+STRG_RET clear_ring_buffer(Storage *storage, uint16_t raw_sector_start, uint16_t size)
+{
+    U_RingBufferSector empty;
+    STRG_RET ret;
+
+    memset(&empty, 0, sizeof(empty));
+    empty.sector.header.state = RB_EMPTY;
+
+    for (uint16_t i = 0; i < size; i++)
+    {
+        ret = write_sector(storage, raw_sector_start + i, empty.buffer);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+    }
+
+    return STRG_OK;
 }
 
 

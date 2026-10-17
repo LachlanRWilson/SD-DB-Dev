@@ -17,10 +17,6 @@ typedef enum {
 } PHONE_CHECK;
 
 
-static inline uint16_t hash_slot_of(const HashTable *t, const HashEntry *e)
- {
-     return (uint16_t)(e - t->htable);
- }
 
 /**
   * @brief  Primary Hash Function
@@ -982,14 +978,16 @@ bool insert_contacts_from_sector(HashTable *table, ContactSector cSector, uint16
 {
     // Get used bit map from header
     uint8_t used_bit_vec = cSector.header.used_bitmap;
-    uint32_t last_free_index = 0;
+    // first slot in this sector not yet freed or claimed (the caller frees the slots between sectors)
+    uint16_t next_free = contact_sector_base;
     while (used_bit_vec != 0)
     {
         uint8_t pos_in_sector = __builtin_ctz(used_bit_vec);
         uint16_t slot_index = (uint16_t)(contact_sector_base + pos_in_sector);
 
-        // Free from the last free index
-        free_list_free_range(table->contact_allocator, (uint16_t)last_free_index, slot_index);
+        // free the unused slots in this sector before this contact, then skip past it
+        free_list_free_range(table->contact_allocator, next_free, slot_index);
+        next_free = (uint16_t)(slot_index + 1);
 
         const char *phone = cSector.contacts[pos_in_sector].contact.phone;
         uint16_t hash = hash_phone(phone);
@@ -1006,14 +1004,14 @@ bool insert_contacts_from_sector(HashTable *table, ContactSector cSector, uint16
         entry->sector = slot_index;
         entry->latest_msg_extent = UINT16_MAX; // no message chat yet; set by hash_reconstruct_message if one exists
         table->num_elems++;
-        // Need to also increment free list used count (NOTE: should add
-        // func to insert contact ptr to entry directly)
-        table->contact_allocator->used_count++;
+        // no used_count++: free_list_empty_init counts every slot as used, each free decrements it
 
         used_bit_vec &= used_bit_vec - 1; // clear lowest set bit
     }
-        // free from last contact index to end of the sector
-        last_free_index = CONTACT_SECTOR_CAPACITY;
+
+    // free the unused slots after the last contact in this sector
+    free_list_free_range(table->contact_allocator, next_free,
+            (uint16_t)(contact_sector_base + CONTACT_SECTOR_CAPACITY));
 
 
   return true;

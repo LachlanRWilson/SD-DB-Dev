@@ -63,6 +63,18 @@ typedef struct
 #endif
 } HashTable;
 
+/**
+ * @brief Get the hash slot index of a hash entry
+ *
+ * @param t pointer to the hash table
+ * @param e hash entry pointer (inside t->htable)
+ * @retval hash slot index
+ */
+static inline uint16_t hash_slot_of(const HashTable *t, const HashEntry *e)
+{
+    return (uint16_t)(e - t->htable);
+}
+
 // Hash Table Iterator Context: walks occupied slots in table->htable
 typedef struct {
     HashTable *table;   // table being iterated over

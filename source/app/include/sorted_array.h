@@ -22,7 +22,7 @@ typedef struct HashEntry HashEntry;
 #define KEY_LEN 8
 
 typedef struct {
-    char key[KEY_LEN];      // built once by make_key
+    char key[KEY_LEN];      // built once by sorted_array_make_key
     const char *name;       // contact name
     size_t name_len;
     const char *phone;      // NULL / 0 for seek
@@ -99,6 +99,15 @@ STRG_RET sorted_array_sort(SortedArray *sa);
  * @retval STRG_RET
  */
 bool sorted_array_init(SortedArray *sa, HashEntry *htable_mem, Storage *storage, SortedArrayEntry* sa_memory);
+
+/**
+ * @brief create a key from contact name, ignore case
+ *
+ * @param name contact name
+ * @param name_len length of contact name
+ * @param out pointer to key array
+ */
+void sorted_array_make_key(const char *name, size_t name_len, char out[KEY_LEN]);
 
 
 #ifdef __cplusplus

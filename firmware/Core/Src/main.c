@@ -35,6 +35,7 @@
 #include "mh_demo.h"
 #include "sa_main.h"
 #include "database_main.h"
+#include "db_demo.h"
 #include "test_fmc.h"
 #if NAME_INDEX_BENCH
 #include "name_index_bench.h"
@@ -126,6 +127,8 @@ int main(void)
   SA_Test_Init();
 #elif DATABASE_TEST
   Database_Test_Init();
+#elif DB_DEMO
+  DB_Demo_Init();
 #elif NAME_INDEX_BENCH
   NameIndexBench_Init();
 #else

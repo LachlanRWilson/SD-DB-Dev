@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <cstdio>
 #include <cstring>
 #include <cstdint>
 #include <set>
@@ -491,4 +492,112 @@ TEST_F(ContactIndexRecoveryTest, ContactReadErrorKeepsChat)
 
     EXPECT_TRUE(check_usage_bit(MESSAGE_DATA_SECTOR(6)));
     EXPECT_TRUE(check_usage_bit(MESSAGE_DATA_SECTOR(2))) << "chat deleted on a transient read error";
+}
+
+/* ============================================================================
+ * hash_reconstruct_contact: contact free list rebuild
+ * ========================================================================== */
+
+/**
+ * @brief After a reboot the contact free list must hold every unused slot
+ *        exactly once and no slot that a live contact owns. Contacts are
+ *        spread over two contact sectors with a removed one in the middle,
+ *        so both sectors have free positions between used ones.
+ */
+TEST_F(ContactIndexRecoveryTest, ReconstructContactFreeListHasEveryFreeSlotOnce)
+{
+    char name[16];
+    char phone[16];
+
+    for (int i = 0; i < 8; i++)
+    {
+        std::snprintf(name, sizeof(name), "C%d", i);
+        std::snprintf(phone, sizeof(phone), "04110000%02d", i);
+        ASSERT_NE(insert(name, phone), UINT16_MAX);
+    }
+    ContactBuffer removed;
+    ASSERT_TRUE(hash_remove_contact(&table, &journal, "0411000005", &removed));
+
+    reboot();
+    ASSERT_TRUE(reconstruct());
+
+    std::set<uint16_t> live;
+    for (size_t i = 0; i < table.size; i++)
+    {
+        if (table.htable[i].state == ENTRY_OCCUPIED)
+        {
+            live.insert(table.htable[i].sector);
+        }
+    }
+    ASSERT_EQ(live.size(), 7u);
+
+    std::vector<uint16_t> stack(contact_fls.free_stack, contact_fls.free_stack + contact_fls.stack_top);
+    std::set<uint16_t> free_slots(stack.begin(), stack.end());
+
+    EXPECT_EQ(free_list_used(&contact_fls), live.size());
+    EXPECT_EQ(free_list_available(&contact_fls) + free_list_used(&contact_fls), (size_t)HASH_TABLE_ENTRIES)
+        << "free + used must equal the number of contact slots";
+    EXPECT_EQ(free_slots.size(), stack.size()) << "a contact slot is on the free list more than once";
+
+    for (uint16_t slot : live)
+    {
+        EXPECT_EQ(free_slots.count(slot), 0u) << "live contact slot " << slot << " is on the free list";
+    }
+    for (uint16_t slot = 0; slot < HASH_TABLE_ENTRIES; slot++)
+    {
+        if (live.count(slot) == 0)
+        {
+            EXPECT_EQ(free_slots.count(slot), 1u) << "free contact slot " << slot << " was never freed";
+        }
+    }
+}
+
+/**
+ * @brief Contacts added after a reboot must never be given a slot that a
+ *        live contact already owns (which would overwrite it on storage).
+ */
+TEST_F(ContactIndexRecoveryTest, InsertAfterReconstructNeverReusesLiveSlot)
+{
+    char name[16];
+    char phone[16];
+
+    for (int i = 0; i < 8; i++)
+    {
+        std::snprintf(name, sizeof(name), "Old%d", i);
+        std::snprintf(phone, sizeof(phone), "04110000%02d", i);
+        ASSERT_NE(insert(name, phone), UINT16_MAX);
+    }
+
+    reboot();
+    ASSERT_TRUE(reconstruct());
+
+    std::set<uint16_t> live;
+    for (size_t i = 0; i < table.size; i++)
+    {
+        if (table.htable[i].state == ENTRY_OCCUPIED)
+        {
+            live.insert(table.htable[i].sector);
+        }
+    }
+
+    // drain the allocator: every slot it hands out must be new and distinct
+    std::set<uint16_t> handed_out;
+    for (;;)
+    {
+        uint16_t slot = free_list_allocate(&contact_fls);
+        if (slot == UINT16_MAX)
+        {
+            break;
+        }
+        EXPECT_EQ(live.count(slot), 0u) << "slot " << slot << " belongs to a live contact";
+        EXPECT_TRUE(handed_out.insert(slot).second) << "slot " << slot << " handed out twice";
+    }
+    EXPECT_EQ(handed_out.size() + live.size(), (size_t)HASH_TABLE_ENTRIES);
+
+    // the old contacts are untouched
+    for (int i = 0; i < 8; i++)
+    {
+        std::snprintf(phone, sizeof(phone), "04110000%02d", i);
+        EXPECT_NE(find(phone), nullptr) << phone;
+    }
 }
