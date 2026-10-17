@@ -46,7 +46,8 @@ enum {
     JRNL_CONTACT = 0,
     JRNL_MESSAGE,
     JRNL_CALL_HIST,
-    JRNL_MSG_HIST
+    JRNL_MSG_HIST,
+    JRNL_REMOVE         // If removing, contect not required
 };
 
 

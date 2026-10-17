@@ -26,15 +26,6 @@ extern "C" {
 #define SECTORS_REQUIRED(bytes) \
     (((bytes) + SECTOR_SIZE - 1) / SECTOR_SIZE)
 
-// Type of sector stored
-typedef uint8_t SECTOR_TYPE;
-
-// Sector Types
-enum {
-    CONTACT_SECTOR = 0,
-    MESSAGE_SECTOR,
-    CALL_HISTORY_SECTOR
-};
 
 // Storage access return values
 typedef enum {
@@ -42,12 +33,13 @@ typedef enum {
     STRG_OK,
     STRG_EMPTY,
     STRG_FULL,
-    STRG_NEXT, // need to move to the next storage sector
-    STRG_CORRUPT // sector read successfully but its CRC trailer does not match
+    STRG_NEXT,      // need to move to the next storage sector
+    STRG_CORRUPT,   // sector read successfully but its CRC trailer does not match
+    STRG_EXISTS,    // there already exists something at this point
 } STRG_RET;
 
 
-typedef struct
+typedef struct Storage
 {
     void * context;  // Storage context
     bool (*read_block)(void *context, uint32_t index, uint8_t *outBuf);

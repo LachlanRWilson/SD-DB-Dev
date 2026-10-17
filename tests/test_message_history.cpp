@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include <algorithm>
+#include "test_support/message_ts.h"
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -28,9 +30,12 @@ extern "C"
 class MessageHistoryTest : public ::testing::Test
 {
 protected:
-    // Large enough to hold 20+ messages for the get_range paging tests
-    static constexpr uint16_t kSectors = 8;
     static constexpr uint16_t kCap = MESSAGE_HISTORY_SECTOR_CAPACITY;
+    // At least 8 sectors, and large enough to hold 24 messages (without wrapping)
+    // for the get_range paging tests, whatever the sector capacity is
+    static constexpr uint16_t kMinMessages = 24;
+    static constexpr uint16_t kSectors =
+        ((kMinMessages + kCap - 1) / kCap) > 8 ? ((kMinMessages + kCap - 1) / kCap) : 8;
     static constexpr uint16_t kStart = DATA_REGION_START_SECTOR + MESSAGE_HISTORY_DATA_START_SECTOR;
     static constexpr uint16_t kGuard = kStart + kSectors;
     static constexpr uint32_t kTotalSectors = kGuard + 1;
@@ -93,7 +98,7 @@ protected:
         MessageHistoryEntry e;
         std::memset(&e, 0, sizeof(e));
         e.msgInd = msg_ind_for(id);
-        e.message.timestamp = id;
+        msg_set_ts(e.message, id);
         e.message.direction = (id % 2) != 0;
         std::snprintf(e.message.str, sizeof(e.message.str), "message %u", id);
         return e;
@@ -116,7 +121,7 @@ protected:
         {
             MessageHistoryEntry want = make_entry(static_cast<uint16_t>(added - 1 - i));
             EXPECT_EQ(out[i].msgInd, want.msgInd) << "out[" << i << "]";
-            EXPECT_EQ(out[i].message.timestamp, want.message.timestamp) << "out[" << i << "]";
+            EXPECT_EQ(msg_ts(out[i].message), msg_ts(want.message)) << "out[" << i << "]";
             EXPECT_EQ(out[i].message.direction, want.message.direction) << "out[" << i << "]";
             EXPECT_STREQ(out[i].message.str, want.message.str) << "out[" << i << "]";
         }
@@ -126,11 +131,11 @@ protected:
     {
         out.assign(n + 1, MessageHistoryEntry{});
         // Sentinel past the requested range to catch overruns
-        out[n].message.timestamp = 0xBEEF;
+        msg_set_ts(out[n].message, 0xBEEF);
         count = 0xFFFF;
         // get_list is get_range from the newest message
         STRG_RET ret = message_history_get_range(&rb, &storage, 0, n, &count, out.data());
-        EXPECT_EQ(out[n].message.timestamp, 0xBEEF) << "get_list wrote past n";
+        EXPECT_EQ(msg_ts(out[n].message), 0xBEEF) << "get_list wrote past n";
         return ret;
     }
 
@@ -138,10 +143,10 @@ protected:
     {
         out.assign(n + 1, MessageHistoryEntry{});
         // Sentinel past the requested range to catch overruns
-        out[n].message.timestamp = 0xBEEF;
+        msg_set_ts(out[n].message, 0xBEEF);
         count = 0xFFFF;
         STRG_RET ret = message_history_get_range(&rb, &storage, start, n, &count, out.data());
-        EXPECT_EQ(out[n].message.timestamp, 0xBEEF) << "get_range wrote past n";
+        EXPECT_EQ(msg_ts(out[n].message), 0xBEEF) << "get_range wrote past n";
         return ret;
     }
 
@@ -152,7 +157,7 @@ protected:
         {
             MessageHistoryEntry want = make_entry(static_cast<uint16_t>(added - 1 - start - i));
             EXPECT_EQ(out[i].msgInd, want.msgInd) << "start=" << start << " out[" << i << "]";
-            EXPECT_EQ(out[i].message.timestamp, want.message.timestamp) << "start=" << start << " out[" << i << "]";
+            EXPECT_EQ(msg_ts(out[i].message), msg_ts(want.message)) << "start=" << start << " out[" << i << "]";
             EXPECT_EQ(out[i].message.direction, want.message.direction) << "start=" << start << " out[" << i << "]";
             EXPECT_STREQ(out[i].message.str, want.message.str) << "start=" << start << " out[" << i << "]";
         }
@@ -192,7 +197,7 @@ TEST_F(MessageHistoryTest, FirstAddClaimsSectorZero)
     EXPECT_EQ(s.sector.header.state, RB_OCCUPIED);
     EXPECT_EQ(s.sector.header.head, 0);
     EXPECT_EQ(s.sector.header.seq, 0u);
-    EXPECT_EQ(s.sector.data.mh_entry[0].message.timestamp, 0);
+    EXPECT_EQ(msg_ts(s.sector.data.mh_entry[0].message), 0);
     EXPECT_EQ(s.sector.data.mh_entry[0].msgInd, msg_ind_for(0));
 }
 
@@ -208,7 +213,7 @@ TEST_F(MessageHistoryTest, AddsWithinSectorAdvanceHead)
     EXPECT_EQ(s.sector.header.head, kCap - 1);
     for (uint16_t i = 0; i < kCap; i++)
     {
-        EXPECT_EQ(s.sector.data.mh_entry[i].message.timestamp, i);
+        EXPECT_EQ(msg_ts(s.sector.data.mh_entry[i].message), i);
         EXPECT_EQ(s.sector.data.mh_entry[i].msgInd, msg_ind_for(i));
     }
 }
@@ -245,7 +250,7 @@ TEST_F(MessageHistoryTest, AddKeepsFullRangeMessageIndex)
     for (size_t i = 0; i < count; i++)
     {
         EXPECT_EQ(out[i].msgInd, inds[4 - i]) << "out[" << i << "]";
-        EXPECT_EQ(out[i].message.timestamp, 4 - i) << "out[" << i << "]";
+        EXPECT_EQ(msg_ts(out[i].message), 4 - i) << "out[" << i << "]";
     }
 }
 
@@ -267,7 +272,7 @@ TEST_F(MessageHistoryTest, AddPastFullSectorMovesToNextSector)
     EXPECT_EQ(s1.sector.header.state, RB_OCCUPIED);
     EXPECT_EQ(s1.sector.header.head, 0);
     EXPECT_EQ(s1.sector.header.seq, 1u);
-    EXPECT_EQ(s1.sector.data.mh_entry[0].message.timestamp, kCap);
+    EXPECT_EQ(msg_ts(s1.sector.data.mh_entry[0].message), kCap);
 }
 
 TEST_F(MessageHistoryTest, SectorsFillSequentiallyWithIncreasingSeq)
@@ -283,7 +288,7 @@ TEST_F(MessageHistoryTest, SectorsFillSequentiallyWithIncreasingSeq)
         MessageHistorySectorB s = stored(i);
         EXPECT_EQ(s.sector.header.seq, i) << "sector " << i;
         EXPECT_EQ(s.sector.header.state, i == kSectors - 1 ? RB_OCCUPIED : RB_FULL) << "sector " << i;
-        EXPECT_EQ(s.sector.data.mh_entry[0].message.timestamp, i * kCap) << "sector " << i;
+        EXPECT_EQ(msg_ts(s.sector.data.mh_entry[0].message), i * kCap) << "sector " << i;
     }
 }
 
@@ -301,20 +306,23 @@ TEST_F(MessageHistoryTest, WrapOverwritesOldestSector)
     EXPECT_EQ(s0.sector.header.state, RB_OCCUPIED);
     EXPECT_EQ(s0.sector.header.head, 0);
     EXPECT_EQ(s0.sector.header.seq, kSectors);
-    EXPECT_EQ(s0.sector.data.mh_entry[0].message.timestamp, kSectors * kCap);
+    EXPECT_EQ(msg_ts(s0.sector.data.mh_entry[0].message), kSectors * kCap);
 }
 
 TEST_F(MessageHistoryTest, AddsAfterWrapKeepFillingReusedSector)
 {
-    // After reusing a FULL sector the next add must append, not reset head
-    add(kSectors * kCap + 3);
+    // After reusing a FULL sector the next add must append, not reset head.
+    // Fill the reused sector with up to 3 entries (but not past its capacity)
+    static_assert(kCap >= 2, "need at least 2 entries per sector to test appending");
+    constexpr uint16_t kExtra = kCap < 3 ? kCap : 3;
+    add(kSectors * kCap + kExtra);
 
     MessageHistorySectorB s0 = stored(0);
     EXPECT_EQ(s0.sector.header.state, RB_OCCUPIED);
-    EXPECT_EQ(s0.sector.header.head, 2);
-    for (uint16_t i = 0; i < 3; i++)
+    EXPECT_EQ(s0.sector.header.head, kExtra - 1);
+    for (uint16_t i = 0; i < kExtra; i++)
     {
-        EXPECT_EQ(s0.sector.data.mh_entry[i].message.timestamp, kSectors * kCap + i);
+        EXPECT_EQ(msg_ts(s0.sector.data.mh_entry[i].message), kSectors * kCap + i);
     }
 }
 
@@ -494,11 +502,11 @@ TEST_F(MessageHistoryTest, GetRangeReturnsSecondTenMessages)
     std::vector<uint16_t> returned;
     for (size_t i = 0; i < first_count; i++)
     {
-        returned.push_back(first_page[i].message.timestamp);
+        returned.push_back(msg_ts(first_page[i].message));
     }
     for (size_t i = 0; i < second_count; i++)
     {
-        returned.push_back(second_page[i].message.timestamp);
+        returned.push_back(msg_ts(second_page[i].message));
     }
     std::vector<uint16_t> expected;
     for (int i = 19; i >= 0; i--)
@@ -721,7 +729,7 @@ TEST_F(MessageHistoryTest, ReconstructAfterAddsMatchesRamState)
         std::vector<MessageHistoryEntry> out;
         size_t count;
         ASSERT_EQ(get_list(5, out, count), STRG_OK) << "n=" << n;
-        EXPECT_EQ(count, 5u) << "n=" << n;
+        EXPECT_EQ(count, std::min<size_t>(5, stored_after(added, kSectors, kCap))) << "n=" << n;
         expect_newest_first(out, count);
     }
 }

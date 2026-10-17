@@ -103,7 +103,10 @@ uint16_t hash_insert(HashTable *table, uint16_t id);
  * @param contact Contact to insert.
  * @retval true if insertion successful, otherwise false.
  */
-bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *contact);
+STRG_RET hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *contact,
+        uint16_t *contact_alloc);
+
+STRG_RET hash_update_contact(HashTable *table, Journal *journal, Contact *old, Contact *new_con);
 
 /**
   * @brief  Insert a contact into the hash table using phone number of PK

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "test_support/message_ts.h"
 #include <cstring>
 #include <cstdint>
 #include <string>
@@ -102,7 +103,8 @@ protected:
     bool insert(const std::string &name, const std::string &phone)
     {
         ContactBuffer c = make_contact_edge(name, phone);
-        return hash_insert_contact(&htable, &journal, &c);
+        uint16_t idx;
+        return hash_insert_contact(&htable, &journal, &c, &idx) == STRG_OK;
     }
 
     bool send(const std::string &phone, uint16_t timestamp, bool direction, const std::string &text)
@@ -214,13 +216,15 @@ TEST(HashTableSmallTableTest, TableFullRejectsNewInsert)
     {
         std::string phone = "000000" + std::to_string(i);
         ContactBuffer c = make_contact_edge("P" + std::to_string(i), phone);
-        ASSERT_TRUE(hash_insert_contact(&table, &journal, &c)) << "insert " << i << " failed";
+        uint16_t idx;
+        ASSERT_EQ(hash_insert_contact(&table, &journal, &c, &idx), STRG_OK) << "insert " << i << " failed";
     }
 
     EXPECT_EQ(hash_size(&table), 7u);
 
     ContactBuffer overflow = make_contact_edge("Overflow", "9999999");
-    EXPECT_FALSE(hash_insert_contact(&table, &journal, &overflow));
+    uint16_t idx;
+    EXPECT_EQ(hash_insert_contact(&table, &journal, &overflow, &idx), STRG_FULL);
     EXPECT_EQ(hash_size(&table), 7u);
 
     hash_clear(&table);
@@ -270,11 +274,11 @@ TEST_F(HashTableEdgeTest, TwoContactsWithMultiSectorChatsDoNotInterfere)
 
     MessageBuffer latest_a{};
     ASSERT_TRUE(hash_find_message(&htable, "0411111111", &latest_a));
-    EXPECT_EQ(latest_a.msg.timestamp, 100 + total - 1);
+    EXPECT_EQ(msg_ts(latest_a.msg), 100 + total - 1);
 
     MessageBuffer latest_b{};
     ASSERT_TRUE(hash_find_message(&htable, "0422222222", &latest_b));
-    EXPECT_EQ(latest_b.msg.timestamp, 200 + total - 1);
+    EXPECT_EQ(msg_ts(latest_b.msg), 200 + total - 1);
 
     // Removing A's chat must not touch B's.
     MessageBuffer removed_out{};
@@ -284,7 +288,7 @@ TEST_F(HashTableEdgeTest, TwoContactsWithMultiSectorChatsDoNotInterfere)
 
     MessageBuffer still_b{};
     ASSERT_TRUE(hash_find_message(&htable, "0422222222", &still_b));
-    EXPECT_EQ(still_b.msg.timestamp, 200 + total - 1);
+    EXPECT_EQ(msg_ts(still_b.msg), 200 + total - 1);
 }
 
 /* ============================================================================
@@ -381,7 +385,8 @@ TEST_F(HashTableEdgeTest, InsertContactRollsBackHashStateOnWriteFailure)
     ctx.fail_after_write = 1;
 
     ContactBuffer c = make_contact_edge("Alice", "0412345678");
-    EXPECT_FALSE(hash_insert_contact(&htable, &journal, &c));
+    uint16_t idx;
+    EXPECT_EQ(hash_insert_contact(&htable, &journal, &c, &idx), STRG_FAIL);
 
     EXPECT_EQ(hash_size(&htable), 0u);
     EXPECT_EQ(free_list_used(&contact_allocator), contact_sectors_before);

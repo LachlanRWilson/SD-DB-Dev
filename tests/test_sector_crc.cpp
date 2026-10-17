@@ -199,7 +199,7 @@ TEST_F(SectorCrcTest, MessageSectorCorruptionDetected)
 {
     MessageSectorBuffer in{};
     MessageSectorBuffer out{};
-    create_new_message_sector(&in, "0412345678", UINT16_MAX);
+    create_new_message_sector(&in, 0, UINT16_MAX);
 
     ASSERT_EQ(write_message_sector(storage, 5, &in), STRG_OK);
     const uint32_t raw = g_last_write_index;

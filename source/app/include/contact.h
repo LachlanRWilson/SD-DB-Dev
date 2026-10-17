@@ -26,9 +26,10 @@ extern "C" {
 // Opaque Declaration
 typedef struct Journal Journal;
 typedef struct FreeList FreeList;
+typedef struct Storage Storage;
 
 // Contact Struct (81B)
-typedef struct
+typedef struct Contact
 {
     uint8_t name_len;          /**< Length of name string (1B)*/
     char name[MAX_NAME_LEN];   /**< Contact name (64B)*/

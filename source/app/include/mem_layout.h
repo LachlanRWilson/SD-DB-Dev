@@ -26,17 +26,26 @@ extern "C" {
  * Database Structs Size Defines
  * ================================================================ */
 
-/* Hash Table */
+// Type of sector stored
+typedef uint8_t SECTOR_TYPE;
+
+// Sector Types
+enum {
+    CONTACT_SECTOR = 0,
+    MESSAGE_SECTOR,
+    CALL_HISTORY_SECTOR
+};
+
+/* ------------------ HASH TABLE ----------------------- */
 #define HASH_TABLE_SIZE 14293
 #define HASH_TABLE_ENTRIES 10000
 // Byte size of the HashEntry struct (see hash_table.h). Only needed
 // here for layout math — the struct itself still lives in hash_table.h.
 #define HASH_ENTRY_BYTES 8
 
-
-/* Message History */
-
-/* Ring Buffer */
+/* ------------------ SORTED ARRAY ----------------------- */
+#define SORTED_ARRAY_ENTRIES HASH_TABLE_ENTRIES
+#define SORTED_ARRAY_ENTRY_BYTES 12
 
 /* ------------------ CONTACT INFORMATION ----------------------- */
 
@@ -66,8 +75,8 @@ extern "C" {
 
 #define SMS_MAX_MESSAGE_LENGTH 160
 #define MAX_PHONE_LEN 15
-#define MESSAGE_BYTES 164
-#define MESSAGE_SECTOR_HEADER_BYTES 24
+#define MESSAGE_BYTES 166
+#define MESSAGE_SECTOR_HEADER_BYTES 8
 #define MESSAGE_SECTOR_BYTES SECTOR_SIZE
 
 // Fit messages into a 512B block of memory

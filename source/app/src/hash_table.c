@@ -229,23 +229,27 @@ bool hash_find_entry(HashTable *table, const char *phone, HashEntry **entry)
 }
 
 /**
- * @brief Insert or update a contact in the hash table using its phone
+ * @brief Insert a contact in the hash table using its phone
  *        number as the key, and persist it to storage.
  *
  * @param table Pointer to the hash table.
  * @param journal Pointer to the rollback journal.
  * @param contact Contact to insert or update (phone number read from here).
- * @retval Sector index on success, otherwise UINT16_MAX.
+ * @param contact_alloc pointer contact index it is being allocated to
+ * @retval STRG_RET
  */
-bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *contact)
+STRG_RET hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *contact,
+                         uint16_t *contact_alloc)
 {
+    STRG_RET ret;
     HashEntry *entry;
-    uint16_t sector;
+    HashEntry temp;
     bool is_new_entry;
 
-    if (table == NULL || table->storage == NULL || table->contact_allocator == NULL || contact == NULL)
+    if ((table == NULL) || (table->storage == NULL) || (table->contact_allocator == NULL) ||
+        (contact == NULL) || (contact_alloc == NULL))
     {
-        return false;
+      return STRG_FAIL;
     }
 
     // create hash number using phone number stored in inserting contact
@@ -255,7 +259,166 @@ bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *cont
     // Find the entry associated to the hash number
     if (!hash_find_entry(table, phone, &entry) || entry == NULL)
     {
-        return false; // table full
+        return STRG_FULL; // table full
+    }
+
+    temp = *entry;
+
+    // If the entry at the hash index (therefore no sector allocated, allocate a new sector)
+    is_new_entry = (entry->state == ENTRY_EMPTY || entry->state == ENTRY_DELETED);
+
+    // if the entry is not new return
+    if (!is_new_entry)
+    {
+        return STRG_EXISTS;
+    }
+
+    *contact_alloc = free_list_allocate(table->contact_allocator);
+
+    if (*contact_alloc == UINT16_MAX)
+    {
+        return STRG_FULL; // allocator exhausted
+    }
+
+    // populate the hash entry
+    entry->sector = *contact_alloc;
+    entry->state = ENTRY_OCCUPIED;
+    entry->id = hash; // stored hash used for fast re-probing, not a unique key
+    entry->latest_msg_extent =  UINT16_MAX;
+    table->num_elems++;
+
+
+    ret = write_contact(table->storage, journal, entry->sector, contact);
+
+    // if the contact cannot be written, roll back the hash entry to empty
+    if (ret != STRG_OK)
+    {
+        // undo entry creation for new entry
+        if (is_new_entry)
+        {
+            free_list_free(table->contact_allocator, *contact_alloc);
+            table->num_elems--;
+        }
+
+        *entry = temp;
+
+        return STRG_FAIL;
+    }
+
+    return STRG_OK;
+}
+
+/**
+ * @brief Update a contacts phone number. This means finding the contacts
+ * original hash entry from the old phone number, copy the values and set hash
+ * entry to ENTRY_DELETED, re-hash based on new phone number and write to new
+ * hash entry. If this entry is occupied return STRG_FULL.
+ *
+ * @param table Pointer to the hash table.
+ * @param journal Pointer to the rollback journal.
+ * @param old old contact to update (phone number read from here).
+ * @param new new contact index it is being allocated to
+ * @retval STRG_RET
+ */
+STRG_RET hash_update_phone(HashTable *table, Journal *journal, const char *old_phone, Contact *new)
+{
+    HashEntry *old_entry;
+    HashEntry *new_entry;
+    HashEntry temp;
+    bool is_new_entry;
+    STRG_RET ret;
+    uint16_t hash;
+
+    if ((table == NULL) || (journal == NULL) || (old_phone == NULL) || new == NULL)
+    {
+        return STRG_FAIL;
+    }
+
+    // Find the entry associated to the hash number
+    if (!hash_find_entry(table, old_phone, &old_entry) || old_entry == NULL)
+    {
+        return STRG_FULL; // table full
+    }
+
+    // if the entry is new, return since trying to update empty entry
+    is_new_entry = (old_entry->state == ENTRY_EMPTY || old_entry->state == ENTRY_DELETED);
+    if (is_new_entry)
+    {
+        return STRG_EMPTY;
+    }
+
+    // copy information from entry
+    hash = hash_phone(new->phone);
+
+    if (!hash_find_entry(table, new->phone, &new_entry))
+    {
+        return STRG_FULL;
+    }
+
+    // if the entry is not new, return since trying to change phone number to pre-existing phone number
+    is_new_entry = (new_entry->state == ENTRY_EMPTY || new_entry->state == ENTRY_DELETED);
+    if (!is_new_entry)
+    {
+        return STRG_EXISTS;
+    }
+
+    // store new entry values temporarily in case of write failure
+    temp = *new_entry;
+    *new_entry = *old_entry;
+    new_entry->id = hash;
+
+    ret = write_contact(table->storage, journal, new_entry->sector, (ContactBuffer*) new);
+    if (ret != STRG_OK)
+    {
+        *new_entry = temp;
+        return ret;
+    }
+
+    // Delete the old hash entry
+    old_entry->state = ENTRY_DELETED;
+
+    return STRG_OK;
+}
+
+/**
+ * @brief update the contact information of a pre-existing contact. This
+ * function will need to be followed with the removeal of the old contact name
+ * and insertion of the new one. If the contact cannot be found will return
+ * STRG_EMPTY
+ *
+ * @param table Pointer to the hash table.
+ * @param journal Pointer to the rollback journal.
+ * @param old old contact to update (phone number read from here).
+ * @param new new contact index it is being allocated to
+ * @retval STRG_RET
+ */
+STRG_RET hash_update_contact(HashTable *table, Journal *journal, Contact *old, Contact *new_con)
+{
+    HashEntry *entry;
+    bool is_new_entry;
+    STRG_RET ret;
+    const char* phone;
+
+    if ((table == NULL) || (journal == NULL) || (old == NULL) || (new_con == NULL))
+    {
+        return STRG_FAIL;
+    }
+
+
+    // if the phone numbers are not the same update the phone numbers
+    if (strcmp(old->phone, new_con->phone) != 0)
+    {
+        ret = hash_update_phone(table, journal, old->phone, new_con);
+        return ret;
+    }
+
+    // create hash number using phone number stored in inserting contact
+    phone = new_con->phone;
+
+    // Find the entry associated to the hash number
+    if (!hash_find_entry(table, phone, &entry) || entry == NULL)
+    {
+        return STRG_FULL; // table full
     }
 
     // If the entry at the hash index (therefore no sector allocated, allocate a new sector)
@@ -263,40 +426,11 @@ bool hash_insert_contact(HashTable *table, Journal *journal, ContactBuffer *cont
 
     if (is_new_entry)
     {
-        sector = free_list_allocate(table->contact_allocator);
-
-        if (sector == UINT16_MAX)
-        {
-            return false; // allocator exhausted
-        }
-
-        entry->sector = sector;
-        entry->state = ENTRY_OCCUPIED;
-        entry->id = hash; // stored hash used for fast re-probing, not a unique key
-        entry->latest_msg_extent = UINT16_MAX; // no message chat yet
-        table->num_elems++;
-    }
-    else
-    {
-        sector = entry->sector; // find_hash_phone already confirmed same phone number
+        return STRG_EMPTY;
     }
 
-    if (!write_contact(table->storage, journal, entry->sector, contact))
-    {
-        // undo entry creation for new entry
-        if (is_new_entry)
-        {
-            entry->state = ENTRY_EMPTY;
-            entry->id = 0;
-            entry->sector = UINT16_MAX;
-            free_list_free(table->contact_allocator, sector);
-            table->num_elems--;
-        }
 
-        return false;
-    }
-
-    return true;
+    return write_contact(table->storage, journal, entry->sector, (ContactBuffer*) new_con);
 }
 
 /**
@@ -315,7 +449,7 @@ bool hash_insert_message(HashTable *table, Journal *journal, const char *phone, 
     STRG_RET ret;
     bool is_new_entry;
 
-    if (table == NULL || table->storage == NULL || table->contact_allocator == NULL || in == NULL || phone == NULL)
+    if ((table == NULL) || (table->storage == NULL) || (table->contact_allocator == NULL) || (in == NULL) || (phone == NULL))
     {
         return false;
     }
@@ -374,7 +508,7 @@ bool hash_insert_message(HashTable *table, Journal *journal, const char *phone, 
         }
 
         // write message to the sd card
-        ret = write_new_message_sector(table->storage, journal, phone, sector, in);
+        ret = write_new_message_sector(table->storage, journal, entry->sector, sector, in);
 
         if (ret != STRG_OK)
         {
@@ -392,7 +526,7 @@ bool hash_insert_message(HashTable *table, Journal *journal, const char *phone, 
             uint16_t next_sector = free_list_allocate(table->message_allocator);
 
             // create a next message sector at allocated index and update previous message sector to point to next sector
-            ret = write_next_message_sector(table->storage, journal, phone, entry->latest_msg_extent, next_sector, in);
+            ret = write_next_message_sector(table->storage, journal, entry->sector, entry->latest_msg_extent, next_sector, in);
 
             if (ret != STRG_OK)
             {
@@ -770,9 +904,13 @@ bool hash_remove(HashTable *table, Journal *journal, const char *phone, HashEntr
         return false;
     }
 
+    // remove message chat
+    bool message_chat_removal = remove_message_chat(table->storage, journal, table->message_allocator, entry->latest_msg_extent);
+
+    entry->latest_msg_extent = UINT16_MAX;
+
     // remove contacts
     bool contact_removed = remove_contact(table->storage, journal, table->contact_allocator, entry->sector, &cOut);
-    bool message_chat_removal = remove_message_chat(table->storage, journal, table->message_allocator, entry->latest_msg_extent);
 
     // check both contact and message change has been removed
     if (!contact_removed || !message_chat_removal) {
@@ -977,58 +1115,57 @@ bool hash_reconstruct_contact(HashTable *table)
 }
 
 
-bool insert_message_from_sector(HashTable *table, Journal *journal, MessageSectorBuffer *mSector, uint16_t index)
+STRG_RET insert_message_from_sector(HashTable *table, Journal *journal, MessageSectorBuffer *mSector, uint16_t index)
 {
+    STRG_RET ret;
+    ContactBuffer cBuffer;
     // header phone isn't NUL terminated when it is MAX_PHONE_LEN long
     char phone[MAX_PHONE_LEN + 1] = {0};
-    uint8_t phone_len = mSector->var.header.phone_len;
+    uint8_t phone_len;
+    uint16_t contact_index = mSector->var.header.contact_index;
+
+    ret = read_contact(table->storage, contact_index, &cBuffer);
+
+    if (ret == STRG_FAIL)
+    {
+        return STRG_FAIL;
+    }
+
+    // if contact is empty remove message chat
+    if (ret != STRG_OK)
+    {
+        // if the contact is corrupted, clear the sector
+        ret = remove_orphaned_message_chat(table->storage, journal, table->message_allocator, index);
+        return (ret == STRG_OK) ? STRG_EMPTY : ret;
+    }
+
+
+    phone_len = cBuffer.contact.phone_len;
     if (phone_len > MAX_PHONE_LEN)
     {
         phone_len = MAX_PHONE_LEN;
     }
-    memcpy(phone, mSector->var.header.phone, phone_len);
 
-    uint16_t hash = hash_phone(phone);
-    STRG_RET ret;
+    memcpy(phone, cBuffer.contact.phone, phone_len);
 
     HashEntry *entry;
 
     if (!hash_find_entry(table, phone, &entry))
     {
-        return false; // table full mid-reconstruction
+        return STRG_FAIL; // table full mid-reconstruction
     }
 
-    // If there is a message without a contact (this should never happen as contact are read first)
-    if (entry->state != ENTRY_OCCUPIED)
+
+    if ((entry->state != ENTRY_OCCUPIED) || (entry->sector != contact_index))
     {
-        // create an empty contact with a phone number
-        ContactBuffer new_contact = create_contact("", phone);
-        uint16_t sector = free_list_allocate(table->contact_allocator);
 
-        // No more contact sector available
-        if (sector == UINT16_MAX)
-        {
-            return false;
-        }
-
-        // write the new empty contact to the SD card
-        ret = write_contact(table->storage, journal, sector, &new_contact);
-
-        if (ret != STRG_OK)
-        {
-            return false;
-        }
-    entry->sector = sector;
-    entry->state = ENTRY_OCCUPIED;
-    entry->id = hash;
-    table->num_elems++;
+        ret = remove_orphaned_message_chat(table->storage, journal, table->message_allocator, index);
+        return (ret == STRG_OK) ? STRG_EMPTY : ret;
     }
 
-    // The message allocator starts with nothing free, so the used sector is
-    // already counted as used; only point the entry at it.
     entry->latest_msg_extent = index;
 
-    return true;
+    return STRG_OK;
 }
 
 /**
@@ -1052,6 +1189,7 @@ bool hash_reconstruct_message(HashTable *table, Journal *journal)
 
     MessageSectorBuffer mSector;
     uint16_t last_free_index = 0;
+    uint16_t next;
 
     // Usage bitmap (data sector) range covering the message region
     const uint16_t first_data_sector = MESSAGE_DATA_SECTOR(0);
@@ -1075,11 +1213,14 @@ bool hash_reconstruct_message(HashTable *table, Journal *journal)
             return false;
         }
 
-        // Corrupt sectors are skipped (and not freed) rather than aborting the rebuild.
-        // Only the latest sector of each chat (no next) is pointed to by the hash entry.
-        if (ret == STRG_OK && mSector.var.header.next == UINT16_MAX)
+        next = mSector.var.header.next;
+        // head of chat: no next, next out of range (corrupt), or next sector no longer in use
+        bool is_head = (next == UINT16_MAX) || (next >= TOTAL_MESSAGE_SECTOR_SIZE) || !check_usage_bit(MESSAGE_DATA_SECTOR(next));
+
+        // check the sector is read properly and insert from sector if a head of a chat
+        if (ret == STRG_OK && is_head)
         {
-            if (!insert_message_from_sector(table, journal, &mSector, msg_index))
+            if (insert_message_from_sector(table, journal, &mSector, msg_index) == STRG_FAIL)
             {
                 return false;
             }

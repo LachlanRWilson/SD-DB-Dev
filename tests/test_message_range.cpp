@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "test_support/message_ts.h"
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -31,7 +32,7 @@ class MessageRangeTest : public ::testing::Test
 protected:
     static constexpr uint32_t kTotalSectors = DATA_REGION_START_SECTOR + TOTAL_DATA_SECTOR_SIZE;
     static constexpr uint16_t kCap = MESSAGE_SECTOR_CAPACITY;
-    static constexpr const char *kPhone = "0412345678";
+    static constexpr uint16_t kContactIndex = 0;
 
     FailableStorageCtx ctx{};
     Storage storage{};
@@ -71,7 +72,7 @@ protected:
     {
         MessageBuffer m;
         std::memset(&m, 0, sizeof(m));
-        m.msg.timestamp = id;
+        msg_set_ts(m.msg, id);
         m.msg.direction = (id % 2) != 0;
         std::snprintf(m.msg.str, sizeof(m.msg.str), "message %u", id);
         return m;
@@ -85,7 +86,7 @@ protected:
             if (latest == UINT16_MAX)
             {
                 uint16_t next = sector_index(sectors);
-                ASSERT_EQ(write_new_message_sector(&storage, &journal, kPhone, next, &m), STRG_OK) << "add #" << added;
+                ASSERT_EQ(write_new_message_sector(&storage, &journal, kContactIndex, next, &m), STRG_OK) << "add #" << added;
                 latest = next;
                 sectors++;
             }
@@ -95,7 +96,7 @@ protected:
                 if (ret == STRG_FULL)
                 {
                     uint16_t next = sector_index(sectors);
-                    ret = write_next_message_sector(&storage, &journal, kPhone, latest, next, &m);
+                    ret = write_next_message_sector(&storage, &journal, kContactIndex, latest, next, &m);
                     latest = next;
                     sectors++;
                 }
@@ -109,10 +110,10 @@ protected:
     {
         out.assign(n + 1, Message{});
         // Sentinel past the requested range to catch overruns
-        out[n].timestamp = 0xBEEF;
+        msg_set_ts(out[n], 0xBEEF);
         count = 0xFFFF;
         STRG_RET ret = read_n_messages(&storage, latest, start, n, &count, out.data());
-        EXPECT_EQ(out[n].timestamp, 0xBEEF) << "get_range wrote past n";
+        EXPECT_EQ(msg_ts(out[n]), 0xBEEF) << "get_range wrote past n";
         return ret;
     }
 
@@ -122,7 +123,7 @@ protected:
         for (size_t i = 0; i < count; i++)
         {
             MessageBuffer want = make_message(static_cast<uint16_t>(added - 1 - start - i));
-            EXPECT_EQ(out[i].timestamp, want.msg.timestamp) << "start=" << start << " out[" << i << "]";
+            EXPECT_EQ(msg_ts(out[i]), msg_ts(want.msg)) << "start=" << start << " out[" << i << "]";
             EXPECT_EQ(out[i].direction, want.msg.direction) << "start=" << start << " out[" << i << "]";
             EXPECT_STREQ(out[i].str, want.msg.str) << "start=" << start << " out[" << i << "]";
         }
@@ -181,11 +182,11 @@ TEST_F(MessageRangeTest, GetRangeReturnsSecondTenMessages)
     std::vector<uint16_t> returned;
     for (size_t i = 0; i < first_count; i++)
     {
-        returned.push_back(first_page[i].timestamp);
+        returned.push_back(msg_ts(first_page[i]));
     }
     for (size_t i = 0; i < second_count; i++)
     {
-        returned.push_back(second_page[i].timestamp);
+        returned.push_back(msg_ts(second_page[i]));
     }
     std::vector<uint16_t> expected;
     for (int i = 19; i >= 0; i--)

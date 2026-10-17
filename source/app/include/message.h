@@ -30,7 +30,8 @@ enum
 
 // Message struct (164B)
 typedef struct {
-    uint16_t timestamp; // Time of message (2B)
+    uint16_t timestamp_hi; // (2B)
+    uint16_t timestamp_lo; // (2B)
     bool direction; // Sending or receiving (1B)
     char str [SMS_MAX_MESSAGE_LENGTH]; // Message (160B)
     uint8_t padding; // 1B
@@ -43,16 +44,13 @@ typedef union {
 } MessageBuffer;
 
 
-// Message Struct (24B)
+// Message Struct (8B)
 typedef struct
 {
     uint16_t next;              // Next Extent (2B)
     uint16_t prev;              // Previous Extent (2B)
     uint16_t msg_count;         // Number of messages in the block (2B)
-    char phone[MAX_PHONE_LEN];  // Phone number (15B)
-    uint8_t phone_len;          // Length of phone number (1B)
-    EXTENT_STATE state;         // Extent State (1B) (This can be removed)
-    uint8_t padding;
+    uint16_t contact_index;     // contact sector index (2B)
 } MessageSectorHeader;
 
 
@@ -84,7 +82,7 @@ STATIC_ASSERT(sizeof(MessageSector) == SECTOR_SIZE, "Unexpected MessageSector si
 
 STATIC_ASSERT(offsetof(MessageSector, crc) == SECTOR_PAYLOAD_BYTES, "MessageSector CRC is not the sector trailer");
 
-STATIC_ASSERT(MESSAGE_SECTOR_CAPACITY == 2, "CRC trailer changed the message sector capacity");
+STATIC_ASSERT(MESSAGE_SECTOR_CAPACITY == 3, "CRC trailer changed the message sector capacity");
 
 // Opaque Declaration of FreeList
 typedef struct FreeList FreeList;
@@ -132,7 +130,7 @@ STRG_RET write_message_sector(Storage *storage, uint16_t index, MessageSectorBuf
  * @param in sector being written to the SD Card
  * @retval True if successful write else false.
  */
-STRG_RET write_new_message_sector(Storage *storage, Journal *journal, const char* phone, uint16_t index, MessageBuffer *in);
+STRG_RET write_new_message_sector(Storage *storage, Journal *journal, uint16_t contact_index, uint16_t index, MessageBuffer *in);
 
 /**
  * @brief Write the message to the sd card in the appropriate message sector
@@ -156,7 +154,7 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
  * @param in sector being written to the SD Card
  * @retval True if successful write else false.
  */
-STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const char* phone, uint16_t prev, uint16_t next,
+STRG_RET write_next_message_sector(Storage *storage, Journal *journal, uint16_t contact_index, uint16_t prev, uint16_t next,
         MessageBuffer *in);
 
 
@@ -194,6 +192,17 @@ STRG_RET read_n_messages(Storage *storage, uint16_t startIndex, size_t startMsg,
 bool remove_message_chat(Storage *storage, Journal *journal, FreeList *msg_allocator, uint16_t index);
 
 /**
+ * @brief If a contact is empty, remove the entire message chat
+ *
+ * @param journal journal struct pointer (allocated in database struct)
+ * @param storage storage abstraction struct pointer (allocated in database struct)
+ *
+ * @retval true Journal Init successful
+ * @retval false journal init fail
+ */
+STRG_RET remove_orphaned_message_chat(Storage *storage, Journal *journal, FreeList *msg_allocator, uint16_t startIndex);
+
+/**
  * @brief Add a new message to a chat. Shall be appended to the end of the chat
  *
  * @param table Pointer to the hash table.
@@ -202,6 +211,19 @@ bool remove_message_chat(Storage *storage, Journal *journal, FreeList *msg_alloc
  * @retval True if message has successfully been added, else false
  */
 bool add_message(Storage *storage, Journal *journal, uint16_t, MessageBuffer *in);
+
+/**
+ * @brief Remove a message sector from the sd card
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param journal pointer to journal to rollback removal if write error
+ * @param msg_alloctor pointer to message allocator to allow sector to be reused of FLS
+ * @param index memory index of message sector
+ * @param out removed message
+ * @retval STRG_RET, return code of storage interaction
+ */
+STRG_RET remove_message_sector(Storage *storage, Journal *journal, FreeList *msg_allocator, uint16_t index,
+                               MessageSectorBuffer *out);
 
 /**
  * @brief Remove a message from the chat. Shall remove the last message from the chat
@@ -219,12 +241,12 @@ bool remove_message(Storage *storage, Journal *journal, uint16_t, MessageBuffer 
  *
  * @retval Empty MessageBuffer if failure
  */
-MessageBuffer create_message(uint16_t timestamp, bool direction, char *str);
+MessageBuffer create_message(uint32_t timestamp, bool direction, char *str);
 
 /**
  * @brief Create a new message sector struct
  */
-void create_new_message_sector(MessageSectorBuffer *mSector, const char *phone, uint16_t prev);
+void create_new_message_sector(MessageSectorBuffer *mSector, uint16_t contact_index, uint16_t prev);
 
 
 

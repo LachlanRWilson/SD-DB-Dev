@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "test_support/message_ts.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -117,7 +118,8 @@ protected:
     bool insert(const std::string& name, const std::string& phone)
     {
         ContactBuffer c = make_contact(name, phone);
-        return hash_insert_contact(&htable, &journal, &c);
+        uint16_t idx;
+        return hash_insert_contact(&htable, &journal, &c, &idx) == STRG_OK;
     }
 
     /** @brief Look up the sector a phone number's entry currently points at. */
@@ -209,7 +211,8 @@ TEST_F(HashTableTest, FindContact)
 {
     ContactBuffer original = make_contact("Alice", "0412345678");
 
-    ASSERT_TRUE(hash_insert_contact(&htable, &journal, &original));
+    uint16_t idx;
+    ASSERT_EQ(hash_insert_contact(&htable, &journal, &original, &idx), STRG_OK);
 
     ContactBuffer result{};
 
@@ -322,15 +325,21 @@ TEST_F(HashTableTest, MultipleContacts)
 }
 
 /**
- * @brief Inserting the same phone number again updates the existing
- *        contact rather than creating a second one.
+ * @brief Inserting the same phone number again is rejected with STRG_EXISTS;
+ *        the existing contact is changed through hash_update_contact(), which
+ *        updates it in place.
  */
-TEST_F(HashTableTest, DuplicateInsertUpdatesInPlace)
+TEST_F(HashTableTest, DuplicateInsertRejectedUpdateInPlace)
 {
     ASSERT_TRUE(insert("Alice", "0412345678"));
     uint16_t first_sector = sector_for("0412345678");
 
-    ASSERT_TRUE(insert("Alice Updated", "0412345678"));
+    ContactBuffer dup = make_contact("Alice Updated", "0412345678");
+    uint16_t idx;
+    EXPECT_EQ(hash_insert_contact(&htable, &journal, &dup, &idx), STRG_EXISTS);
+
+    ContactBuffer old_c = make_contact("Alice", "0412345678");
+    ASSERT_EQ(hash_update_contact(&htable, &journal, &old_c.contact, &dup.contact), STRG_OK);
     uint16_t second_sector = sector_for("0412345678");
 
     // Same phone -> same slot/sector, no extra contact.
@@ -447,8 +456,9 @@ TEST_F(HashTableTest, RejectsBadArguments)
     ContactBuffer c = make_contact("Alice", "0412345678");
     ContactBuffer out{};
 
-    EXPECT_FALSE(hash_insert_contact(nullptr, &journal, &c));
-    EXPECT_FALSE(hash_insert_contact(&htable, &journal, nullptr));
+    uint16_t idx;
+    EXPECT_EQ(hash_insert_contact(nullptr, &journal, &c, &idx), STRG_FAIL);
+    EXPECT_EQ(hash_insert_contact(&htable, &journal, nullptr, &idx), STRG_FAIL);
 
     EXPECT_FALSE(hash_find_contact(nullptr, "0412345678", &out));
     EXPECT_FALSE(hash_find_contact(&htable, nullptr, &out));
@@ -532,7 +542,7 @@ TEST_F(HashTableTest, CreateMessageStoresContent)
 {
     MessageBuffer msg = create_message(1234, true, const_cast<char *>("hello"));
 
-    EXPECT_EQ(msg.msg.timestamp, 1234);
+    EXPECT_EQ(msg_ts(msg.msg), 1234);
     EXPECT_TRUE(msg.msg.direction);
     EXPECT_STREQ(msg.msg.str, "hello");
 }
@@ -569,7 +579,7 @@ TEST_F(HashTableTest, InsertFirstMessageCreatesContact)
 
     MessageBuffer result{};
     ASSERT_TRUE(hash_find_message(&htable, "0412345678", &result));
-    EXPECT_EQ(result.msg.timestamp, 100);
+    EXPECT_EQ(msg_ts(result.msg), 100);
     EXPECT_STREQ(result.msg.str, "hello");
 }
 
@@ -600,7 +610,7 @@ TEST_F(HashTableTest, FindMessageReturnsLatest)
 
     MessageBuffer result{};
     ASSERT_TRUE(hash_find_message(&htable, "0412345678", &result));
-    EXPECT_EQ(result.msg.timestamp, 200);
+    EXPECT_EQ(msg_ts(result.msg), 200);
     EXPECT_STREQ(result.msg.str, "second");
     EXPECT_FALSE(result.msg.direction);
 }
@@ -627,9 +637,9 @@ TEST_F(HashTableTest, FindNMessagesWithinOneSector)
     int n = hash_find_n_message(&htable, "0412345678", 0, 2, results);
 
     ASSERT_EQ(n, 2);
-    EXPECT_EQ(results[0].timestamp, 200);
+    EXPECT_EQ(msg_ts(results[0]), 200);
     EXPECT_STREQ(results[0].str, "second");
-    EXPECT_EQ(results[1].timestamp, 100);
+    EXPECT_EQ(msg_ts(results[1]), 100);
     EXPECT_STREQ(results[1].str, "first");
 }
 
@@ -652,7 +662,7 @@ TEST_F(HashTableTest, MessageChatRollsOverToNewSector)
 
     MessageBuffer latest{};
     ASSERT_TRUE(hash_find_message(&htable, "0412345678", &latest));
-    EXPECT_EQ(latest.msg.timestamp, 100 + MESSAGE_SECTOR_CAPACITY);
+    EXPECT_EQ(msg_ts(latest.msg), 100 + MESSAGE_SECTOR_CAPACITY);
 }
 
 /**
@@ -677,7 +687,7 @@ TEST_F(HashTableTest, FindNMessagesAcrossSectorBoundary)
     {
         // Newest first: message (total - 1 - i) was the i-th most recent.
         uint16_t expected_ts = static_cast<uint16_t>(100 + (total - 1 - i));
-        EXPECT_EQ(results[i].timestamp, expected_ts) << "at position " << i;
+        EXPECT_EQ(msg_ts(results[i]), expected_ts) << "at position " << i;
     }
 }
 
@@ -854,7 +864,8 @@ TEST_F(HashTableTest, ReconstructedTableAcceptsNewWrites)
     ASSERT_EQ(hash_size(&rebuilt), 1u);
 
     ContactBuffer bob = make_contact("Bob", "0422222222");
-    ASSERT_TRUE(hash_insert_contact(&rebuilt, &journal, &bob));
+    uint16_t idx;
+    ASSERT_EQ(hash_insert_contact(&rebuilt, &journal, &bob, &idx), STRG_OK);
     EXPECT_EQ(hash_size(&rebuilt), 2u);
 
     ContactBuffer result{};
@@ -1102,13 +1113,13 @@ TEST_F(HashTableTest, GetMessageListReturnsLatestMessagePerChat)
         std::string text(r.msg.str);
         if (text == "0411111111")
         {
-            EXPECT_EQ(r.msg.timestamp, 101);
+            EXPECT_EQ(msg_ts(r.msg), 101);
             EXPECT_FALSE(r.msg.direction);
         }
         else
         {
             EXPECT_EQ(text, "0422222222");
-            EXPECT_EQ(r.msg.timestamp, 200 + total - 1);
+            EXPECT_EQ(msg_ts(r.msg), 200 + total - 1);
         }
     }
     EXPECT_STRNE(results[0].msg.str, results[1].msg.str);
@@ -1156,7 +1167,7 @@ TEST_F(HashTableTest, GetMessageListSkipsContactsWithoutChat)
     count = 99;
     ASSERT_EQ(hash_get_message_list(&htable, 3, 1, &count, &past), STRG_OK);
     EXPECT_EQ(count, 0u);
-    EXPECT_EQ(past.msg.timestamp, 0);
+    EXPECT_EQ(msg_ts(past.msg), 0);
     EXPECT_EQ(past.msg.str[0], '\0');
 }
 
@@ -1186,7 +1197,7 @@ TEST_F(HashTableTest, GetMessageListReturnsPartialPage)
     EXPECT_EQ(returned_phones, phones);
 
     // nothing written past out_count
-    EXPECT_EQ(results[3].msg.timestamp, 0);
+    EXPECT_EQ(msg_ts(results[3].msg), 0);
 
     // a page starting part way through only gets the remainder
     ASSERT_EQ(hash_get_message_list(&htable, 2, 10, &count, results), STRG_OK);
@@ -1343,7 +1354,7 @@ TEST_F(HashTableTest, FiveThousandMessagesForSingleContact)
 
     MessageBuffer latest{};
     ASSERT_TRUE(hash_find_message(&htable, phone, &latest));
-    EXPECT_EQ(latest.msg.timestamp, kNumMessages);
+    EXPECT_EQ(msg_ts(latest.msg), kNumMessages);
 
     std::vector<Message> results(kNumMessages);
     int n = hash_find_n_message(&htable, phone, 0, kNumMessages, results.data());
@@ -1353,7 +1364,7 @@ TEST_F(HashTableTest, FiveThousandMessagesForSingleContact)
     {
         // Newest first: message (kNumMessages - i) was the i-th most recent.
         uint16_t expected_ts = static_cast<uint16_t>(kNumMessages - i);
-        EXPECT_EQ(results[i].timestamp, expected_ts) << "at position " << i;
+        EXPECT_EQ(msg_ts(results[i]), expected_ts) << "at position " << i;
     }
 }
 
@@ -1393,12 +1404,12 @@ TEST_F(HashTableTest, FiveThousandMessagesBetweenTwoContacts)
         // Newest first: message (kPerContact - i) was the i-th most recent.
         uint16_t expected_ts = static_cast<uint16_t>(kPerContact - i);
 
-        EXPECT_EQ(results_a[i].timestamp, expected_ts) << "phone_a at position " << i;
+        EXPECT_EQ(msg_ts(results_a[i]), expected_ts) << "phone_a at position " << i;
         EXPECT_TRUE(results_a[i].direction) << "phone_a at position " << i;
         EXPECT_EQ(std::string(results_a[i].str), "a" + std::to_string(expected_ts - 1))
             << "phone_a at position " << i;
 
-        EXPECT_EQ(results_b[i].timestamp, expected_ts) << "phone_b at position " << i;
+        EXPECT_EQ(msg_ts(results_b[i]), expected_ts) << "phone_b at position " << i;
         EXPECT_FALSE(results_b[i].direction) << "phone_b at position " << i;
         EXPECT_EQ(std::string(results_b[i].str), "b" + std::to_string(expected_ts - 1))
             << "phone_b at position " << i;

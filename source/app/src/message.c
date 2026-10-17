@@ -17,6 +17,7 @@ STRG_RET read_message_sector(Storage *storage, uint16_t index, MessageSectorBuff
     return read_sector(storage, DATA_SECTOR_TO_RAW(MESSAGE_DATA_SECTOR(index)), out->buffer);
 }
 
+
 /**
  * @brief write message sector to the sd card
  *
@@ -111,7 +112,17 @@ STRG_RET write_message(Storage *storage, Journal *journal, uint16_t index, Messa
     return STRG_OK;
 }
 
-STRG_RET write_new_message_sector(Storage *storage, Journal *journal, const char* phone, uint16_t index, MessageBuffer *in)
+/**
+ * @brief Initialise a new message sector with message and write to SD card
+ *
+ * @param storage Pointer to the storage abstraction.
+ * @param journal pointer to rollback journal
+ * @param phone phone number associated with message
+ * @param index sector index the new sector is being written to
+ * @param in sector being written to the SD Card
+ * @retval True if successful write else false.
+ */
+STRG_RET write_new_message_sector(Storage *storage, Journal *journal, uint16_t contact_index, uint16_t index, MessageBuffer *in)
 {
     MessageSectorBuffer mSector;
 
@@ -124,7 +135,7 @@ STRG_RET write_new_message_sector(Storage *storage, Journal *journal, const char
         return STRG_FULL;
     }
 
-    create_new_message_sector(&mSector, phone, UINT16_MAX);
+    create_new_message_sector(&mSector, contact_index, UINT16_MAX);
 
     // Add to journal (storing usage_bitmap, mSector content is irrelivant)
     bool journal_add_success = journal_add(journal, JRNL_MESSAGE, MESSAGE_DATA_SECTOR(index), mSector.buffer);
@@ -214,7 +225,7 @@ STRG_RET point_message_sector_to_next(Storage *storage, Journal *journal, uint16
  * @param in sector being written to the SD Card
  * @retval True if successful write else false.
  */
-STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const char* phone, uint16_t prev, uint16_t next,
+STRG_RET write_next_message_sector(Storage *storage, Journal *journal, uint16_t contact_index, uint16_t prev, uint16_t next,
         MessageBuffer *in)
 {
     MessageSectorBuffer mSector;
@@ -237,7 +248,7 @@ STRG_RET write_next_message_sector(Storage *storage, Journal *journal, const cha
         return STRG_EMPTY;
     }
 
-    create_new_message_sector(&mSector, phone, prev);
+    create_new_message_sector(&mSector, contact_index, prev);
 
     // Add to journal (storing usage_bitmap, mSector content is irrelivant)
     bool journal_add_success = journal_add(journal, JRNL_MESSAGE, MESSAGE_DATA_SECTOR(next), mSector.buffer);
@@ -626,7 +637,92 @@ bool remove_message_chat(Storage *storage, Journal *journal, FreeList *msg_alloc
     return true;
 }
 
-MessageBuffer create_message(uint16_t timestamp, bool direction, char *str)
+STRG_RET remove_message_bit(Storage *storage, Journal *journal, uint16_t index)
+{
+    STRG_RET ret;
+
+    // Add contact to jounral
+    if (!journal_add(journal, JRNL_REMOVE, MESSAGE_DATA_SECTOR(index), NULL))
+    {
+        return STRG_FAIL;
+    }
+
+    // Update usage bit vector to state the sector is no longer allocated
+    ret = update_usage_bit(storage, MESSAGE_DATA_SECTOR(index), false);
+
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
+    // free active journal now the changes have been made
+    return journal_free(journal);
+}
+
+/**
+ * @brief If a contact is empty, remove the entire message chat
+ *
+ * @param journal journal struct pointer (allocated in database struct)
+ * @param storage storage abstraction struct pointer (allocated in database struct)
+ *
+ * @retval true Journal Init successful
+ * @retval false journal init fail
+ */
+STRG_RET remove_orphaned_message_chat(Storage *storage, Journal *journal, FreeList *msg_allocator, uint16_t startIndex)
+{
+    MessageSectorBuffer mSector;
+    uint16_t curr;
+    uint16_t prev = startIndex;
+    int jumps = 0;
+    STRG_RET ret;
+
+    // Iterate until there are no more message sectors
+    while (prev != UINT16_MAX)
+    {
+        curr = prev;
+
+        bool is_used = check_usage_bit(MESSAGE_DATA_SECTOR(curr));
+        if (!is_used)
+        {
+            return STRG_EMPTY;
+        }
+
+        // Read the message sector
+        ret = read_message_sector(storage, curr, &mSector);
+
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        ret = remove_message_bit(storage, journal, curr);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        // if the current index is before the start index (hasn't been freed during reconstruction)
+        if (curr <= startIndex)
+        {
+            free_list_free(msg_allocator, curr);
+
+        }
+
+        // Update current sector to previous sector
+        prev = mSector.var.header.prev;
+
+        // if number of jumps exceeds the total number of messages in sector (corrupted prev prevention)
+        if (jumps++ >= TOTAL_MESSAGE_SECTOR_SIZE)
+
+        {
+            return STRG_FAIL;
+        }
+    }
+
+    return STRG_OK;
+}
+
+MessageBuffer create_message(uint32_t timestamp, bool direction, char *str)
 {
     MessageBuffer newMsg = {0};
 
@@ -641,7 +737,8 @@ MessageBuffer create_message(uint16_t timestamp, bool direction, char *str)
         len = SMS_MAX_MESSAGE_LENGTH - 1;
     }
 
-    newMsg.msg.timestamp= timestamp;
+    newMsg.msg.timestamp_hi= (uint16_t)(timestamp >> 16);
+    newMsg.msg.timestamp_lo= (uint16_t)(timestamp & 0xFFFF);
     newMsg.msg.direction = direction;
     memcpy(newMsg.msg.str, str, len);
 
@@ -649,7 +746,7 @@ MessageBuffer create_message(uint16_t timestamp, bool direction, char *str)
     return newMsg;
 }
 
-void create_new_message_sector(MessageSectorBuffer *mSector, const char* phone, uint16_t prev)
+void create_new_message_sector(MessageSectorBuffer *mSector, uint16_t contact_index, uint16_t prev)
 {
     // start from a clean sector so no stack garbage is persisted
     memset(mSector, 0, sizeof(*mSector));
@@ -657,14 +754,5 @@ void create_new_message_sector(MessageSectorBuffer *mSector, const char* phone, 
     mSector->var.header.prev = prev;
     mSector->var.header.next = UINT16_MAX;
     mSector->var.header.msg_count = 0;
-    mSector->var.header.state = EXTENT_OCCUPIED;
-
-    // phone number is needed to link the chat back to its contact on reconstruction
-    size_t phone_len = strlen(phone);
-    if (phone_len > MAX_PHONE_LEN)
-    {
-        phone_len = MAX_PHONE_LEN;
-    }
-    memcpy(mSector->var.header.phone, phone, phone_len);
-    mSector->var.header.phone_len = (uint8_t)phone_len;
+    mSector->var.header.contact_index = contact_index;
 }

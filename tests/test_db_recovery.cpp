@@ -119,7 +119,7 @@ TEST_F(DbRecoveryTest, MessageSectorDoesNotOverlapContactRegion)
     ASSERT_EQ(write_contact(storage, &journal, slot, &in), STRG_OK);
 
     MessageBuffer msg = create_message(1, true, (char *)"hello");
-    ASSERT_EQ(write_new_message_sector(storage, &journal, "0422222222", 0, &msg), STRG_OK);
+    ASSERT_EQ(write_new_message_sector(storage, &journal, 0, 0, &msg), STRG_OK);
 
     EXPECT_EQ(read_contact(storage, slot, &out), STRG_OK);
     EXPECT_EQ(std::memcmp(in.buffer, out.buffer, sizeof(Contact)), 0);
@@ -134,7 +134,7 @@ TEST_F(DbRecoveryTest, MessageSectorDoesNotOverlapContactRegion)
 TEST_F(DbRecoveryTest, LastMessageSectorIsInsideDataRegion)
 {
     MessageBuffer msg = create_message(1, true, (char *)"last");
-    ASSERT_EQ(write_new_message_sector(storage, &journal, "0422222222",
+    ASSERT_EQ(write_new_message_sector(storage, &journal, 0,
                                        TOTAL_MESSAGE_SECTOR_SIZE - 1, &msg), STRG_OK);
 
     MessageBuffer out{};
@@ -184,7 +184,7 @@ TEST_F(DbRecoveryTest, RollbackRestoresJournalledMessageSector)
     MessageBuffer m1 = create_message(1, true, (char *)"first");
     MessageBuffer m2 = create_message(2, false, (char *)"second");
 
-    ASSERT_EQ(write_new_message_sector(storage, &journal, "0411111111", msg_index, &m1), STRG_OK);
+    ASSERT_EQ(write_new_message_sector(storage, &journal, 0, msg_index, &m1), STRG_OK);
 
     // journal (3) + bitmap (1) + message sector (1) succeed, journal commit fails
     g_writes_left = 5;
@@ -207,7 +207,7 @@ TEST_F(DbRecoveryTest, FullMessageSectorLeavesJournalCommitted)
 {
     MessageBuffer m = create_message(1, true, (char *)"x");
 
-    ASSERT_EQ(write_new_message_sector(storage, &journal, "0411111111", 0, &m), STRG_OK);
+    ASSERT_EQ(write_new_message_sector(storage, &journal, 0, 0, &m), STRG_OK);
     for (uint32_t i = 1; i < MESSAGE_SECTOR_CAPACITY; i++)
     {
         ASSERT_EQ(write_message(storage, &journal, 0, &m), STRG_OK);
@@ -245,7 +245,8 @@ TEST_F(DbRecoveryTest, ReconstructMessageRestoresLatestSectors)
     for (int p = 0; p < 3; p++)
     {
         ContactBuffer c = create_contact("name", phones[p]);
-        ASSERT_TRUE(hash_insert_contact(&table, &journal, &c));
+        uint16_t idx;
+        ASSERT_EQ(hash_insert_contact(&table, &journal, &c, &idx), STRG_OK);
         for (int i = 0; i < counts[p]; i++)
         {
             MessageBuffer m = create_message((uint16_t)i, true, (char *)"msg");

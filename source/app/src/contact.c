@@ -79,19 +79,11 @@ STRG_RET write_contact(Storage *storage, Journal *journal, uint16_t index, Conta
     ContactSectorBuffer cSector;
     uint8_t contactPosInSector;
 
-    /*
-     * FIXME(usage-bitmap): the usage bitmap tracks one bit per *physical
-     * contact sector*, not per contact slot. The write below sets the bit
-     * at (index / CONTACT_SECTOR_CAPACITY), so every check/clear site must
-     * use the same mapping. Previously these sites passed the raw `index`,
-     * so read_contact()/remove_contact() tested a bit write_contact() never
-     * set and always reported "not found" straight after an insert.
-     */
     // Check if contact sector is being used
     if (check_usage_bit(index / CONTACT_SECTOR_CAPACITY)) {
 
         // Read contact sector
-        if (read_contact_sector(storage, index / CONTACT_SECTOR_CAPACITY, &cSector) != STRG_OK)
+        if (read_contact_sector(storage, (index / CONTACT_SECTOR_CAPACITY), &cSector) != STRG_OK)
         {
             return STRG_FAIL;
         }

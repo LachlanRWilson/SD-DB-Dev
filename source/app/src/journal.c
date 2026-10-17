@@ -111,11 +111,15 @@ STRG_RET journal_write(Journal *journal, JournalHeaderBuffer* header, uint8_t *c
         }
     }
 
-    // Write content
-    ret = journal_write_sector(journal, JRNL_CONTENT_SECTOR, content);
-    if (ret != STRG_OK)
+    // if removing only usage bitmap is being updated. no need to journal content
+    if (header->var.data.var.type != JRNL_REMOVE)
     {
-        return ret;
+        // Write content
+        ret = journal_write_sector(journal, JRNL_CONTENT_SECTOR, content);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
     }
 
     // Write header
@@ -154,7 +158,7 @@ bool journal_add(Journal *journal, JRNL_TYPE type, uint16_t index, uint8_t *cont
 
     // only add usage bitmap if contact or message data (usage bitmap tracks
     // said data unlike call / message history which uses ring buffers)
-    if (type == JRNL_CONTACT || type == JRNL_MESSAGE)
+    if (type == JRNL_CONTACT || type == JRNL_MESSAGE || type == JRNL_REMOVE)
     {
         // Get the sector in RAM of the usage bitmap vector
         usage_bitmap_sector = &usage_bitmap[USAGE_BITMAP_FIND_SECTOR(index) *
@@ -194,22 +198,26 @@ bool journal_rollback(Journal *journal)
     Storage *storage = journal->storage;
     STRG_RET ret;
 
-    ret = journal_read_sector(journal, JRNL_CONTENT_SECTOR, journal->content);
-
-    if (ret != STRG_OK)
+    // only write content to sector if not a remove. (Data at sector is unchanged on removal, only bitmap changed)
+    if (header->data.var.type != JRNL_REMOVE)
     {
-        return false;
-    }
+        ret = journal_read_sector(journal, JRNL_CONTENT_SECTOR, journal->content);
 
-    // write journal content back to sd card (TODO: SDMMC callback for write confirmation)
-    ret = write_sector(storage, header->data.var.sector + DATA_REGION_START_SECTOR, journal->content);
-    if (ret != STRG_OK)
-    {
-        return false;
+        if (ret != STRG_OK)
+        {
+            return false;
+        }
+
+        // write journal content back to sd card (TODO: SDMMC callback for write confirmation)
+        ret = write_sector(storage, header->data.var.sector + DATA_REGION_START_SECTOR, journal->content);
+        if (ret != STRG_OK)
+        {
+            return false;
+        }
     }
 
     // If rollback on call history or message history do not concern with usage bitmap rollback
-    if (header->data.var.type != JRNL_CONTACT && header->data.var.type != JRNL_MESSAGE)
+    if (header->data.var.type == JRNL_CALL_HIST || header->data.var.type == JRNL_MSG_HIST)
     {
         return journal_free(journal) == STRG_OK;
     }
@@ -222,7 +230,7 @@ bool journal_rollback(Journal *journal)
     }
 
 
-    // write jounral usage bitmap back to sd card
+    // write journal usage bitmap back to sd card
     ret = write_sector(storage, USAGE_BITMAP_START_SECTOR + USAGE_BITMAP_FIND_SECTOR(header->data.var.sector),
                        journal->usage_bitmap_sector);
 

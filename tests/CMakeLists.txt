@@ -80,6 +80,10 @@ add_executable(test_message_range
     test_message_range.cpp
 )
 
+add_executable(test_contact_index_recovery
+    test_contact_index_recovery.cpp
+)
+
 set(UNIT_TESTS
     test_hash_table
     test_free_list
@@ -91,6 +95,7 @@ set(UNIT_TESTS
     test_message_history
     test_call_history
     test_message_range
+    test_contact_index_recovery
 )
 
 foreach(test ${UNIT_TESTS})

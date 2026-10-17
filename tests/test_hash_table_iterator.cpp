@@ -103,7 +103,8 @@ protected:
     bool insert(const std::string &name, const std::string &phone)
     {
         ContactBuffer c = make_contact_iter(name, phone);
-        return hash_insert_contact(&htable, &journal, &c);
+        uint16_t idx;
+        return hash_insert_contact(&htable, &journal, &c, &idx) == STRG_OK;
     }
 
     bool remove(const std::string &phone)
