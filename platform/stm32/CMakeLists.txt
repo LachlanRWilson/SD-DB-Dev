@@ -15,6 +15,9 @@ add_library(platform_stm32
 
     # SysTick (HAL_GetTick())
     src/platform_time_stm32.c
+
+    # FreeRTOS queue/task (CMSIS-OS2)
+    src/platform_os_stm32.c
 )
 
 # Make the include directory PUBLIC so other files such as tests/test_my_logic.cpp and source/app/my_logic.c have access to it

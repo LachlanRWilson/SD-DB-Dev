@@ -1038,3 +1038,180 @@ TEST_F(DatabaseTest, PowerCutDuringUpdate)
         }
     }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Chat list (chat_order.c)
+ * ------------------------------------------------------------------ */
+
+/** @brief Every chat as "phone|latest message", most recent first. */
+static std::vector<std::string> chat_list_all(Database *db)
+{
+    std::vector<ChatSummary> out(database_chat_count(db) + 1);
+    size_t count = 0;
+    std::vector<std::string> rows;
+
+    if (database_chat_list(db, 0, out.size(), &count, out.data()) != STRG_OK)
+    {
+        return rows;
+    }
+
+    for (size_t i = 0; i < count; i++)
+    {
+        const ChatSummary &c = out[i];
+        rows.push_back(std::string(c.contact.phone, c.contact.phone_len) + "|" +
+                       std::string(c.latest.str, strnlen(c.latest.str, SMS_MAX_MESSAGE_LENGTH)));
+    }
+    return rows;
+}
+
+/**
+ * @brief No chats: the list is empty and a start of 0 is past the end.
+ */
+TEST_F(DatabaseTest, ChatListEmpty)
+{
+    ChatSummary out[1];
+    size_t count = 9;
+
+    ASSERT_EQ(database_contact_add(&db, "Ada", "0400000001"), STRG_OK);
+    EXPECT_EQ(database_chat_count(&db), 0u);
+    EXPECT_EQ(database_chat_list(&db, 0, 1, &count, out), STRG_EMPTY);
+    EXPECT_EQ(count, 0u);
+}
+
+/**
+ * @brief Chats are listed most recent message first with their contact and
+ * latest message, and a new message moves its chat to the top.
+ */
+TEST_F(DatabaseTest, ChatListMostRecentFirst)
+{
+    ASSERT_EQ(database_contact_add(&db, "Ada", "0400000001"), STRG_OK);
+    ASSERT_EQ(database_contact_add(&db, "Bob", "0400000002"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000001", 1, true, (char *)"a1"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000002", 2, true, (char *)"b1"), STRG_OK);
+    // unknown number: new unnamed contact and chat
+    ASSERT_EQ(database_message_add(&db, "0499999999", 3, false, (char *)"x1"), STRG_OK);
+
+    EXPECT_EQ(chat_list_all(&db), (std::vector<std::string>{"0499999999|x1", "0400000002|b1", "0400000001|a1"}));
+
+    ASSERT_EQ(database_message_add(&db, "0400000001", 4, false, (char *)"a2"), STRG_OK);
+    EXPECT_EQ(chat_list_all(&db), (std::vector<std::string>{"0400000001|a2", "0499999999|x1", "0400000002|b1"}));
+    EXPECT_EQ(database_chat_count(&db), 3u);
+
+    ChatSummary out[3];
+    size_t count = 0;
+    ASSERT_EQ(database_chat_list(&db, 0, 1, &count, out), STRG_OK);
+    EXPECT_EQ(std::string(out[0].contact.name, out[0].contact.name_len), "Ada");
+    EXPECT_EQ(msg_ts(out[0].latest), 4u);
+}
+
+/**
+ * @brief start and n page through the list, a start past the end is STRG_EMPTY.
+ */
+TEST_F(DatabaseTest, ChatListPaging)
+{
+    ChatSummary out[2];
+    size_t count = 0;
+    char phone[16];
+
+    for (int i = 0; i < 5; i++)
+    {
+        std::snprintf(phone, sizeof(phone), "04%08d", i);
+        ASSERT_EQ(database_message_add(&db, phone, i + 1, true, (char *)"hi"), STRG_OK);
+    }
+
+    ASSERT_EQ(database_chat_list(&db, 1, 2, &count, out), STRG_OK);
+    ASSERT_EQ(count, 2u);
+    EXPECT_EQ(std::string(out[0].contact.phone, out[0].contact.phone_len), "0400000003");
+    EXPECT_EQ(std::string(out[1].contact.phone, out[1].contact.phone_len), "0400000002");
+
+    ASSERT_EQ(database_chat_list(&db, 4, 2, &count, out), STRG_OK);
+    EXPECT_EQ(count, 1u);
+
+    EXPECT_EQ(database_chat_list(&db, 5, 2, &count, out), STRG_EMPTY);
+}
+
+/**
+ * @brief Removing a chat or its contact drops it from the list.
+ */
+TEST_F(DatabaseTest, ChatListRemove)
+{
+    ASSERT_EQ(database_message_add(&db, "0400000001", 1, true, (char *)"a"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000002", 2, true, (char *)"b"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000003", 3, true, (char *)"c"), STRG_OK);
+
+    ASSERT_EQ(database_message_remove_chat(&db, "0400000002"), STRG_OK);
+    EXPECT_EQ(chat_list_all(&db), (std::vector<std::string>{"0400000003|c", "0400000001|a"}));
+
+    ASSERT_EQ(database_contact_remove(&db, "0400000003"), STRG_OK);
+    EXPECT_EQ(chat_list_all(&db), (std::vector<std::string>{"0400000001|a"}));
+
+    // removing a contact without a chat leaves the list alone
+    ASSERT_EQ(database_contact_add(&db, "Dan", "0400000004"), STRG_OK);
+    ASSERT_EQ(database_contact_remove(&db, "0400000004"), STRG_OK);
+    EXPECT_EQ(chat_list_all(&db), (std::vector<std::string>{"0400000001|a"}));
+}
+
+/**
+ * @brief A phone number change keeps the chat's place and shows the new number.
+ */
+TEST_F(DatabaseTest, ChatListPhoneChange)
+{
+    ASSERT_EQ(database_message_add(&db, "0400000001", 1, true, (char *)"a"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000002", 2, true, (char *)"b"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000003", 3, true, (char *)"c"), STRG_OK);
+
+    ASSERT_EQ(database_contact_update(&db, "0400000002", "Bob", "0411111111"), STRG_OK);
+    EXPECT_EQ(chat_list_all(&db), (std::vector<std::string>{"0400000003|c", "0411111111|b", "0400000001|a"}));
+
+    // the moved chat still moves to the front on a new message
+    ASSERT_EQ(database_message_add(&db, "0411111111", 4, true, (char *)"b2"), STRG_OK);
+    EXPECT_EQ(chat_list_all(&db).front(), "0411111111|b2");
+}
+
+/**
+ * @brief The order is rebuilt from the latest message timestamps on reboot,
+ * including after a remove, a phone change and a chat spanning sectors.
+ */
+TEST_F(DatabaseTest, ChatListSurvivesReboot)
+{
+    ASSERT_EQ(database_message_add(&db, "0400000001", 1, true, (char *)"a"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000002", 2, true, (char *)"b"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000003", 3, true, (char *)"c"), STRG_OK);
+    ASSERT_EQ(database_message_add(&db, "0400000004", 4, true, (char *)"d"), STRG_OK);
+    // more than a sector of messages, so the latest is in a new extent
+    for (int i = 0; i <= (int)MESSAGE_SECTOR_CAPACITY; i++)
+    {
+        std::string s = "a" + std::to_string(i);
+        ASSERT_EQ(database_message_add(&db, "0400000001", 10 + i, true, (char *)s.c_str()), STRG_OK);
+    }
+    ASSERT_EQ(database_message_remove_chat(&db, "0400000003"), STRG_OK);
+    ASSERT_EQ(database_contact_update(&db, "0400000002", "Bob", "0411111111"), STRG_OK);
+
+    std::vector<std::string> before = chat_list_all(&db);
+    ASSERT_EQ(before.size(), 3u);
+    ASSERT_EQ(reboot(), STRG_OK);
+    EXPECT_EQ(chat_list_all(&db), before);
+}
+
+/**
+ * @brief A message add cut short by power loss leaves a consistent list after
+ * reboot: every chat is listed once and its latest message matches the chat.
+ */
+TEST_F(DatabaseTest, PowerCutDuringMessageAddChatList)
+{
+    for (int cut = 0; cut < 8; cut++)
+    {
+        SetUp();
+        ASSERT_EQ(database_message_add(&db, "0400000001", 1, true, (char *)"a"), STRG_OK);
+        ASSERT_EQ(database_message_add(&db, "0400000002", 2, true, (char *)"b"), STRG_OK);
+
+        cut_power_after(cut);
+        database_message_add(&db, "0400000001", 3, true, (char *)"a2");
+
+        ASSERT_EQ(reboot(), STRG_OK) << "cut=" << cut;
+        std::vector<std::string> rows = chat_list_all(&db);
+        ASSERT_EQ(rows.size(), 2u) << "cut=" << cut;
+        std::string expect_front = (chat("0400000001").front() == "a2") ? "0400000001|a2" : "0400000002|b";
+        EXPECT_EQ(rows.front(), expect_front) << "cut=" << cut;
+    }
+}

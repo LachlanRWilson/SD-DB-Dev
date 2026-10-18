@@ -54,7 +54,8 @@ Menu ─┬─ Phone ──── Call / Call History ──► contact details
 - Contacts: `/` searches by name prefix (`database_contact_seek`). Only the 10 visible rows are fetched (`database_contact_list`).
 - Contact details: Messages, Call, Send Message, Edit Contact, Delete Contact (Add Contact for an unknown number).
 - Chat: sent bubbles on the right, received on the left, newest at the bottom. Up scrolls back, Enter replies, `i` adds an incoming message.
-- All Messages: one row per chat, newest first, built from the message history.
+- All Messages: one row per chat, newest first (every contact is asked for its latest message until a chat list request exists).
+- It only uses database task requests (`db_task.h`): `run` starts the task on the mounted card and stops it on exit.
 - Under the screen: the sector reads/writes of the last key press, and the `STRG_RET` of the last action.
 
 It needs a terminal (it prints a message instead when stdin/stdout is piped). The code is in `phone_ui.c`.

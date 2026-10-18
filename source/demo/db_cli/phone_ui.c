@@ -6,8 +6,9 @@
  *         ├─ SMS ────── New Message / All Messages ──► chat
  *         └─ Contacts ─ name ordered list ──► contact details ──► chat
  *
- * Every screen is fetched through the database API, and the storage cost of
- * the last key press (sector reads/writes) is shown under the screen.
+ * Every screen is fetched with requests to the database task (db_task.h), and
+ * the storage cost of the last key press (sector reads/writes) is shown under
+ * the screen.
  */
 
 #define _POSIX_C_SOURCE 200809L
@@ -23,6 +24,8 @@
 #include "card_image.h"
 #include "contact.h"
 #include "message.h"
+#include "db_task.h"
+#include "platform_os.h"
 
 #define W         34  // screen inner width (chars)
 #define ROWS      10  // body rows
@@ -70,7 +73,9 @@ typedef struct
     size_t total;
 } Page;
 
-static Database *g;
+static DatabaseTaskContext *g_task;
+static PlatformQueue *g_reply_q;
+static uint32_t g_tag;
 static Page g_stack[MAX_DEPTH];
 static int g_depth;
 static bool g_quit;
@@ -274,23 +279,124 @@ static Item *add_row(Page *p, const char *label, const char *phone)
     return it;
 }
 
-static bool has_phone(const Page *p, const char *phone)
+/* ------------------------------------------------------------------ *
+ *  Database task requests
+ * ------------------------------------------------------------------ */
+
+/**
+ * @brief Post a request to the database task and wait for its response. The
+ * wait has no timeout: list requests write into the caller's buffer, which
+ * must stay valid until the task has replied
+ *
+ * @param req request (reply_q and tag are set here)
+ * @param rsp response, may be NULL
+ * @retval STRG_RET of the request
+ */
+static STRG_RET db_call(DbRequest *req, DbResponse *rsp)
 {
-    for (size_t i = 0; i < p->n_items; i++)
+    DbResponse local;
+
+    rsp = (rsp != NULL) ? rsp : &local;
+    req->reply_q = g_reply_q;
+    req->tag = ++g_tag;
+    if (!db_task_post(g_task, req, PLATFORM_OS_WAIT_FOREVER))
     {
-        if (strcmp(p->items[i].phone, phone) == 0)
-        {
-            return true;
-        }
+        return STRG_FAIL;
     }
-    return false;
+    do
+    {
+        platform_os_QueueReceive(g_reply_q, rsp, PLATFORM_OS_WAIT_FOREVER);
+    } while (rsp->tag != req->tag);
+    return rsp->ret;
 }
 
-static int newest_first(const void *a, const void *b)
+static STRG_RET db_phone_req(DbRequestType type, const char *phone, DbResponse *rsp)
 {
-    uint32_t ta = ((const Item *)a)->ts;
-    uint32_t tb = ((const Item *)b)->ts;
-    return (ta < tb) - (ta > tb);
+    DbRequest req = {.type = type};
+
+    snprintf(req.args.phone.phone, sizeof(req.args.phone.phone), "%s", phone);
+    return db_call(&req, rsp);
+}
+
+static STRG_RET db_range_req(DbRequestType type, size_t start, size_t n, void *out, size_t *count)
+{
+    DbRequest req = {.type = type, .args.range = {.start = start, .n = n, .out = out}};
+    DbResponse rsp;
+
+    STRG_RET ret = db_call(&req, &rsp);
+    *count = (ret == STRG_OK) ? rsp.result.range.count : 0;
+    return ret;
+}
+
+static STRG_RET db_contact_add(const char *name, const char *phone)
+{
+    DbRequest req = {.type = DB_REQ_CONTACT_ADD};
+
+    snprintf(req.args.contact_add.name, sizeof(req.args.contact_add.name), "%s", name);
+    snprintf(req.args.contact_add.phone, sizeof(req.args.contact_add.phone), "%s", phone);
+    return db_call(&req, NULL);
+}
+
+static STRG_RET db_contact_get(const char *phone, ContactBuffer *out)
+{
+    DbResponse rsp;
+
+    STRG_RET ret = db_phone_req(DB_REQ_CONTACT_GET, phone, &rsp);
+    if (ret == STRG_OK)
+    {
+        *out = rsp.result.contact;
+    }
+    return ret;
+}
+
+static STRG_RET db_contact_update(const char *phone, const char *new_name, const char *new_phone)
+{
+    DbRequest req = {.type = DB_REQ_CONTACT_UPDATE};
+
+    snprintf(req.args.contact_update.phone, sizeof(req.args.contact_update.phone), "%s", phone);
+    snprintf(req.args.contact_update.new_name, sizeof(req.args.contact_update.new_name), "%s", new_name);
+    snprintf(req.args.contact_update.new_phone, sizeof(req.args.contact_update.new_phone), "%s", new_phone);
+    return db_call(&req, NULL);
+}
+
+static STRG_RET db_contact_seek(const char *prefix, size_t *rank)
+{
+    DbRequest req = {.type = DB_REQ_CONTACT_SEEK};
+    DbResponse rsp;
+
+    snprintf(req.args.contact_seek.prefix, sizeof(req.args.contact_seek.prefix), "%s", prefix);
+    STRG_RET ret = db_call(&req, &rsp);
+    *rank = (ret == STRG_OK) ? rsp.result.seek.rank : 0;
+    return ret;
+}
+
+static size_t db_contact_count(void)
+{
+    DbRequest req = {.type = DB_REQ_CONTACT_COUNT};
+    DbResponse rsp;
+
+    return (db_call(&req, &rsp) == STRG_OK) ? rsp.result.range.count : 0;
+}
+
+static STRG_RET db_message_add(const char *phone, uint32_t timestamp, bool direction, const char *str)
+{
+    DbRequest req = {.type = DB_REQ_MESSAGE_ADD,
+                     .args.message_add = {.timestamp = timestamp, .direction = direction}};
+
+    snprintf(req.args.message_add.phone, sizeof(req.args.message_add.phone), "%s", phone);
+    snprintf(req.args.message_add.str, sizeof(req.args.message_add.str), "%s", str);
+    return db_call(&req, NULL);
+}
+
+static STRG_RET db_message_get_chat(const char *phone, size_t start, size_t n, size_t *count, Message *out)
+{
+    DbRequest req = {.type = DB_REQ_MESSAGE_GET_CHAT, .args.chat = {.start = start, .n = n, .out = out}};
+    DbResponse rsp;
+
+    snprintf(req.args.chat.phone, sizeof(req.args.chat.phone), "%s", phone);
+    STRG_RET ret = db_call(&req, &rsp);
+    *count = (ret == STRG_OK) ? rsp.result.range.count : 0;
+    return ret;
 }
 
 /* ------------------------------------------------------------------ *
@@ -313,7 +419,7 @@ static void load_calls(Page *p)
 
     for (size_t start = 0;; start += count)
     {
-        if ((database_call_recent(g, start, CHUNK, &count, calls) != STRG_OK) || (count == 0))
+        if ((db_range_req(DB_REQ_CALL_RECENT, start, CHUNK, calls, &count) != STRG_OK) || (count == 0))
         {
             break;
         }
@@ -336,37 +442,15 @@ static void load_calls(Page *p)
     }
 }
 
-// Phone number of the contact owning a message sector
-static bool owner_phone(uint16_t msg_sector, char *phone)
-{
-    MessageSectorBuffer sector;
-    ContactBuffer contact;
-
-    if (read_message_sector(&g->storage, msg_sector, &sector) != STRG_OK)
-    {
-        return false;
-    }
-    if (read_contact(&g->storage, sector.var.header.contact_index, &contact) != STRG_OK)
-    {
-        return false;
-    }
-    field(phone, contact.contact.phone, contact.contact.phone_len);
-    return phone[0] != '\0';
-}
-
-/**
- * @brief One row per chat, newest first. Built from the message history: each
- * entry's sector names its contact, and the chat itself gives the latest
- * message (history entries of deleted chats are skipped this way)
- */
+// One row per chat, most recent message first (the task returns them in order)
 static void load_inbox(Page *p)
 {
-    MessageHistoryEntry hist[CHUNK];
+    ChatSummary chats[CHUNK];
     size_t count = 0;
 
     for (size_t start = 0;; start += count)
     {
-        if ((database_message_recent(g, start, CHUNK, &count, hist) != STRG_OK) || (count == 0))
+        if ((db_range_req(DB_REQ_CHAT_LIST, start, CHUNK, chats, &count) != STRG_OK) || (count == 0))
         {
             break;
         }
@@ -374,25 +458,11 @@ static void load_inbox(Page *p)
         {
             char phone[MAX_PHONE_LEN + 1];
             char name[MAX_NAME_LEN + 1];
-            ContactBuffer c;
-            Message latest;
-            size_t got = 0;
 
-            if (!owner_phone(hist[i].msgInd, phone) || has_phone(p, phone))
-            {
-                continue;
-            }
-            if ((database_message_get_chat(g, phone, 0, 1, &got, &latest) != STRG_OK) || (got == 0))
-            {
-                continue;
-            }
-            if (database_contact_get(g, phone, &c) != STRG_OK)
-            {
-                continue;
-            }
-            display_name(&c.contact, name);
+            field(phone, chats[i].contact.phone, chats[i].contact.phone_len);
+            display_name(&chats[i].contact, name);
             Item *it = add_row(p, name, phone);
-            it->ts = msg_time(&latest);
+            it->ts = msg_time(&chats[i].latest);
             short_time(it->ts, it->right);
         }
         if (count < CHUNK)
@@ -400,7 +470,6 @@ static void load_inbox(Page *p)
             break;
         }
     }
-    qsort(p->items, p->n_items, sizeof(Item), newest_first);
 }
 
 // Only the visible window is fetched, through the name index
@@ -412,7 +481,7 @@ static void load_contacts(Page *p)
     char phone[MAX_PHONE_LEN + 1];
 
     p->base = p->offset;
-    if (database_contact_list(g, p->offset, ROWS, &count, page) != STRG_OK)
+    if (db_range_req(DB_REQ_CONTACT_LIST, p->offset, ROWS, page, &count) != STRG_OK)
     {
         return;
     }
@@ -430,7 +499,7 @@ static void load_details(Page *p)
     static const char *const unknown[] = {"Messages", "Call", "Send Message", "Add Contact"};
     ContactBuffer c;
 
-    p->known = (database_contact_get(g, p->phone, &c) == STRG_OK);
+    p->known = (db_contact_get(p->phone, &c) == STRG_OK);
     if (p->known)
     {
         char name[MAX_NAME_LEN + 1];
@@ -524,7 +593,7 @@ static void load_chat(Page *p)
     size_t count = 0;
     ContactBuffer c;
 
-    if (database_contact_get(g, p->phone, &c) == STRG_OK)
+    if (db_contact_get(p->phone, &c) == STRG_OK)
     {
         char name[MAX_NAME_LEN + 1];
         display_name(&c.contact, name);
@@ -541,7 +610,7 @@ static void load_chat(Page *p)
         {
             abort();
         }
-        if ((database_message_get_chat(g, p->phone, start, CHUNK, &count, &msgs[n]) != STRG_OK) || (count == 0))
+        if ((db_message_get_chat(p->phone, start, CHUNK, &count, &msgs[n]) != STRG_OK) || (count == 0))
         {
             break;
         }
@@ -595,7 +664,7 @@ static void clamp(Page *p)
 
     if (p->id == PG_CONTACTS)
     {
-        p->total = database_contact_count(g);
+        p->total = db_contact_count();
     }
     if (p->id == PG_CHAT)
     {
@@ -876,7 +945,7 @@ static bool send_message(const char *phone, bool out)
         return false;
     }
     begin_io();
-    STRG_RET ret = database_message_add(g, phone, next_ts(), out, text);
+    STRG_RET ret = db_message_add(phone, next_ts(), out, text);
     report(out ? "Sent" : "Received", ret);
     return ret == STRG_OK;
 }
@@ -886,7 +955,7 @@ static void call(const char *phone, const char *who)
     char what[W + 16];
 
     begin_io();
-    STRG_RET ret = database_call_add(g, phone);
+    STRG_RET ret = db_phone_req(DB_REQ_CALL_ADD, phone, NULL);
     snprintf(what, sizeof(what), "Called %s", who);
     report(what, ret);
 }
@@ -912,7 +981,7 @@ static void details_action(Page *p)
         if (prompt("Name: ", name, sizeof(name)))
         {
             begin_io();
-            report("Add contact", database_contact_add(g, name, p->phone));
+            report("Add contact", db_contact_add(name, p->phone));
         }
     } else if (strcmp(opt, "Edit Contact") == 0) {
         // empty input keeps the current value
@@ -927,7 +996,7 @@ static void details_action(Page *p)
             snprintf(phone, sizeof(phone), "%s", p->phone);
         }
         begin_io();
-        STRG_RET ret = database_contact_update(g, p->phone, name, phone);
+        STRG_RET ret = db_contact_update(p->phone, name, phone);
         report("Edit contact", ret);
         if (ret == STRG_OK)
         {
@@ -938,7 +1007,7 @@ static void details_action(Page *p)
         if ((yn[0] == 'y') || (yn[0] == 'Y'))
         {
             begin_io();
-            STRG_RET ret = database_contact_remove(g, p->phone);
+            STRG_RET ret = db_phone_req(DB_REQ_CONTACT_REMOVE, p->phone, NULL);
             report("Delete contact", ret);
             if (ret == STRG_OK)
             {
@@ -1015,7 +1084,7 @@ static void other_key(Page *p, int ch)
         if (prompt("Search: ", prefix, sizeof(prefix)))
         {
             begin_io();
-            STRG_RET ret = database_contact_seek(g, prefix, &rank);
+            STRG_RET ret = db_contact_seek(prefix, &rank);
             report("Seek", ret);
             if (ret == STRG_OK)
             {
@@ -1051,7 +1120,7 @@ static void handle(Key key, int ch)
     }
 }
 
-void phone_ui_run(Database *db)
+void phone_ui_run(DatabaseTaskContext *task)
 {
     static bool registered;
     int ch = 0;
@@ -1062,7 +1131,18 @@ void phone_ui_run(Database *db)
         return;
     }
 
-    g = db;
+    // one request outstanding at a time (platform_os has no queue delete, so it is kept)
+    if (g_reply_q == NULL)
+    {
+        g_reply_q = platform_os_QueueCreate(1, sizeof(DbResponse));
+        if (g_reply_q == NULL)
+        {
+            printf("  couldn't create the reply queue\n");
+            return;
+        }
+    }
+
+    g_task = task;
     g_depth = 0;
     g_quit = false;
     g_flash[0] = '\0';

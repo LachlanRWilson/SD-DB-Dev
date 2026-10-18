@@ -92,6 +92,14 @@ add_executable(test_database
     test_database.cpp
 )
 
+add_executable(test_db_task
+    test_db_task.cpp
+)
+
+add_executable(test_chat_order
+    test_chat_order.cpp
+)
+
 set(UNIT_TESTS
     test_hash_table
     test_free_list
@@ -106,6 +114,8 @@ set(UNIT_TESTS
     test_contact_index_recovery
     test_sorted_array
     test_database
+    test_db_task
+    test_chat_order
 )
 
 foreach(test ${UNIT_TESTS})

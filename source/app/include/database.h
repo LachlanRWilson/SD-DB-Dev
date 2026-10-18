@@ -13,6 +13,7 @@ extern "C" {
 #include "message.h"
 #include "hash_table.h"
 #include "sorted_array.h"
+#include "chat_order.h"
 #include "free_list_stack.h"
 #include "ring_buffer.h"
 #include "message_history.h"
@@ -29,7 +30,15 @@ typedef struct
     RingBuffer message_history;
     RingBuffer call_history;
     SortedArray name_index;
+    ChatOrder chat_order;
 } Database;
+
+// One row of the chat list (245B)
+typedef struct
+{
+    Contact contact;    // chat owner
+    Message latest;     // latest message in the chat
+} ChatSummary;
 
 
 /**
@@ -171,6 +180,27 @@ STRG_RET database_message_remove_chat(Database *db, const char *phone);
  * @retval STRG_RET
  */
 STRG_RET database_message_recent(Database *db, size_t start, size_t n, size_t *out_count, MessageHistoryEntry *out);
+
+/**
+ * @brief Get a range of message chats, most recent message first. Each chat has
+ * its contact and latest message
+ *
+ * @param db database struct pointer
+ * @param start start chat (0 = most recent)
+ * @param n max number of chats to read
+ * @param out_count number of chats read
+ * @param out chat summary array (at least n long)
+ * @retval STRG_OK if read, STRG_EMPTY if start is past the last chat, else STRG_* error code
+ */
+STRG_RET database_chat_list(Database *db, size_t start, size_t n, size_t *out_count, ChatSummary *out);
+
+/**
+ * @brief Get the number of message chats in the database
+ *
+ * @param db database struct pointer
+ * @retval number of chats
+ */
+size_t database_chat_count(Database *db);
 
 /**
  * @brief Add a call to the call history. If the phone number has no contact

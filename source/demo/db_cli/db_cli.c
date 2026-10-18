@@ -27,6 +27,8 @@
 #include "free_list_stack.h"
 #include "card_image.h"
 #include "phone_ui.h"
+#include "db_task.h"
+#include "platform_os.h"
 
 #define MAX_TOKENS 32
 #define LINE_LEN   512
@@ -493,11 +495,38 @@ static void cmd_stats(int argc, char **argv)
     printf("  card              %zu sectors (%.1f MB)\n", CARD_RAW_SECTORS, CARD_BYTES / 1e6);
 }
 
+/* Stop the database task and wait until it has finished with g_db */
+static void stop_task(DatabaseTaskContext *task)
+{
+    static PlatformQueue *reply_q;
+    DbRequest req = {.type = DB_REQ_STOP};
+    DbResponse rsp;
+
+    if (reply_q == NULL)
+    {
+        reply_q = platform_os_QueueCreate(1, sizeof(DbResponse));
+    }
+    req.reply_q = reply_q;
+    if ((reply_q != NULL) && db_task_post(task, &req, PLATFORM_OS_WAIT_FOREVER))
+    {
+        platform_os_QueueReceive(reply_q, &rsp, PLATFORM_OS_WAIT_FOREVER);
+    }
+}
+
 static void cmd_run(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
-    phone_ui_run(&g_db);
+
+    // the task owns g_db while the UI runs, the other commands use it directly
+    DatabaseTaskContext *task = db_init(&g_db);
+    if (task == NULL)
+    {
+        printf("  couldn't start the database task\n");
+        return;
+    }
+    phone_ui_run(task);
+    stop_task(task);
 }
 
 static void cmd_help(int argc, char **argv);

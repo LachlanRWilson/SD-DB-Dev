@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "database.h"
@@ -15,6 +16,7 @@ __attribute__((section(".ram_d1"))) HashEntry htable_mem[HASH_TABLE_SIZE];
 __attribute__((section(".ram_d1"))) uint16_t contact_fls_mem[HASH_TABLE_ENTRIES];
 __attribute__((section(".ram_d1"))) uint16_t message_fls_mem[TOTAL_MESSAGE_SECTOR_SIZE];
 __attribute__((section(".ram_d1"))) SortedArrayEntry sa_mem[SORTED_ARRAY_ENTRIES];
+__attribute__((section(".ram_d1"))) uint16_t co_mem[CHAT_ORDER_ENTRIES];
 #else
 
 #include "heap_storage.h"
@@ -24,7 +26,19 @@ HashEntry htable_mem[HASH_TABLE_SIZE];
 uint16_t contact_fls_mem[HASH_TABLE_ENTRIES];
 uint16_t message_fls_mem[TOTAL_MESSAGE_SECTOR_SIZE];
 SortedArrayEntry sa_mem[SORTED_ARRAY_ENTRIES];
+uint16_t co_mem[CHAT_ORDER_ENTRIES];
 #endif
+
+// Chat order rebuild scratch entry, sorted in sa_mem before the name index is built (6B)
+typedef struct
+{
+    uint16_t timestamp_hi;  // latest message timestamp (as Message)
+    uint16_t timestamp_lo;
+    uint16_t hash_slot;
+} ChatOrderScratch;
+
+STATIC_ASSERT(sizeof(ChatOrderScratch) * CHAT_ORDER_ENTRIES <= sizeof(SortedArrayEntry) * SORTED_ARRAY_ENTRIES,
+        "Chat order rebuild scratch doesn't fit in sa_mem");
 
 
 /**
@@ -113,6 +127,79 @@ static STRG_RET name_index_build(Database *db)
 }
 
 /**
+ * @brief qsort compare for the chat order rebuild: latest message first, then
+ * hash slot so the order is the same every boot
+ */
+static int chat_scratch_cmp(const void *a, const void *b)
+{
+    const ChatOrderScratch *ca = (const ChatOrderScratch *)a;
+    const ChatOrderScratch *cb = (const ChatOrderScratch *)b;
+    uint32_t ta = ((uint32_t)ca->timestamp_hi << 16) | ca->timestamp_lo;
+    uint32_t tb = ((uint32_t)cb->timestamp_hi << 16) | cb->timestamp_lo;
+
+    if (ta != tb)
+    {
+        return (ta > tb) ? -1 : 1;
+    }
+    return (int)ca->hash_slot - (int)cb->hash_slot;
+}
+
+/**
+ * @brief Rebuild the chat order from the hash table. The latest message of every
+ * chat is read, then the chats are sorted by its timestamp. sa_mem is used as
+ * scratch memory, so this must run before name_index_build
+ *
+ * @param db database struct pointer
+ * @retval STRG_RET
+ */
+static STRG_RET chat_order_build(Database *db)
+{
+    ChatOrderScratch *scratch = (ChatOrderScratch *)(void *)sa_mem;
+    size_t chats = 0;
+    Message latest;
+    size_t count;
+    STRG_RET ret;
+
+    if (!chat_order_init(&db->chat_order, co_mem))
+    {
+        return STRG_FAIL;
+    }
+
+    for (uint16_t slot = 0; slot < HASH_TABLE_SIZE; slot++)
+    {
+        if ((htable_mem[slot].state != ENTRY_OCCUPIED) || (htable_mem[slot].latest_msg_extent == UINT16_MAX))
+        {
+            continue;
+        }
+
+        if (chats >= CHAT_ORDER_ENTRIES)
+        {
+            return STRG_FULL;
+        }
+
+        ret = read_n_messages(&db->storage, htable_mem[slot].latest_msg_extent, 0, 1, &count, &latest);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        scratch[chats].timestamp_hi = latest.timestamp_hi;
+        scratch[chats].timestamp_lo = latest.timestamp_lo;
+        scratch[chats].hash_slot = slot;
+        chats++;
+    }
+
+    qsort(scratch, chats, sizeof(ChatOrderScratch), chat_scratch_cmp);
+
+    for (size_t i = 0; i < chats; i++)
+    {
+        chat_order_append(&db->chat_order, scratch[i].hash_slot);
+    }
+
+    return STRG_OK;
+}
+
+/**
  * @brief Find the head of the message and call history ring buffers
  *
  * @param db database struct pointer
@@ -172,6 +259,13 @@ static STRG_RET database_mount(Database *db)
     if (!hash_reconstruct_contact(&db->htable) || !hash_reconstruct_message(&db->htable, &db->journal))
     {
         return STRG_FAIL;
+    }
+
+    // chat order uses sa_mem as scratch, so it is built before the name index
+    ret = chat_order_build(db);
+    if (ret != STRG_OK)
+    {
+        return ret;
     }
 
     ret = name_index_build(db);
@@ -302,7 +396,8 @@ STRG_RET database_format(Database *db)
     // Hash Table Initialisation
     hash_init(&db->htable, &db->storage, &db->contact_allocator, &db->message_allocator, htable_mem, HASH_TABLE_SIZE);
 
-    if (!sorted_array_init(&db->name_index, htable_mem, &db->storage, sa_mem))
+    if (!sorted_array_init(&db->name_index, htable_mem, &db->storage, sa_mem) ||
+        !chat_order_init(&db->chat_order, co_mem))
     {
         return STRG_FAIL;
     }
@@ -433,6 +528,9 @@ STRG_RET database_contact_update(Database *db, const char *phone, const char *ne
         return STRG_FAIL;
     }
 
+    // the chat keeps its place, only its hash slot changes (STRG_EMPTY if no chat)
+    chat_order_replace(&db->chat_order, old_slot, hash_slot_of(&db->htable, entry));
+
     return sorted_array_insert(&db->name_index, &new_contact.contact, hash_slot_of(&db->htable, entry));
 }
 
@@ -480,6 +578,9 @@ STRG_RET database_contact_remove(Database *db, const char *phone)
         sorted_array_insert(&db->name_index, &contact.contact, slot);
         return STRG_FAIL;
     }
+
+    // the chat was removed with the contact (STRG_EMPTY if it had no chat)
+    chat_order_remove(&db->chat_order, slot);
 
     return STRG_OK;
 }
@@ -617,6 +718,12 @@ STRG_RET database_message_add(Database *db, const char *phone, uint32_t timestam
         }
     }
 
+    ret = chat_order_touch(&db->chat_order, hash_slot_of(&db->htable, entry));
+    if (ret != STRG_OK)
+    {
+        return ret;
+    }
+
     memset(&history, 0, sizeof(history));
     history.msgInd = entry->latest_msg_extent;
     history.message = message.msg;
@@ -696,6 +803,8 @@ STRG_RET database_message_remove_chat(Database *db, const char *phone)
         return STRG_FAIL;
     }
 
+    chat_order_remove(&db->chat_order, hash_slot_of(&db->htable, entry));
+
     return STRG_OK;
 }
 
@@ -717,6 +826,78 @@ STRG_RET database_message_recent(Database *db, size_t start, size_t n, size_t *o
     }
 
     return message_history_get_range(&db->message_history, &db->storage, start, n, out_count, out);
+}
+
+/**
+ * @brief Get a range of message chats, most recent message first. Each chat has
+ * its contact and latest message
+ *
+ * @param db database struct pointer
+ * @param start start chat (0 = most recent)
+ * @param n max number of chats to read
+ * @param out_count number of chats read
+ * @param out chat summary array (at least n long)
+ * @retval STRG_OK if read, STRG_EMPTY if start is past the last chat, else STRG_* error code
+ */
+STRG_RET database_chat_list(Database *db, size_t start, size_t n, size_t *out_count, ChatSummary *out)
+{
+    ContactBuffer contact;
+    uint16_t slot;
+    size_t count;
+    STRG_RET ret;
+
+    if ((db == NULL) || (out_count == NULL) || (out == NULL))
+    {
+        return STRG_FAIL;
+    }
+
+    *out_count = 0;
+
+    if (start >= db->chat_order.occupancy)
+    {
+        return STRG_EMPTY;
+    }
+
+    for (size_t i = 0; i < n; i++)
+    {
+        if (!chat_order_get_range(&db->chat_order, start + i, 1, &count, &slot))
+        {
+            break; // end of chat order
+        }
+
+        ret = read_contact(&db->storage, htable_mem[slot].sector, &contact);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+        out[i].contact = contact.contact;
+
+        ret = read_n_messages(&db->storage, htable_mem[slot].latest_msg_extent, 0, 1, &count, &out[i].latest);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        (*out_count)++;
+    }
+
+    return STRG_OK;
+}
+
+/**
+ * @brief Get the number of message chats in the database
+ *
+ * @param db database struct pointer
+ * @retval number of chats
+ */
+size_t database_chat_count(Database *db)
+{
+    if (db == NULL)
+    {
+        return 0;
+    }
+
+    return db->chat_order.occupancy;
 }
 
 /**

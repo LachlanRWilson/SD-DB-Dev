@@ -117,7 +117,7 @@ The half-written contact is gone after the power cut: the journal rolled it back
 
 ## Phone UI (`run`)
 
-`run` switches to a full screen rendering of the UniQOS phone menus ([`../UniQOS/ui/pages`](../../UniQOS/ui/pages)), backed by the database. The code is in [`phone_ui.c`](../source/demo/db_cli/phone_ui.c).
+`run` switches to a full screen rendering of the UniQOS phone menus ([`../UniQOS/ui/pages`](../../UniQOS/ui/pages)). The code is in [`phone_ui.c`](../source/demo/db_cli/phone_ui.c). It only talks to the database through the database task ([`db_task.h`](../source/app/include/db_task.h)): `run` starts the task with `db_init(&g_db)` (the already mounted card), every screen and action is a `DbRequest` answered on a reply queue, and on exit a `DB_REQ_STOP` hands the database back to the `db>` commands. The Source column below lists the database calls each request runs.
 
 ```
 ┌──────────────────────────────────┐
@@ -148,14 +148,14 @@ The half-written contact is gone after the power cut: the journal rolled it back
 | Phone | | Call (prompts for a number), Call History |
 | Call History | `database_call_recent`, all of it | open contact details (`unknown` = number not a contact) |
 | SMS | | New Message (number, then text), All Messages |
-| All Messages | `database_message_recent` → each entry's sector header → contact; latest from `database_message_get_chat` | one row per chat, newest first; open chat |
+| All Messages | `CONTACT_LIST` pages, then `MESSAGE_GET_CHAT` (latest message) per contact | one row per chat, newest first; open chat |
 | Contacts | `database_contact_list` for the 10 visible rows only | `/` prefix search (`database_contact_seek`), open details |
 | Contact details | `database_contact_get` | Messages, Call, Send Message, Edit Contact, Delete Contact (Add Contact for an unknown number) |
 | Chat | `database_message_get_chat`, all of it | Enter replies (sent), `i` adds a received message, ↑ scrolls back |
 
 Keys: arrows (or `hjkl`/`wasd`) move, `←`/`→` page by 10, Enter selects, Backspace/Esc goes back, `q` returns to `db>`. Text is typed on a normal line under the screen. The line `last key` is the sector reads/writes the last key press cost (including reloading the screen), and the last action's `STRG_RET` is shown below it.
 
-All Messages has no chat list API to call, so it walks the whole message history: a few sector reads per history entry whose chat isn't already listed. Entries left by a deleted chat are skipped because their chat no longer resolves. `run` needs a terminal; with piped input it prints `` `run` needs an interactive terminal ``.
+All Messages has no chat list request yet (`DB_REQ_CHAT_LIST` has no handler), so it lists every contact and asks each for its latest message: one request per contact. `run` needs a terminal; with piped input it prints `` `run` needs an interactive terminal ``.
 
 ## Scripted demo
 

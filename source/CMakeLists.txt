@@ -24,8 +24,10 @@ add_library(app_logic
     app/src/message_history.c
     app/src/call_history.c
     app/src/sorted_array.c
+    app/src/chat_order.c
     app/src/superheader.c
     app/src/database.c
+    app/src/db_task.c
 )
 
 # Make the include directory PUBLIC so other files such as tests/test_my_logic.cpp and firmware/Core/Src/main.c
