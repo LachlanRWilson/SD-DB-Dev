@@ -821,7 +821,7 @@ static const char *hint(PageId id)
 {
     switch (id)
     {
-        case PG_CONTACTS: return "↑↓ move  ←→ page  / search  ⏎ open  ⌫ back";
+        case PG_CONTACTS: return "↑↓ move  ←→ page  / search  a add  ⏎ open  ⌫ back";
         case PG_CALLS:
         case PG_INBOX:    return "↑↓ move  ←→ page  ⏎ open  ⌫ back";
         case PG_CHAT:     return "↑↓ scroll  ⏎ reply  i incoming  ⌫ back";
@@ -1077,9 +1077,23 @@ static void select_row(Page *p)
 static void other_key(Page *p, int ch)
 {
     char prefix[INPUT_LEN];
+    char phone[INPUT_LEN];
     size_t rank;
 
-    if ((p->id == PG_CONTACTS) && (ch == '/'))
+    if ((p->id == PG_CONTACTS) && (ch == 'a'))
+    {
+        if (prompt("Number: ", phone, sizeof(phone)) && prompt("Name: ", prefix, sizeof(prefix)))
+        {
+            begin_io();
+            STRG_RET ret = db_contact_add(prefix, phone);
+            report("Add contact", ret);
+            // move the cursor to the new contact
+            if ((ret == STRG_OK) && (db_contact_seek(prefix, &rank) == STRG_OK))
+            {
+                p->cursor = rank;
+            }
+        }
+    } else if ((p->id == PG_CONTACTS) && (ch == '/'))
     {
         if (prompt("Search: ", prefix, sizeof(prefix)))
         {

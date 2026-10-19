@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #include <string.h>
 
 #include "database.h"
@@ -127,21 +126,95 @@ static STRG_RET name_index_build(Database *db)
 }
 
 /**
- * @brief qsort compare for the chat order rebuild: latest message first, then
+ * @brief Compare two chat order rebuild entries: latest message first, then
  * hash slot so the order is the same every boot
+ *
+ * @param a first entry
+ * @param b second entry
+ * @retval < 0 if a comes before b, > 0 if a comes after b, 0 if equal
  */
-static int chat_scratch_cmp(const void *a, const void *b)
+static int chat_scratch_cmp(const ChatOrderScratch *a, const ChatOrderScratch *b)
 {
-    const ChatOrderScratch *ca = (const ChatOrderScratch *)a;
-    const ChatOrderScratch *cb = (const ChatOrderScratch *)b;
-    uint32_t ta = ((uint32_t)ca->timestamp_hi << 16) | ca->timestamp_lo;
-    uint32_t tb = ((uint32_t)cb->timestamp_hi << 16) | cb->timestamp_lo;
+    uint32_t ta = ((uint32_t)a->timestamp_hi << 16) | a->timestamp_lo;
+    uint32_t tb = ((uint32_t)b->timestamp_hi << 16) | b->timestamp_lo;
 
     if (ta != tb)
     {
         return (ta > tb) ? -1 : 1;
     }
-    return (int)ca->hash_slot - (int)cb->hash_slot;
+    return (int)a->hash_slot - (int)b->hash_slot;
+}
+
+/**
+ * @brief Swap two chat order rebuild entries
+ *
+ * @param a first entry
+ * @param b second entry
+ */
+static void chat_scratch_swap(ChatOrderScratch *a, ChatOrderScratch *b)
+{
+    ChatOrderScratch temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+/**
+ * @brief Move the entry at root down the max heap [0, end) until both of its
+ * children are smaller than it
+ *
+ * @param scratch chat order rebuild entries
+ * @param root index of the entry being moved down
+ * @param end number of entries in the heap
+ */
+static void chat_scratch_sift_down(ChatOrderScratch *scratch, size_t root, size_t end)
+{
+    size_t child;
+
+    while ((child = (2 * root) + 1) < end)
+    {
+        // pick the larger of the two children
+        if (((child + 1) < end) && (chat_scratch_cmp(&scratch[child], &scratch[child + 1]) < 0))
+        {
+            child++;
+        }
+
+        // heap property holds once root is not smaller than its larger child
+        if (chat_scratch_cmp(&scratch[root], &scratch[child]) >= 0)
+        {
+            break;
+        }
+
+        chat_scratch_swap(&scratch[root], &scratch[child]);
+        root = child;
+    }
+}
+
+/**
+ * @brief Sort the chat order rebuild entries in place using heapsort (same as
+ * sorted_array_sort). No recursion and no extra memory
+ *
+ * @param scratch chat order rebuild entries
+ * @param n number of entries
+ */
+static void chat_scratch_sort(ChatOrderScratch *scratch, size_t n)
+{
+    if (n < 2)
+    {
+        return;
+    }
+
+    // build a max heap, starting from the last entry that has a child
+    for (size_t i = n / 2; i-- > 0;)
+    {
+        chat_scratch_sift_down(scratch, i, n);
+    }
+
+    // move the largest entry to the end of the array, then repair the heap
+    for (size_t end = n - 1; end > 0; end--)
+    {
+        chat_scratch_swap(&scratch[0], &scratch[end]);
+        chat_scratch_sift_down(scratch, 0, end);
+    }
 }
 
 /**
@@ -189,7 +262,7 @@ static STRG_RET chat_order_build(Database *db)
         chats++;
     }
 
-    qsort(scratch, chats, sizeof(ChatOrderScratch), chat_scratch_cmp);
+    chat_scratch_sort(scratch, chats);
 
     for (size_t i = 0; i < chats; i++)
     {
