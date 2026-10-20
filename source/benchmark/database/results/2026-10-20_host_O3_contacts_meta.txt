@@ -1,0 +1,11 @@
+bench,contacts
+platform,host
+opt_level,-O3
+c_flags,-O3 -DNDEBUG
+quick,0
+build,Oct 20 2026 18:09:18
+storage,heap_storage (RAM)
+timer,CLOCK_MONOTONIC ns
+percentiles,over every stride-th sample (stride 1 except fill_add); min/max/mean over all samples
+failures,0
+done,1

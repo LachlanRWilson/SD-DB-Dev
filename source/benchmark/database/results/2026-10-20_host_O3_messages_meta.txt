@@ -1,0 +1,14 @@
+bench,messages
+platform,host
+opt_level,-O3
+c_flags,-O3 -DNDEBUG
+quick,0
+build,Oct 20 2026 18:26:59
+storage,heap_storage (RAM)
+timer,CLOCK_MONOTONIC ns
+percentiles,over every stride-th sample (stride 1 except fill_add); min/max/mean over all samples
+contacts,1000
+history_capacity,10000
+history_len,messages added since format capped at history_capacity
+failures,0
+done,1

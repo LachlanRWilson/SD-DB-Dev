@@ -1,0 +1,14 @@
+bench,init
+platform,host
+opt_level,-O3
+c_flags,-O3 -DNDEBUG
+quick,0
+build,Oct 20 2026 19:19:20
+storage,heap_storage (RAM)
+timer,CLOCK_MONOTONIC ns
+percentiles,over every stride-th sample (stride 1 except fill_add); min/max/mean over all samples
+history_len,messages added since format (message history entries)
+calls,100 added before the last mounts (call ring found by binary search)
+power_cut,writes fail after 6 sector writes of a message add
+failures,0
+done,1

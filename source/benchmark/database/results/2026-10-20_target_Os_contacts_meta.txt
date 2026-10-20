@@ -1,0 +1,14 @@
+bench,contacts
+platform,target
+opt_level,-Os
+c_flags,-mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard  -Wall -fdata-sections -ffunction-sections -fstack-usage -Os -g0
+quick,0
+build,Oct 20 2026 18:11:12
+sysclk_hz,520000000
+icache,on
+dcache,off
+storage,sd_storage (SDMMC1, 4-bit)
+timer,DWT CYCCNT -> ns; HAL tick (1 ms) for regions >= 4 s; interrupts enabled
+percentiles,over every stride-th sample (stride 1 except fill_add); min/max/mean over all samples
+failures,0
+done,1
