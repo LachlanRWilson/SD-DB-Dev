@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 380" width="680" height="380" font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12" role="img" aria-label="Boot time (database_init) by contacts stored">
+<rect width="680" height="380" fill="var(--chart-surface)"/>
+<text x="64" y="20" font-size="14" font-weight="600" fill="var(--chart-text)">Boot time (database_init) by contacts stored</text>
+<text x="64" y="36" font-size="11.5" fill="var(--chart-muted)">Median of 5 mounts on the target; no chats or messages</text>
+<line x1="64" y1="328.0" x2="530" y2="328.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="332.0" text-anchor="end" fill="var(--chart-muted)">0</text>
+<line x1="64" y1="258.0" x2="530" y2="258.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="262.0" text-anchor="end" fill="var(--chart-muted)">10</text>
+<line x1="64" y1="188.0" x2="530" y2="188.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="192.0" text-anchor="end" fill="var(--chart-muted)">20</text>
+<line x1="64" y1="118.0" x2="530" y2="118.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="122.0" text-anchor="end" fill="var(--chart-muted)">30</text>
+<line x1="64" y1="48.0" x2="530" y2="48.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="52.0" text-anchor="end" fill="var(--chart-muted)">40</text>
+<text x="64.0" y="346" text-anchor="middle" fill="var(--chart-muted)">0</text>
+<text x="157.2" y="346" text-anchor="middle" fill="var(--chart-muted)">2K</text>
+<text x="250.4" y="346" text-anchor="middle" fill="var(--chart-muted)">4K</text>
+<text x="343.6" y="346" text-anchor="middle" fill="var(--chart-muted)">6K</text>
+<text x="436.8" y="346" text-anchor="middle" fill="var(--chart-muted)">8K</text>
+<text x="530.0" y="346" text-anchor="middle" fill="var(--chart-muted)">10K</text>
+<line x1="64" y1="328" x2="530" y2="328" stroke="var(--chart-axis)" stroke-width="1"/>
+<text x="297.0" y="368" text-anchor="middle" fill="var(--chart-muted)">Contacts stored</text>
+<text x="16" y="188.0" transform="rotate(-90 16 188.0)" text-anchor="middle" fill="var(--chart-muted)">Seconds</text>
+<polyline points="64.0,328.0 110.6,317.4 180.5,290.9 297.0,230.1 530.0,71.8" fill="none" stroke="var(--chart-s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt" data-tip="0 contacts: 0.01 s, 12 sector reads" tabindex="0"><title>0 contacts: 0.01 s, 12 sector reads</title><circle cx="64.0" cy="328.0" r="11" fill="transparent"/><circle cx="64.0" cy="328.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="1,000 contacts: 1.51 s, 3,263 sector reads" tabindex="0"><title>1,000 contacts: 1.51 s, 3,263 sector reads</title><circle cx="110.6" cy="317.4" r="11" fill="transparent"/><circle cx="110.6" cy="317.4" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="2,500 contacts: 5.31 s, 11,570 sector reads" tabindex="0"><title>2,500 contacts: 5.31 s, 11,570 sector reads</title><circle cx="180.5" cy="290.9" r="11" fill="transparent"/><circle cx="180.5" cy="290.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="5,000 contacts: 13.99 s, 29,573 sector reads" tabindex="0"><title>5,000 contacts: 13.99 s, 29,573 sector reads</title><circle cx="297.0" cy="230.1" r="11" fill="transparent"/><circle cx="297.0" cy="230.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="10,000 contacts: 36.60 s, 76,045 sector reads" tabindex="0"><title>10,000 contacts: 36.60 s, 76,045 sector reads</title><circle cx="530.0" cy="71.8" r="11" fill="transparent"/><circle cx="530.0" cy="71.8" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<text x="540.0" y="75.8" text-anchor="start" font-size="12" font-weight="600" fill="var(--chart-text)">36.6 s (76,045 reads)</text>
+</svg>

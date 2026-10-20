@@ -25,6 +25,7 @@ All code lives in `source/benchmark/database/`. The firmware hook is `-Wl,--wrap
 - Tables: `scripts/summarize.py results/<file>.csv [--stat median|p99|mean|min|max] [--long]`
 - Two runs side by side: `scripts/compare.py <base.csv> <new.csv> [--stat ...]`
 - Figures: `scripts/plot.py` → `plots/<date>_target_Os_*.svg` (standard library only; `--inline` writes CSS-themed variants for HTML pages)
+- Shareable HTML page: `report/build.sh` → `report/dbms-benchmark.html` (target tables and figures; self-contained apart from Google Fonts)
 - `DB_BENCH_TAG=<tag> scripts/run_target.sh ...` appends `_<tag>` to the result names.
 
 CSV columns: `n_contacts, n_chats, msgs_per_chat, history_len` give the database state each row ran against. The contacts CSVs from before the messages benchmark were rewritten to this layout; their two new columns are 0 and no values changed.

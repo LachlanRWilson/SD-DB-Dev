@@ -1,0 +1,400 @@
+<title>Phone DBMS Benchmarks</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Public+Sans:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column for prose; tables break out to a wider measure and scroll inside their own box */
+:root {
+  --bg: #f6f8f7;
+  --surface: #ffffff;
+  --fg: #17201d;
+  --muted: #56645f;
+  --rule: #d5ddd9;
+  --accent: #0f6b5c;
+  --accent-soft: #e2f0ec;
+  --display: "Newsreader", Georgia, "Times New Roman", serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --chart-surface: #ffffff; --chart-text: #17201d; --chart-muted: #56645f; --chart-grid: #e6eae8; --chart-axis: #b4bfba;
+  --chart-s1: #2a78d6; --chart-s2: #eb6834; --chart-s3: #1baf7a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111715; --surface: #18201d; --fg: #e3ebe7; --muted: #9aaba4; --rule: #2c3833;
+    --accent: #5fc4ae; --accent-soft: #1d332d; color-scheme: dark;
+    --chart-surface: #18201d; --chart-text: #e3ebe7; --chart-muted: #9aaba4; --chart-grid: #26312d; --chart-axis: #3d4b45;
+    --chart-s1: #3987e5; --chart-s2: #d95926; --chart-s3: #199e70;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111715; --surface: #18201d; --fg: #e3ebe7; --muted: #9aaba4; --rule: #2c3833;
+  --accent: #5fc4ae; --accent-soft: #1d332d; color-scheme: dark;
+  --chart-surface: #18201d; --chart-text: #e3ebe7; --chart-muted: #9aaba4; --chart-grid: #26312d; --chart-axis: #3d4b45;
+  --chart-s1: #3987e5; --chart-s2: #d95926; --chart-s3: #199e70;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.6; }
+.page {
+  max-width: 1080px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 48px 72px;
+  display: grid; gap: 40px;
+}
+.prose { max-width: 68ch; display: grid; gap: 14px; min-width: 0; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 2.9rem); }
+h2 { font-size: 1.75rem; padding-top: 12px; border-top: 1px solid var(--rule); }
+h3 { font-size: 1.2rem; font-weight: 500; }
+p, ul { margin: 0; }
+ul { padding-left: 1.2em; display: grid; gap: 8px; }
+code { font-family: var(--mono); font-size: 0.86em; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eyebrow { font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.spec { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 0.82rem; color: var(--muted); }
+.spec b { color: var(--fg); font-weight: 600; }
+.findings { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 22px 24px; display: grid; gap: 12px; max-width: 80ch; }
+.findings li::marker { color: var(--accent); }
+.key { font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+section { display: grid; gap: 18px; min-width: 0; }
+.tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+caption { text-align: left; padding: 12px 14px 4px; color: var(--muted); font-size: 0.82rem; }
+th, td { padding: 6px 14px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+thead th { font-family: var(--mono); font-weight: 600; font-size: 0.76rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+tbody th, thead th:first-child { text-align: left; font-weight: 400; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--accent-soft); }
+.note { font-size: 0.9rem; color: var(--muted); max-width: 80ch; }
+figure { margin: 0; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); padding: 12px; max-width: 720px; min-width: 0; }
+figure svg { display: block; width: 100%; height: auto; }
+figure .pt { cursor: default; outline: none; }
+figure .pt:hover circle:last-child, figure .pt:focus-visible circle:last-child { r: 6; }
+figcaption { font-size: 0.85rem; color: var(--muted); padding: 8px 4px 0; }
+#tip { position: fixed; z-index: 20; pointer-events: none; background: var(--fg); color: var(--bg); font-family: var(--mono); font-size: 0.78rem; padding: 6px 9px; border-radius: 4px; max-width: 280px; }
+@media (prefers-reduced-motion: no-preference) { figure .pt circle:last-child { transition: r 0.12s; } }
+</style>
+
+<main class="page">
+  <header class="prose" style="max-width: 80ch">
+    <span class="eyebrow">Thesis · database API benchmark · 2026-10-20</span>
+    <h1>Phone DBMS Benchmarks</h1>
+    <p>Timings of the public <code>database_*</code> calls on the target hardware, measured through the journal and the SD storage layer. Each call also reports how many 512&nbsp;B sectors it read and wrote. This page reports measurements only; it does not recommend changes.</p>
+    <div class="spec">
+      <span><b>MCU</b> STM32H723ZG @ 520 MHz</span>
+      <span><b>Storage</b> microSD, SDMMC 4-bit @ 6 MHz</span>
+      <span><b>Build</b> -Os, I-cache on, D-cache off</span>
+      <span><b>Capacity</b> 10,000 contacts</span>
+    </div>
+  </header>
+
+  <div class="findings">
+    <h2 style="border:0;padding:0;font-size:1.35rem">Main findings</h2>
+    <ul>
+      <li><b>SD writes dominate every update.</b> Each sector read costs about <span class="key">0.45 ms</span> and each write about <span class="key">3 ms</span>; the raw transfer is only ~0.17 ms. A contact add makes 7 writes (<span class="key">22–28 ms</span>), a message add 12–14 (<span class="key">42–48 ms</span>), a call add 4.8 (<span class="key">14–17 ms</span>).</li>
+      <li><b>Boot time grows faster than the contact count.</b> <code>database_init()</code> takes <span class="key">1.5 s</span> at 1,000 contacts and <span class="key">36.6 s</span> at 10,000 (76,045 sector reads). Most of the reads come from rebuilding the name index: the heapsort reads both contacts from SD whenever two entries share an 8-byte key.</li>
+      <li><b>Reading back into a long chat grows linearly with the offset.</b> In a 1,000-message chat the newest 20 messages take <span class="key">3.9 ms</span> and the oldest 20 take <span class="key">155 ms</span>. Removing a 100-message chat takes <span class="key">571 ms</span>.</li>
+      <li><b>Lookups are fast.</b> <code>contact_get</code> takes ~0.9 ms (2 reads), a missed lookup under 1 µs, a prefix seek under 3 µs. Recent-message and recent-call pages take 2–6 ms.</li>
+      <li><b>Format takes 30.7 s</b>, almost all of it clearing the two 5,000-sector history rings.</li>
+    </ul>
+  </div>
+
+  <section>
+    <figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 380" font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12" role="img" aria-label="Update time follows the number of sector writes">
+<rect fill="var(--chart-surface)"/>
+<text x="64" y="20" font-size="14" font-weight="600" fill="var(--chart-text)">Update time follows the number of sector writes</text>
+<text x="64" y="36" font-size="11.5" fill="var(--chart-muted)">Median per row of every add / update / remove benchmark (53 rows); line: least-squares fit</text>
+<line x1="64" y1="328.0" x2="530" y2="328.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="332.0" text-anchor="end" fill="var(--chart-muted)">0</text>
+<line x1="64" y1="258.0" x2="530" y2="258.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="262.0" text-anchor="end" fill="var(--chart-muted)">20</text>
+<line x1="64" y1="188.0" x2="530" y2="188.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="192.0" text-anchor="end" fill="var(--chart-muted)">40</text>
+<line x1="64" y1="118.0" x2="530" y2="118.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="122.0" text-anchor="end" fill="var(--chart-muted)">60</text>
+<line x1="64" y1="48.0" x2="530" y2="48.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="52.0" text-anchor="end" fill="var(--chart-muted)">80</text>
+<text x="64.0" y="346" text-anchor="middle" fill="var(--chart-muted)">0</text>
+<text x="180.5" y="346" text-anchor="middle" fill="var(--chart-muted)">5</text>
+<text x="297.0" y="346" text-anchor="middle" fill="var(--chart-muted)">10</text>
+<text x="413.5" y="346" text-anchor="middle" fill="var(--chart-muted)">15</text>
+<text x="530.0" y="346" text-anchor="middle" fill="var(--chart-muted)">20</text>
+<line x1="64" y1="328" x2="530" y2="328" stroke="var(--chart-axis)" stroke-width="1"/>
+<text x="297.0" y="368" text-anchor="middle" fill="var(--chart-muted)">Sectors written per call</text>
+<text x="16" y="188.0" transform="rotate(-90 16 188.0)" text-anchor="middle" fill="var(--chart-muted)">Milliseconds</text>
+<line x1="64.0" y1="321.0" x2="530.0" y2="86.8" stroke="var(--chart-axis)" stroke-width="1.5"/>
+<text x="251.7" y="212.6" text-anchor="end" font-size="12" font-weight="600" fill="var(--chart-text)">fit: 2.0 ms + 3.3 ms per write</text>
+<g class="pt" data-tip="contact add: 22.1 ms, 7.0 writes, 0.4 reads" tabindex="0"><title>contact add: 22.1 ms, 7.0 writes, 0.4 reads</title><circle cx="227.1" cy="250.5" r="11" fill="transparent"/><circle cx="227.1" cy="250.5" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_name: 24.6 ms, 7.0 writes, 6.8 reads" tabindex="0"><title>contact update_name: 24.6 ms, 7.0 writes, 6.8 reads</title><circle cx="227.1" cy="241.8" r="11" fill="transparent"/><circle cx="227.1" cy="241.8" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_phone: 25.7 ms, 7.0 writes, 6.2 reads" tabindex="0"><title>contact update_phone: 25.7 ms, 7.0 writes, 6.2 reads</title><circle cx="227.1" cy="238.1" r="11" fill="transparent"/><circle cx="227.1" cy="238.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact remove: 18.3 ms, 5.0 writes, 5.3 reads" tabindex="0"><title>contact remove: 18.3 ms, 5.0 writes, 5.3 reads</title><circle cx="180.5" cy="264.1" r="11" fill="transparent"/><circle cx="180.5" cy="264.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact add: 22.2 ms, 7.0 writes, 2.1 reads" tabindex="0"><title>contact add: 22.2 ms, 7.0 writes, 2.1 reads</title><circle cx="227.1" cy="250.2" r="11" fill="transparent"/><circle cx="227.1" cy="250.2" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_name: 26.4 ms, 7.0 writes, 8.5 reads" tabindex="0"><title>contact update_name: 26.4 ms, 7.0 writes, 8.5 reads</title><circle cx="227.1" cy="235.5" r="11" fill="transparent"/><circle cx="227.1" cy="235.5" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_phone: 26.7 ms, 7.0 writes, 7.3 reads" tabindex="0"><title>contact update_phone: 26.7 ms, 7.0 writes, 7.3 reads</title><circle cx="227.1" cy="234.7" r="11" fill="transparent"/><circle cx="227.1" cy="234.7" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact remove: 14.7 ms, 5.0 writes, 5.5 reads" tabindex="0"><title>contact remove: 14.7 ms, 5.0 writes, 5.5 reads</title><circle cx="180.5" cy="276.4" r="11" fill="transparent"/><circle cx="180.5" cy="276.4" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact add: 24.8 ms, 7.0 writes, 1.6 reads" tabindex="0"><title>contact add: 24.8 ms, 7.0 writes, 1.6 reads</title><circle cx="227.1" cy="241.3" r="11" fill="transparent"/><circle cx="227.1" cy="241.3" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_name: 27.0 ms, 7.0 writes, 9.2 reads" tabindex="0"><title>contact update_name: 27.0 ms, 7.0 writes, 9.2 reads</title><circle cx="227.1" cy="233.6" r="11" fill="transparent"/><circle cx="227.1" cy="233.6" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_phone: 26.9 ms, 7.0 writes, 8.9 reads" tabindex="0"><title>contact update_phone: 26.9 ms, 7.0 writes, 8.9 reads</title><circle cx="227.1" cy="234.0" r="11" fill="transparent"/><circle cx="227.1" cy="234.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact remove: 18.7 ms, 5.0 writes, 6.4 reads" tabindex="0"><title>contact remove: 18.7 ms, 5.0 writes, 6.4 reads</title><circle cx="180.5" cy="262.4" r="11" fill="transparent"/><circle cx="180.5" cy="262.4" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact add: 22.8 ms, 7.0 writes, 2.7 reads" tabindex="0"><title>contact add: 22.8 ms, 7.0 writes, 2.7 reads</title><circle cx="227.1" cy="248.1" r="11" fill="transparent"/><circle cx="227.1" cy="248.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_name: 28.1 ms, 7.0 writes, 11.1 reads" tabindex="0"><title>contact update_name: 28.1 ms, 7.0 writes, 11.1 reads</title><circle cx="227.1" cy="229.8" r="11" fill="transparent"/><circle cx="227.1" cy="229.8" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_phone: 28.4 ms, 7.0 writes, 10.9 reads" tabindex="0"><title>contact update_phone: 28.4 ms, 7.0 writes, 10.9 reads</title><circle cx="227.1" cy="228.5" r="11" fill="transparent"/><circle cx="227.1" cy="228.5" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact remove: 21.3 ms, 5.0 writes, 7.0 reads" tabindex="0"><title>contact remove: 21.3 ms, 5.0 writes, 7.0 reads</title><circle cx="180.5" cy="253.6" r="11" fill="transparent"/><circle cx="180.5" cy="253.6" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact add: 24.8 ms, 7.0 writes, 4.7 reads" tabindex="0"><title>contact add: 24.8 ms, 7.0 writes, 4.7 reads</title><circle cx="227.1" cy="241.3" r="11" fill="transparent"/><circle cx="227.1" cy="241.3" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_name: 30.1 ms, 7.0 writes, 13.1 reads" tabindex="0"><title>contact update_name: 30.1 ms, 7.0 writes, 13.1 reads</title><circle cx="227.1" cy="222.8" r="11" fill="transparent"/><circle cx="227.1" cy="222.8" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_phone: 29.4 ms, 7.0 writes, 12.8 reads" tabindex="0"><title>contact update_phone: 29.4 ms, 7.0 writes, 12.8 reads</title><circle cx="227.1" cy="225.1" r="11" fill="transparent"/><circle cx="227.1" cy="225.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact remove: 16.8 ms, 5.0 writes, 7.8 reads" tabindex="0"><title>contact remove: 16.8 ms, 5.0 writes, 7.8 reads</title><circle cx="180.5" cy="269.3" r="11" fill="transparent"/><circle cx="180.5" cy="269.3" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact add: 24.2 ms, 7.0 writes, 5.2 reads" tabindex="0"><title>contact add: 24.2 ms, 7.0 writes, 5.2 reads</title><circle cx="227.1" cy="243.1" r="11" fill="transparent"/><circle cx="227.1" cy="243.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_name: 31.2 ms, 7.0 writes, 14.0 reads" tabindex="0"><title>contact update_name: 31.2 ms, 7.0 writes, 14.0 reads</title><circle cx="227.1" cy="218.9" r="11" fill="transparent"/><circle cx="227.1" cy="218.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_phone: 31.1 ms, 7.0 writes, 14.4 reads" tabindex="0"><title>contact update_phone: 31.1 ms, 7.0 writes, 14.4 reads</title><circle cx="227.1" cy="219.1" r="11" fill="transparent"/><circle cx="227.1" cy="219.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact remove: 22.9 ms, 5.0 writes, 8.6 reads" tabindex="0"><title>contact remove: 22.9 ms, 5.0 writes, 8.6 reads</title><circle cx="180.5" cy="247.9" r="11" fill="transparent"/><circle cx="180.5" cy="247.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact add: 28.1 ms, 7.0 writes, 5.7 reads" tabindex="0"><title>contact add: 28.1 ms, 7.0 writes, 5.7 reads</title><circle cx="227.1" cy="229.5" r="11" fill="transparent"/><circle cx="227.1" cy="229.5" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_name: 32.2 ms, 7.0 writes, 15.0 reads" tabindex="0"><title>contact update_name: 32.2 ms, 7.0 writes, 15.0 reads</title><circle cx="227.1" cy="215.4" r="11" fill="transparent"/><circle cx="227.1" cy="215.4" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact update_phone: 31.3 ms, 7.0 writes, 14.8 reads" tabindex="0"><title>contact update_phone: 31.3 ms, 7.0 writes, 14.8 reads</title><circle cx="227.1" cy="218.5" r="11" fill="transparent"/><circle cx="227.1" cy="218.5" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="contact remove: 18.2 ms, 5.0 writes, 8.7 reads" tabindex="0"><title>contact remove: 18.2 ms, 5.0 writes, 8.7 reads</title><circle cx="180.5" cy="264.3" r="11" fill="transparent"/><circle cx="180.5" cy="264.3" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message add_msg: 48.3 ms, 13.6 writes, 5.8 reads" tabindex="0"><title>message add_msg: 48.3 ms, 13.6 writes, 5.8 reads</title><circle cx="380.9" cy="159.0" r="11" fill="transparent"/><circle cx="380.9" cy="159.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message add_msg_new_contact: 65.5 ms, 19.0 writes, 6.7 reads" tabindex="0"><title>message add_msg_new_contact: 65.5 ms, 19.0 writes, 6.7 reads</title><circle cx="506.7" cy="98.9" r="11" fill="transparent"/><circle cx="506.7" cy="98.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message add_msg: 42.5 ms, 12.8 writes, 5.7 reads" tabindex="0"><title>message add_msg: 42.5 ms, 12.8 writes, 5.7 reads</title><circle cx="361.1" cy="179.2" r="11" fill="transparent"/><circle cx="361.1" cy="179.2" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message add_msg_new_contact: 65.8 ms, 19.0 writes, 7.3 reads" tabindex="0"><title>message add_msg_new_contact: 65.8 ms, 19.0 writes, 7.3 reads</title><circle cx="506.7" cy="97.9" r="11" fill="transparent"/><circle cx="506.7" cy="97.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message add_msg: 44.9 ms, 12.2 writes, 5.5 reads" tabindex="0"><title>message add_msg: 44.9 ms, 12.2 writes, 5.5 reads</title><circle cx="348.3" cy="170.7" r="11" fill="transparent"/><circle cx="348.3" cy="170.7" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message add_msg_new_contact: 67.1 ms, 19.0 writes, 8.4 reads" tabindex="0"><title>message add_msg_new_contact: 67.1 ms, 19.0 writes, 8.4 reads</title><circle cx="506.7" cy="93.0" r="11" fill="transparent"/><circle cx="506.7" cy="93.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message add_msg: 41.7 ms, 12.2 writes, 5.5 reads" tabindex="0"><title>message add_msg: 41.7 ms, 12.2 writes, 5.5 reads</title><circle cx="347.1" cy="182.2" r="11" fill="transparent"/><circle cx="347.1" cy="182.2" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message add_msg_new_contact: 66.3 ms, 19.0 writes, 7.4 reads" tabindex="0"><title>message add_msg_new_contact: 66.3 ms, 19.0 writes, 7.4 reads</title><circle cx="506.7" cy="96.0" r="11" fill="transparent"/><circle cx="506.7" cy="96.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads" tabindex="0"><title>message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads</title><circle cx="383.2" cy="167.0" r="11" fill="transparent"/><circle cx="383.2" cy="167.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message deep_add_msg: 45.9 ms, 13.7 writes, 5.8 reads" tabindex="0"><title>message deep_add_msg: 45.9 ms, 13.7 writes, 5.8 reads</title><circle cx="383.2" cy="167.3" r="11" fill="transparent"/><circle cx="383.2" cy="167.3" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads" tabindex="0"><title>message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads</title><circle cx="383.2" cy="167.2" r="11" fill="transparent"/><circle cx="383.2" cy="167.2" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads" tabindex="0"><title>message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads</title><circle cx="383.2" cy="166.9" r="11" fill="transparent"/><circle cx="383.2" cy="166.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="message wrapped_add_msg: 46.5 ms, 14.2 writes, 5.9 reads" tabindex="0"><title>message wrapped_add_msg: 46.5 ms, 14.2 writes, 5.9 reads</title><circle cx="394.9" cy="165.3" r="11" fill="transparent"/><circle cx="394.9" cy="165.3" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call call_add_known: 14.7 ms, 4.8 writes, 3.2 reads" tabindex="0"><title>call call_add_known: 14.7 ms, 4.8 writes, 3.2 reads</title><circle cx="175.8" cy="276.7" r="11" fill="transparent"/><circle cx="175.8" cy="276.7" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call call_add_unknown: 13.8 ms, 4.8 writes, 1.2 reads" tabindex="0"><title>call call_add_unknown: 13.8 ms, 4.8 writes, 1.2 reads</title><circle cx="175.8" cy="279.8" r="11" fill="transparent"/><circle cx="175.8" cy="279.8" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads" tabindex="0"><title>call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads</title><circle cx="175.8" cy="269.6" r="11" fill="transparent"/><circle cx="175.8" cy="269.6" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call call_add_unknown: 15.7 ms, 4.8 writes, 1.2 reads" tabindex="0"><title>call call_add_unknown: 15.7 ms, 4.8 writes, 1.2 reads</title><circle cx="175.8" cy="272.9" r="11" fill="transparent"/><circle cx="175.8" cy="272.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads" tabindex="0"><title>call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads</title><circle cx="175.8" cy="269.6" r="11" fill="transparent"/><circle cx="175.8" cy="269.6" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call call_add_unknown: 13.7 ms, 4.8 writes, 1.2 reads" tabindex="0"><title>call call_add_unknown: 13.7 ms, 4.8 writes, 1.2 reads</title><circle cx="175.8" cy="279.9" r="11" fill="transparent"/><circle cx="175.8" cy="279.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads" tabindex="0"><title>call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads</title><circle cx="175.8" cy="269.4" r="11" fill="transparent"/><circle cx="175.8" cy="269.4" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call call_add_unknown: 15.8 ms, 4.8 writes, 1.2 reads" tabindex="0"><title>call call_add_unknown: 15.8 ms, 4.8 writes, 1.2 reads</title><circle cx="175.8" cy="272.7" r="11" fill="transparent"/><circle cx="175.8" cy="272.7" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call wrapped_call_add_known: 16.8 ms, 4.8 writes, 3.2 reads" tabindex="0"><title>call wrapped_call_add_known: 16.8 ms, 4.8 writes, 3.2 reads</title><circle cx="175.8" cy="269.3" r="11" fill="transparent"/><circle cx="175.8" cy="269.3" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="call wrapped_call_add_unknown: 15.8 ms, 4.8 writes, 1.2 reads" tabindex="0"><title>call wrapped_call_add_unknown: 15.8 ms, 4.8 writes, 1.2 reads</title><circle cx="175.8" cy="272.7" r="11" fill="transparent"/><circle cx="175.8" cy="272.7" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="remove_chat (1 msg): 18.2 ms, 5.0 writes, 3.0 reads" tabindex="0"><title>remove_chat (1 msg): 18.2 ms, 5.0 writes, 3.0 reads</title><circle cx="180.5" cy="264.4" r="11" fill="transparent"/><circle cx="180.5" cy="264.4" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="remove_chat (10 msg): 68.2 ms, 20.0 writes, 6.0 reads" tabindex="0"><title>remove_chat (10 msg): 68.2 ms, 20.0 writes, 6.0 reads</title><circle cx="530.0" cy="89.2" r="11" fill="transparent"/><circle cx="530.0" cy="89.2" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+</svg><figcaption>Each point is the median of one add, update or remove row on the target. A straight line fits the points with a slope of about 3.3 ms per sector written. Hover a point for details.</figcaption></figure>
+  </section>
+
+  <section class="prose">
+    <h2>Method</h2>
+    <ul>
+      <li>The timed region is one API call. Times come from the DWT cycle counter, with the 1 ms HAL tick for regions of 4 s or more. Interrupts stay enabled, because the SD driver waits on DMA through the scheduler.</li>
+      <li>Every database is formatted, then filled through the public API. Operations that would change the stored set (add, remove, update) are undone untimed, so each checkpoint keeps a known state.</li>
+      <li>100 timed repetitions after 10 warm-up per point on the target. Fill rows time every add, and their percentiles use at most 1,000 evenly spaced samples.</li>
+      <li>Contacts have unique phone numbers and "First Last" names drawn from 1,280 combinations. Names repeat as real names do; this generator probably produces more key ties than real names would.</li>
+      <li>The code lives in <code>source/benchmark/database/</code>. The firmware is linked with <code>-Wl,--wrap=DB_Init</code>, so <code>main.c</code> is unchanged. Host runs on a RAM-backed store exist for checking the code path but are not comparable and are not shown here.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>1 · Contacts</h2>
+      <p>Checkpoints run up to 9,999 contacts, one below capacity so that <code>add</code> still has a free slot. Read counts for add, update and remove grow with N because the name index reads stored contacts from SD to break ties between equal keys.</p>
+    </div>
+    <figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 380" font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12" role="img" aria-label="Contact updates by contacts stored">
+<rect fill="var(--chart-surface)"/>
+<text x="64" y="20" font-size="14" font-weight="600" fill="var(--chart-text)">Contact updates by contacts stored</text>
+<text x="64" y="36" font-size="11.5" fill="var(--chart-muted)">Median of 100 calls each; contact_get stays at ~0.9 ms</text>
+<line x1="64" y1="328.0" x2="530" y2="328.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="332.0" text-anchor="end" fill="var(--chart-muted)">0</text>
+<line x1="64" y1="258.0" x2="530" y2="258.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="262.0" text-anchor="end" fill="var(--chart-muted)">10</text>
+<line x1="64" y1="188.0" x2="530" y2="188.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="192.0" text-anchor="end" fill="var(--chart-muted)">20</text>
+<line x1="64" y1="118.0" x2="530" y2="118.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="122.0" text-anchor="end" fill="var(--chart-muted)">30</text>
+<line x1="64" y1="48.0" x2="530" y2="48.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="52.0" text-anchor="end" fill="var(--chart-muted)">40</text>
+<text x="64.0" y="346" text-anchor="middle" fill="var(--chart-muted)">0</text>
+<text x="157.2" y="346" text-anchor="middle" fill="var(--chart-muted)">2K</text>
+<text x="250.4" y="346" text-anchor="middle" fill="var(--chart-muted)">4K</text>
+<text x="343.6" y="346" text-anchor="middle" fill="var(--chart-muted)">6K</text>
+<text x="436.8" y="346" text-anchor="middle" fill="var(--chart-muted)">8K</text>
+<text x="530.0" y="346" text-anchor="middle" fill="var(--chart-muted)">10K</text>
+<line x1="64" y1="328" x2="530" y2="328" stroke="var(--chart-axis)" stroke-width="1"/>
+<text x="297.0" y="368" text-anchor="middle" fill="var(--chart-muted)">Contacts stored</text>
+<text x="16" y="188.0" transform="rotate(-90 16 188.0)" text-anchor="middle" fill="var(--chart-muted)">Milliseconds</text>
+<polyline points="68.7,173.1 87.3,172.4 110.6,154.5 180.5,168.1 297.0,154.6 413.5,158.3 530.0,131.0" fill="none" stroke="var(--chart-s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt" data-tip="add, 100 contacts: 22.1 ms, 7 writes" tabindex="0"><title>add, 100 contacts: 22.1 ms, 7 writes</title><circle cx="68.7" cy="173.1" r="11" fill="transparent"/><circle cx="68.7" cy="173.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="add, 500 contacts: 22.2 ms, 7 writes" tabindex="0"><title>add, 500 contacts: 22.2 ms, 7 writes</title><circle cx="87.3" cy="172.4" r="11" fill="transparent"/><circle cx="87.3" cy="172.4" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="add, 1,000 contacts: 24.8 ms, 7 writes" tabindex="0"><title>add, 1,000 contacts: 24.8 ms, 7 writes</title><circle cx="110.6" cy="154.5" r="11" fill="transparent"/><circle cx="110.6" cy="154.5" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="add, 2,500 contacts: 22.8 ms, 7 writes" tabindex="0"><title>add, 2,500 contacts: 22.8 ms, 7 writes</title><circle cx="180.5" cy="168.1" r="11" fill="transparent"/><circle cx="180.5" cy="168.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="add, 5,000 contacts: 24.8 ms, 7 writes" tabindex="0"><title>add, 5,000 contacts: 24.8 ms, 7 writes</title><circle cx="297.0" cy="154.6" r="11" fill="transparent"/><circle cx="297.0" cy="154.6" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="add, 7,500 contacts: 24.2 ms, 7 writes" tabindex="0"><title>add, 7,500 contacts: 24.2 ms, 7 writes</title><circle cx="413.5" cy="158.3" r="11" fill="transparent"/><circle cx="413.5" cy="158.3" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="add, 9,999 contacts: 28.1 ms, 7 writes" tabindex="0"><title>add, 9,999 contacts: 28.1 ms, 7 writes</title><circle cx="530.0" cy="131.0" r="11" fill="transparent"/><circle cx="530.0" cy="131.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<polyline points="68.7,155.7 87.3,143.0 110.6,139.3 180.5,131.6 297.0,117.6 413.5,109.7 530.0,102.7" fill="none" stroke="var(--chart-s2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt" data-tip="update name, 100 contacts: 24.6 ms, 7 writes" tabindex="0"><title>update name, 100 contacts: 24.6 ms, 7 writes</title><circle cx="68.7" cy="155.7" r="11" fill="transparent"/><circle cx="68.7" cy="155.7" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="update name, 500 contacts: 26.4 ms, 7 writes" tabindex="0"><title>update name, 500 contacts: 26.4 ms, 7 writes</title><circle cx="87.3" cy="143.0" r="11" fill="transparent"/><circle cx="87.3" cy="143.0" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="update name, 1,000 contacts: 27.0 ms, 7 writes" tabindex="0"><title>update name, 1,000 contacts: 27.0 ms, 7 writes</title><circle cx="110.6" cy="139.3" r="11" fill="transparent"/><circle cx="110.6" cy="139.3" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="update name, 2,500 contacts: 28.1 ms, 7 writes" tabindex="0"><title>update name, 2,500 contacts: 28.1 ms, 7 writes</title><circle cx="180.5" cy="131.6" r="11" fill="transparent"/><circle cx="180.5" cy="131.6" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="update name, 5,000 contacts: 30.1 ms, 7 writes" tabindex="0"><title>update name, 5,000 contacts: 30.1 ms, 7 writes</title><circle cx="297.0" cy="117.6" r="11" fill="transparent"/><circle cx="297.0" cy="117.6" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="update name, 7,500 contacts: 31.2 ms, 7 writes" tabindex="0"><title>update name, 7,500 contacts: 31.2 ms, 7 writes</title><circle cx="413.5" cy="109.7" r="11" fill="transparent"/><circle cx="413.5" cy="109.7" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="update name, 9,999 contacts: 32.2 ms, 7 writes" tabindex="0"><title>update name, 9,999 contacts: 32.2 ms, 7 writes</title><circle cx="530.0" cy="102.7" r="11" fill="transparent"/><circle cx="530.0" cy="102.7" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<polyline points="68.7,200.1 87.3,224.8 110.6,196.8 180.5,179.1 297.0,210.6 413.5,167.7 530.0,200.7" fill="none" stroke="var(--chart-s3)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt" data-tip="remove, 100 contacts: 18.3 ms, 5 writes" tabindex="0"><title>remove, 100 contacts: 18.3 ms, 5 writes</title><circle cx="68.7" cy="200.1" r="11" fill="transparent"/><circle cx="68.7" cy="200.1" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="remove, 500 contacts: 14.7 ms, 5 writes" tabindex="0"><title>remove, 500 contacts: 14.7 ms, 5 writes</title><circle cx="87.3" cy="224.8" r="11" fill="transparent"/><circle cx="87.3" cy="224.8" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="remove, 1,000 contacts: 18.7 ms, 5 writes" tabindex="0"><title>remove, 1,000 contacts: 18.7 ms, 5 writes</title><circle cx="110.6" cy="196.8" r="11" fill="transparent"/><circle cx="110.6" cy="196.8" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="remove, 2,500 contacts: 21.3 ms, 5 writes" tabindex="0"><title>remove, 2,500 contacts: 21.3 ms, 5 writes</title><circle cx="180.5" cy="179.1" r="11" fill="transparent"/><circle cx="180.5" cy="179.1" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="remove, 5,000 contacts: 16.8 ms, 5 writes" tabindex="0"><title>remove, 5,000 contacts: 16.8 ms, 5 writes</title><circle cx="297.0" cy="210.6" r="11" fill="transparent"/><circle cx="297.0" cy="210.6" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="remove, 7,500 contacts: 22.9 ms, 5 writes" tabindex="0"><title>remove, 7,500 contacts: 22.9 ms, 5 writes</title><circle cx="413.5" cy="167.7" r="11" fill="transparent"/><circle cx="413.5" cy="167.7" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="remove, 9,999 contacts: 18.2 ms, 5 writes" tabindex="0"><title>remove, 9,999 contacts: 18.2 ms, 5 writes</title><circle cx="530.0" cy="200.7" r="11" fill="transparent"/><circle cx="530.0" cy="200.7" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<line x1="64" y1="46" x2="78" y2="46" stroke="var(--chart-s1)" stroke-width="2" stroke-linecap="round"/>
+<text x="83.0" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="var(--chart-muted)">add</text>
+<line x1="109.2" y1="46" x2="123.2" y2="46" stroke="var(--chart-s2)" stroke-width="2" stroke-linecap="round"/>
+<text x="128.2" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="var(--chart-muted)">update name</text>
+<line x1="205.60000000000002" y1="46" x2="219.60000000000002" y2="46" stroke="var(--chart-s3)" stroke-width="2" stroke-linecap="round"/>
+<text x="224.6" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="var(--chart-muted)">remove</text>
+<line x1="538" y1="102.7" x2="552" y2="102.7" stroke="var(--chart-s2)" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="106.7" text-anchor="start" font-size="12" font-weight="400" fill="var(--chart-text)">update name</text>
+<line x1="538" y1="131.0" x2="552" y2="131.0" stroke="var(--chart-s1)" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="135.0" text-anchor="start" font-size="12" font-weight="400" fill="var(--chart-text)">add</text>
+<line x1="538" y1="200.7" x2="552" y2="200.7" stroke="var(--chart-s3)" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="204.7" text-anchor="start" font-size="12" font-weight="400" fill="var(--chart-text)">remove</text>
+</svg><figcaption>Medians of 100 calls. The remove line moves around between checkpoints with no trend in N.</figcaption></figure>
+    <div class='tw'><table><caption>Median time per call, by contacts stored (N)</caption><thead><tr><th>operation</th><th>100</th><th>500</th><th>1,000</th><th>2,500</th><th>5,000</th><th>7,500</th><th>9,999</th></tr></thead><tbody><tr><th scope='row'><code>fill_add</code></th><td>23.39 ms</td><td>23.47 ms</td><td>24.20 ms</td><td>24.10 ms</td><td>25.04 ms</td><td>25.72 ms</td><td>26.20 ms</td></tr><tr><th scope='row'><code>add</code></th><td>22.13 ms</td><td>22.23 ms</td><td>24.78 ms</td><td>22.84 ms</td><td>24.77 ms</td><td>24.24 ms</td><td>28.15 ms</td></tr><tr><th scope='row'><code>get_hit</code></th><td>899.9 µs</td><td>916.4 µs</td><td>917.4 µs</td><td>939.8 µs</td><td>921.3 µs</td><td>916.8 µs</td><td>934.1 µs</td></tr><tr><th scope='row'><code>get_miss</code></th><td>780 ns</td><td>780 ns</td><td>780 ns</td><td>784 ns</td><td>784 ns</td><td>923 ns</td><td>1.0 µs</td></tr><tr><th scope='row'><code>update_name</code></th><td>24.62 ms</td><td>26.43 ms</td><td>26.96 ms</td><td>28.06 ms</td><td>30.05 ms</td><td>31.18 ms</td><td>32.18 ms</td></tr><tr><th scope='row'><code>update_phone</code></th><td>25.70 ms</td><td>26.67 ms</td><td>26.86 ms</td><td>28.42 ms</td><td>29.39 ms</td><td>31.10 ms</td><td>31.29 ms</td></tr><tr><th scope='row'><code>remove</code></th><td>18.27 ms</td><td>14.74 ms</td><td>18.75 ms</td><td>21.27 ms</td><td>16.77 ms</td><td>22.89 ms</td><td>18.19 ms</td></tr><tr><th scope='row'><code>list20</code></th><td>8.85 ms</td><td>9.08 ms</td><td>9.20 ms</td><td>9.30 ms</td><td>9.14 ms</td><td>8.86 ms</td><td>9.32 ms</td></tr><tr><th scope='row'><code>seek_prefix3</code></th><td>1.8 µs</td><td>2.1 µs</td><td>2.4 µs</td><td>2.6 µs</td><td>2.9 µs</td><td>2.9 µs</td><td>2.9 µs</td></tr></tbody></table></div><div class='tw'><table><caption>p99 time per call</caption><thead><tr><th>operation</th><th>100</th><th>500</th><th>1,000</th><th>2,500</th><th>5,000</th><th>7,500</th><th>9,999</th></tr></thead><tbody><tr><th scope='row'><code>fill_add</code></th><td>29.90 ms</td><td>31.25 ms</td><td>32.11 ms</td><td>34.09 ms</td><td>34.38 ms</td><td>34.44 ms</td><td>35.07 ms</td></tr><tr><th scope='row'><code>add</code></th><td>27.97 ms</td><td>27.51 ms</td><td>29.19 ms</td><td>27.75 ms</td><td>30.10 ms</td><td>33.72 ms</td><td>32.45 ms</td></tr><tr><th scope='row'><code>get_hit</code></th><td>905.6 µs</td><td>948.9 µs</td><td>957.5 µs</td><td>967.1 µs</td><td>1.38 ms</td><td>1.35 ms</td><td>1.45 ms</td></tr><tr><th scope='row'><code>get_miss</code></th><td>784 ns</td><td>926 ns</td><td>926 ns</td><td>480.4 µs</td><td>475.7 µs</td><td>584.7 µs</td><td>484.8 µs</td></tr><tr><th scope='row'><code>update_name</code></th><td>34.61 ms</td><td>35.98 ms</td><td>36.36 ms</td><td>39.23 ms</td><td>40.28 ms</td><td>38.89 ms</td><td>39.54 ms</td></tr><tr><th scope='row'><code>update_phone</code></th><td>33.79 ms</td><td>34.33 ms</td><td>35.50 ms</td><td>39.63 ms</td><td>38.29 ms</td><td>44.28 ms</td><td>40.81 ms</td></tr><tr><th scope='row'><code>remove</code></th><td>19.71 ms</td><td>23.12 ms</td><td>21.81 ms</td><td>24.88 ms</td><td>24.95 ms</td><td>29.74 ms</td><td>24.84 ms</td></tr><tr><th scope='row'><code>list20</code></th><td>9.05 ms</td><td>9.24 ms</td><td>9.33 ms</td><td>9.41 ms</td><td>9.23 ms</td><td>8.93 ms</td><td>9.39 ms</td></tr><tr><th scope='row'><code>seek_prefix3</code></th><td>2.0 µs</td><td>2.3 µs</td><td>2.5 µs</td><td>2.9 µs</td><td>3.0 µs</td><td>3.1 µs</td><td>3.2 µs</td></tr></tbody></table></div><div class='tw'><table><caption>Sectors read / written per call</caption><thead><tr><th>operation</th><th>100</th><th>500</th><th>1,000</th><th>2,500</th><th>5,000</th><th>7,500</th><th>9,999</th></tr></thead><tbody><tr><th scope='row'><code>fill_add</code></th><td>1.0 / 7.0</td><td>1.6 / 7.0</td><td>2.2 / 7.0</td><td>3.0 / 7.0</td><td>3.9 / 7.0</td><td>4.7 / 7.0</td><td>5.3 / 7.0</td></tr><tr><th scope='row'><code>add</code></th><td>0.4 / 7.0</td><td>2.1 / 7.0</td><td>1.6 / 7.0</td><td>2.7 / 7.0</td><td>4.7 / 7.0</td><td>5.2 / 7.0</td><td>5.7 / 7.0</td></tr><tr><th scope='row'><code>get_hit</code></th><td>2.0 / 0.0</td><td>2.0 / 0.0</td><td>2.0 / 0.0</td><td>2.0 / 0.0</td><td>2.0 / 0.0</td><td>2.0 / 0.0</td><td>2.1 / 0.0</td></tr><tr><th scope='row'><code>get_miss</code></th><td>0.0 / 0.0</td><td>0.0 / 0.0</td><td>0.0 / 0.0</td><td>0.1 / 0.0</td><td>0.1 / 0.0</td><td>0.1 / 0.0</td><td>0.1 / 0.0</td></tr><tr><th scope='row'><code>update_name</code></th><td>6.8 / 7.0</td><td>8.5 / 7.0</td><td>9.2 / 7.0</td><td>11.1 / 7.0</td><td>13.1 / 7.0</td><td>14.0 / 7.0</td><td>15.0 / 7.0</td></tr><tr><th scope='row'><code>update_phone</code></th><td>6.2 / 7.0</td><td>7.3 / 7.0</td><td>8.9 / 7.0</td><td>10.9 / 7.0</td><td>12.8 / 7.0</td><td>14.4 / 7.0</td><td>14.8 / 7.0</td></tr><tr><th scope='row'><code>remove</code></th><td>5.3 / 5.0</td><td>5.5 / 5.0</td><td>6.4 / 5.0</td><td>7.0 / 5.0</td><td>7.8 / 5.0</td><td>8.6 / 5.0</td><td>8.7 / 5.0</td></tr><tr><th scope='row'><code>list20</code></th><td>20.0 / 0.0</td><td>20.0 / 0.0</td><td>20.0 / 0.0</td><td>20.0 / 0.0</td><td>20.0 / 0.0</td><td>20.0 / 0.0</td><td>20.0 / 0.0</td></tr><tr><th scope='row'><code>seek_prefix3</code></th><td>0.0 / 0.0</td><td>0.0 / 0.0</td><td>0.0 / 0.0</td><td>0.0 / 0.0</td><td>0.0 / 0.0</td><td>0.0 / 0.0</td><td>0.0 / 0.0</td></tr></tbody></table></div>
+    <p class="note">Removing the <code>osDelay(1)</code> from the SD wait loops was tried and reverted. <code>fill_add</code> medians moved by −2.2% to +1.5%, which is within noise.</p>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>2 · Messages and chats</h2>
+      <p>1,000 named contacts. Phase A opens more and more chats. Phase B grows one chat to 1,000 messages. Phase C times <code>remove_chat</code> on chats of 1, 10 and 100 messages. Phase D wraps the 10,000-entry message history. Messages are never undone, so the history only grows.</p>
+      <ul>
+        <li><code>chat_list20</code> makes 2 reads per chat (contact plus latest message). From a random rank it takes ~4–5 ms more CPU time than from the top.</li>
+        <li><code>recent20</code> reads 11 sectors in 4.6–5.6 ms, before and after the ring wraps.</li>
+      </ul>
+    </div>
+    <figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 380" font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12" role="img" aria-label="Reading a page of 20 messages from one chat">
+<rect fill="var(--chart-surface)"/>
+<text x="64" y="20" font-size="14" font-weight="600" fill="var(--chart-text)">Reading a page of 20 messages from one chat</text>
+<text x="64" y="36" font-size="11.5" fill="var(--chart-muted)">Median of 100 reads, by chat length</text>
+<line x1="64" y1="328.0" x2="530" y2="328.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="332.0" text-anchor="end" fill="var(--chart-muted)">0</text>
+<line x1="64" y1="258.0" x2="530" y2="258.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="262.0" text-anchor="end" fill="var(--chart-muted)">50</text>
+<line x1="64" y1="188.0" x2="530" y2="188.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="192.0" text-anchor="end" fill="var(--chart-muted)">100</text>
+<line x1="64" y1="118.0" x2="530" y2="118.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="122.0" text-anchor="end" fill="var(--chart-muted)">150</text>
+<line x1="64" y1="48.0" x2="530" y2="48.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="52.0" text-anchor="end" fill="var(--chart-muted)">200</text>
+<text x="64.0" y="346" text-anchor="middle" fill="var(--chart-muted)">0</text>
+<text x="157.2" y="346" text-anchor="middle" fill="var(--chart-muted)">200</text>
+<text x="250.4" y="346" text-anchor="middle" fill="var(--chart-muted)">400</text>
+<text x="343.6" y="346" text-anchor="middle" fill="var(--chart-muted)">600</text>
+<text x="436.8" y="346" text-anchor="middle" fill="var(--chart-muted)">800</text>
+<text x="530.0" y="346" text-anchor="middle" fill="var(--chart-muted)">1K</text>
+<line x1="64" y1="328" x2="530" y2="328" stroke="var(--chart-axis)" stroke-width="1"/>
+<text x="297.0" y="368" text-anchor="middle" fill="var(--chart-muted)">Messages in the chat</text>
+<text x="16" y="188.0" transform="rotate(-90 16 188.0)" text-anchor="middle" fill="var(--chart-muted)">Milliseconds</text>
+<polyline points="73.3,323.2 110.6,306.0 297.0,219.0 530.0,110.6" fill="none" stroke="var(--chart-s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt" data-tip="oldest 20, 20-message chat: 3.4 ms, 8 reads" tabindex="0"><title>oldest 20, 20-message chat: 3.4 ms, 8 reads</title><circle cx="73.3" cy="323.2" r="11" fill="transparent"/><circle cx="73.3" cy="323.2" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="oldest 20, 100-message chat: 15.7 ms, 35 reads" tabindex="0"><title>oldest 20, 100-message chat: 15.7 ms, 35 reads</title><circle cx="110.6" cy="306.0" r="11" fill="transparent"/><circle cx="110.6" cy="306.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="oldest 20, 500-message chat: 77.8 ms, 168 reads" tabindex="0"><title>oldest 20, 500-message chat: 77.8 ms, 168 reads</title><circle cx="297.0" cy="219.0" r="11" fill="transparent"/><circle cx="297.0" cy="219.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="oldest 20, 1,000-message chat: 155.3 ms, 335 reads" tabindex="0"><title>oldest 20, 1,000-message chat: 155.3 ms, 335 reads</title><circle cx="530.0" cy="110.6" r="11" fill="transparent"/><circle cx="530.0" cy="110.6" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<polyline points="73.3,323.2 110.6,314.2 297.0,270.9 530.0,216.8" fill="none" stroke="var(--chart-s2)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt" data-tip="middle 20, 20-message chat: 3.4 ms, 8 reads" tabindex="0"><title>middle 20, 20-message chat: 3.4 ms, 8 reads</title><circle cx="73.3" cy="323.2" r="11" fill="transparent"/><circle cx="73.3" cy="323.2" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="middle 20, 100-message chat: 9.8 ms, 22 reads" tabindex="0"><title>middle 20, 100-message chat: 9.8 ms, 22 reads</title><circle cx="110.6" cy="314.2" r="11" fill="transparent"/><circle cx="110.6" cy="314.2" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="middle 20, 500-message chat: 40.8 ms, 88 reads" tabindex="0"><title>middle 20, 500-message chat: 40.8 ms, 88 reads</title><circle cx="297.0" cy="270.9" r="11" fill="transparent"/><circle cx="297.0" cy="270.9" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="middle 20, 1,000-message chat: 79.4 ms, 172 reads" tabindex="0"><title>middle 20, 1,000-message chat: 79.4 ms, 172 reads</title><circle cx="530.0" cy="216.8" r="11" fill="transparent"/><circle cx="530.0" cy="216.8" r="4.5" fill="var(--chart-s2)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<polyline points="73.3,323.2 110.6,322.7 297.0,323.2 530.0,322.6" fill="none" stroke="var(--chart-s3)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt" data-tip="newest 20, 20-message chat: 3.4 ms, 8 reads" tabindex="0"><title>newest 20, 20-message chat: 3.4 ms, 8 reads</title><circle cx="73.3" cy="323.2" r="11" fill="transparent"/><circle cx="73.3" cy="323.2" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="newest 20, 100-message chat: 3.8 ms, 9 reads" tabindex="0"><title>newest 20, 100-message chat: 3.8 ms, 9 reads</title><circle cx="110.6" cy="322.7" r="11" fill="transparent"/><circle cx="110.6" cy="322.7" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="newest 20, 500-message chat: 3.4 ms, 8 reads" tabindex="0"><title>newest 20, 500-message chat: 3.4 ms, 8 reads</title><circle cx="297.0" cy="323.2" r="11" fill="transparent"/><circle cx="297.0" cy="323.2" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="newest 20, 1,000-message chat: 3.9 ms, 9 reads" tabindex="0"><title>newest 20, 1,000-message chat: 3.9 ms, 9 reads</title><circle cx="530.0" cy="322.6" r="11" fill="transparent"/><circle cx="530.0" cy="322.6" r="4.5" fill="var(--chart-s3)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<line x1="64" y1="46" x2="78" y2="46" stroke="var(--chart-s1)" stroke-width="2" stroke-linecap="round"/>
+<text x="83.0" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="var(--chart-muted)">oldest 20</text>
+<line x1="147.6" y1="46" x2="161.6" y2="46" stroke="var(--chart-s2)" stroke-width="2" stroke-linecap="round"/>
+<text x="166.6" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="var(--chart-muted)">middle 20</text>
+<line x1="231.2" y1="46" x2="245.2" y2="46" stroke="var(--chart-s3)" stroke-width="2" stroke-linecap="round"/>
+<text x="250.2" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="var(--chart-muted)">newest 20</text>
+<line x1="538" y1="110.6" x2="552" y2="110.6" stroke="var(--chart-s1)" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="114.6" text-anchor="start" font-size="12" font-weight="400" fill="var(--chart-text)">oldest 20: 155 ms</text>
+<line x1="538" y1="216.8" x2="552" y2="216.8" stroke="var(--chart-s2)" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="220.8" text-anchor="start" font-size="12" font-weight="400" fill="var(--chart-text)">middle 20: 79 ms</text>
+<line x1="538" y1="322.6" x2="552" y2="322.6" stroke="var(--chart-s3)" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="326.6" text-anchor="start" font-size="12" font-weight="400" fill="var(--chart-text)">newest 20: 4 ms</text>
+</svg><figcaption>The newest page stays near 4 ms at any chat length. Older pages are read by walking message sectors back from the newest, at about one read per 3 messages skipped.</figcaption></figure>
+    <div class='tw'><table><caption>Every row with the database state it ran against</caption><thead><tr><th>operation</th><th>chats</th><th>msgs in chat</th><th>history</th><th>median</th><th>p99</th><th>reps</th><th>sectors r / w</th></tr></thead><tbody><tr><th scope='row'><code>fill_add</code></th><td>–</td><td>–</td><td>–</td><td>23.53 ms</td><td>31.73 ms</td><td>1000</td><td>1.8 / 7.0</td></tr><tr><th scope='row'><code>fill_first_msg</code></th><td>10</td><td>–</td><td>10</td><td>29.28 ms</td><td>54.00 ms</td><td>10</td><td>4.4 / 11.6</td></tr><tr><th scope='row'><code>get_chat20_newest</code></th><td>10</td><td>–</td><td>10</td><td>937.7 µs</td><td>939.1 µs</td><td>100</td><td>2.0 / 0.0</td></tr><tr><th scope='row'><code>chat_list20_top</code></th><td>10</td><td>–</td><td>10</td><td>9.24 ms</td><td>9.24 ms</td><td>100</td><td>20.0 / 0.0</td></tr><tr><th scope='row'><code>chat_list20</code></th><td>10</td><td>–</td><td>10</td><td>9.24 ms</td><td>9.25 ms</td><td>100</td><td>20.0 / 0.0</td></tr><tr><th scope='row'><code>recent20_top</code></th><td>10</td><td>–</td><td>10</td><td>2.46 ms</td><td>2.46 ms</td><td>100</td><td>6.0 / 0.0</td></tr><tr><th scope='row'><code>recent20</code></th><td>10</td><td>–</td><td>10</td><td>2.46 ms</td><td>2.46 ms</td><td>100</td><td>6.0 / 0.0</td></tr><tr><th scope='row'><code>add_msg</code></th><td>10</td><td>–</td><td>10</td><td>48.28 ms</td><td>71.03 ms</td><td>100</td><td>5.8 / 13.6</td></tr><tr><th scope='row'><code>add_msg_new_contact</code></th><td>10</td><td>–</td><td>120</td><td>65.46 ms</td><td>74.76 ms</td><td>100</td><td>6.7 / 19.0</td></tr><tr><th scope='row'><code>fill_first_msg</code></th><td>210</td><td>–</td><td>320</td><td>26.81 ms</td><td>70.17 ms</td><td>90</td><td>4.5 / 12.0</td></tr><tr><th scope='row'><code>get_chat20_newest</code></th><td>210</td><td>–</td><td>320</td><td>939.4 µs</td><td>2.44 ms</td><td>100</td><td>2.2 / 0.0</td></tr><tr><th scope='row'><code>chat_list20_top</code></th><td>210</td><td>–</td><td>320</td><td>18.71 ms</td><td>18.72 ms</td><td>100</td><td>40.0 / 0.0</td></tr><tr><th scope='row'><code>chat_list20</code></th><td>210</td><td>–</td><td>320</td><td>18.78 ms</td><td>19.99 ms</td><td>100</td><td>40.0 / 0.0</td></tr><tr><th scope='row'><code>recent20_top</code></th><td>210</td><td>–</td><td>320</td><td>4.95 ms</td><td>4.95 ms</td><td>100</td><td>11.0 / 0.0</td></tr><tr><th scope='row'><code>recent20</code></th><td>210</td><td>–</td><td>320</td><td>5.13 ms</td><td>5.64 ms</td><td>100</td><td>11.4 / 0.0</td></tr><tr><th scope='row'><code>add_msg</code></th><td>210</td><td>–</td><td>320</td><td>42.51 ms</td><td>64.53 ms</td><td>100</td><td>5.7 / 12.8</td></tr><tr><th scope='row'><code>add_msg_new_contact</code></th><td>210</td><td>–</td><td>430</td><td>65.75 ms</td><td>75.90 ms</td><td>100</td><td>7.3 / 19.0</td></tr><tr><th scope='row'><code>fill_first_msg</code></th><td>720</td><td>–</td><td>940</td><td>39.53 ms</td><td>53.12 ms</td><td>400</td><td>4.5 / 12.0</td></tr><tr><th scope='row'><code>get_chat20_newest</code></th><td>720</td><td>–</td><td>940</td><td>1.13 ms</td><td>2.05 ms</td><td>100</td><td>2.1 / 0.0</td></tr><tr><th scope='row'><code>chat_list20_top</code></th><td>720</td><td>–</td><td>940</td><td>17.49 ms</td><td>17.50 ms</td><td>100</td><td>40.0 / 0.0</td></tr><tr><th scope='row'><code>chat_list20</code></th><td>720</td><td>–</td><td>940</td><td>22.52 ms</td><td>22.84 ms</td><td>100</td><td>40.0 / 0.0</td></tr><tr><th scope='row'><code>recent20_top</code></th><td>720</td><td>–</td><td>940</td><td>4.59 ms</td><td>4.59 ms</td><td>100</td><td>11.0 / 0.0</td></tr><tr><th scope='row'><code>recent20</code></th><td>720</td><td>–</td><td>940</td><td>5.30 ms</td><td>5.50 ms</td><td>100</td><td>11.6 / 0.0</td></tr><tr><th scope='row'><code>add_msg</code></th><td>720</td><td>–</td><td>940</td><td>44.94 ms</td><td>66.90 ms</td><td>100</td><td>5.5 / 12.2</td></tr><tr><th scope='row'><code>add_msg_new_contact</code></th><td>720</td><td>–</td><td>1,050</td><td>67.14 ms</td><td>76.22 ms</td><td>100</td><td>8.4 / 19.0</td></tr><tr><th scope='row'><code>fill_first_msg</code></th><td>1,330</td><td>–</td><td>1,660</td><td>43.33 ms</td><td>56.04 ms</td><td>500</td><td>4.5 / 12.0</td></tr><tr><th scope='row'><code>get_chat20_newest</code></th><td>1,330</td><td>–</td><td>1,660</td><td>1.14 ms</td><td>1.15 ms</td><td>100</td><td>2.0 / 0.0</td></tr><tr><th scope='row'><code>chat_list20_top</code></th><td>1,330</td><td>–</td><td>1,660</td><td>18.15 ms</td><td>18.16 ms</td><td>100</td><td>40.0 / 0.0</td></tr><tr><th scope='row'><code>chat_list20</code></th><td>1,330</td><td>–</td><td>1,660</td><td>22.66 ms</td><td>22.92 ms</td><td>100</td><td>40.0 / 0.0</td></tr><tr><th scope='row'><code>recent20_top</code></th><td>1,330</td><td>–</td><td>1,660</td><td>4.58 ms</td><td>4.58 ms</td><td>100</td><td>11.0 / 0.0</td></tr><tr><th scope='row'><code>recent20</code></th><td>1,330</td><td>–</td><td>1,660</td><td>5.29 ms</td><td>5.50 ms</td><td>100</td><td>11.5 / 0.0</td></tr><tr><th scope='row'><code>add_msg</code></th><td>1,330</td><td>–</td><td>1,660</td><td>41.66 ms</td><td>62.40 ms</td><td>100</td><td>5.5 / 12.2</td></tr><tr><th scope='row'><code>add_msg_new_contact</code></th><td>1,330</td><td>–</td><td>1,770</td><td>66.29 ms</td><td>75.71 ms</td><td>100</td><td>7.4 / 19.0</td></tr><tr><th scope='row'><code>fill_deep_chat</code></th><td>1,441</td><td>20</td><td>1,900</td><td>46.31 ms</td><td>71.09 ms</td><td>20</td><td>5.8 / 13.5</td></tr><tr><th scope='row'><code>deep_get_chat20_newest</code></th><td>1,441</td><td>20</td><td>1,900</td><td>3.44 ms</td><td>3.44 ms</td><td>100</td><td>8.0 / 0.0</td></tr><tr><th scope='row'><code>deep_get_chat20_middle</code></th><td>1,441</td><td>20</td><td>1,900</td><td>3.44 ms</td><td>3.44 ms</td><td>100</td><td>8.0 / 0.0</td></tr><tr><th scope='row'><code>deep_get_chat20_oldest</code></th><td>1,441</td><td>20</td><td>1,900</td><td>3.44 ms</td><td>3.44 ms</td><td>100</td><td>8.0 / 0.0</td></tr><tr><th scope='row'><code>deep_add_msg</code></th><td>1,441</td><td>20</td><td>1,900</td><td>46.00 ms</td><td>71.50 ms</td><td>50</td><td>5.8 / 13.7</td></tr><tr><th scope='row'><code>fill_deep_chat</code></th><td>1,441</td><td>100</td><td>1,980</td><td>48.53 ms</td><td>67.42 ms</td><td>20</td><td>5.8 / 13.8</td></tr><tr><th scope='row'><code>deep_get_chat20_newest</code></th><td>1,441</td><td>100</td><td>1,980</td><td>3.75 ms</td><td>3.76 ms</td><td>100</td><td>9.0 / 0.0</td></tr><tr><th scope='row'><code>deep_get_chat20_middle</code></th><td>1,441</td><td>100</td><td>1,980</td><td>9.82 ms</td><td>9.83 ms</td><td>100</td><td>22.0 / 0.0</td></tr><tr><th scope='row'><code>deep_get_chat20_oldest</code></th><td>1,441</td><td>100</td><td>1,980</td><td>15.71 ms</td><td>15.72 ms</td><td>100</td><td>35.0 / 0.0</td></tr><tr><th scope='row'><code>deep_add_msg</code></th><td>1,441</td><td>100</td><td>1,980</td><td>45.90 ms</td><td>71.55 ms</td><td>50</td><td>5.8 / 13.7</td></tr><tr><th scope='row'><code>fill_deep_chat</code></th><td>1,441</td><td>500</td><td>2,380</td><td>46.22 ms</td><td>71.36 ms</td><td>340</td><td>5.8 / 13.7</td></tr><tr><th scope='row'><code>deep_get_chat20_newest</code></th><td>1,441</td><td>500</td><td>2,380</td><td>3.40 ms</td><td>3.41 ms</td><td>100</td><td>8.0 / 0.0</td></tr><tr><th scope='row'><code>deep_get_chat20_middle</code></th><td>1,441</td><td>500</td><td>2,380</td><td>40.79 ms</td><td>40.79 ms</td><td>100</td><td>88.0 / 0.0</td></tr><tr><th scope='row'><code>deep_get_chat20_oldest</code></th><td>1,441</td><td>500</td><td>2,380</td><td>77.84 ms</td><td>77.86 ms</td><td>100</td><td>168.0 / 0.0</td></tr><tr><th scope='row'><code>deep_add_msg</code></th><td>1,441</td><td>500</td><td>2,380</td><td>45.95 ms</td><td>71.42 ms</td><td>50</td><td>5.8 / 13.7</td></tr><tr><th scope='row'><code>fill_deep_chat</code></th><td>1,441</td><td>1,000</td><td>2,880</td><td>46.01 ms</td><td>71.59 ms</td><td>440</td><td>5.8 / 13.7</td></tr><tr><th scope='row'><code>deep_get_chat20_newest</code></th><td>1,441</td><td>1,000</td><td>2,880</td><td>3.88 ms</td><td>3.88 ms</td><td>100</td><td>9.0 / 0.0</td></tr><tr><th scope='row'><code>deep_get_chat20_middle</code></th><td>1,441</td><td>1,000</td><td>2,880</td><td>79.45 ms</td><td>79.46 ms</td><td>100</td><td>172.0 / 0.0</td></tr><tr><th scope='row'><code>deep_get_chat20_oldest</code></th><td>1,441</td><td>1,000</td><td>2,880</td><td>155.30 ms</td><td>155.32 ms</td><td>100</td><td>335.0 / 0.0</td></tr><tr><th scope='row'><code>deep_add_msg</code></th><td>1,441</td><td>1,000</td><td>2,880</td><td>46.04 ms</td><td>71.74 ms</td><td>50</td><td>5.8 / 13.7</td></tr><tr><th scope='row'><code>remove_chat</code></th><td>1,441</td><td>1</td><td>2,940</td><td>18.17 ms</td><td>22.68 ms</td><td>5</td><td>3.0 / 5.0</td></tr><tr><th scope='row'><code>remove_chat</code></th><td>1,441</td><td>10</td><td>2,945</td><td>68.22 ms</td><td>69.91 ms</td><td>5</td><td>6.0 / 20.0</td></tr><tr><th scope='row'><code>remove_chat</code></th><td>1,441</td><td>100</td><td>2,995</td><td>571.35 ms</td><td>573.44 ms</td><td>5</td><td>36.0 / 170.0</td></tr><tr><th scope='row'><code>fill_history</code></th><td>1,441</td><td>–</td><td>10,000</td><td>39.06 ms</td><td>61.33 ms</td><td>7505</td><td>5.8 / 13.4</td></tr><tr><th scope='row'><code>wrapped_recent20_top</code></th><td>1,441</td><td>–</td><td>10,000</td><td>4.78 ms</td><td>4.78 ms</td><td>100</td><td>11.0 / 0.0</td></tr><tr><th scope='row'><code>wrapped_recent20</code></th><td>1,441</td><td>–</td><td>10,000</td><td>5.63 ms</td><td>5.91 ms</td><td>100</td><td>11.6 / 0.0</td></tr><tr><th scope='row'><code>wrapped_chat_list20_top</code></th><td>1,441</td><td>–</td><td>10,000</td><td>19.12 ms</td><td>19.12 ms</td><td>100</td><td>40.0 / 0.0</td></tr><tr><th scope='row'><code>wrapped_add_msg</code></th><td>1,441</td><td>–</td><td>10,000</td><td>46.49 ms</td><td>71.22 ms</td><td>100</td><td>5.9 / 14.2</td></tr></tbody></table></div>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>3 · Calls</h2>
+      <p>1,000 contacts. 80% of callers are known contacts and 20% are new numbers. A known caller costs 2 extra reads because the contact is copied into the call entry. Both adds stay flat from 100 calls to after the 25,000-entry ring wraps.</p>
+      <p>The two long fills (20,000 and 5,000 back-to-back adds) ran at a <span class="key">27.4 ms</span> median, against ~15 ms everywhere else, with identical sector counts. Per-call times look bimodal, which would fit a card-side effect under sustained writing. This was not verified.</p>
+    </div>
+    <div class='tw'><table><caption>Call history filled to each checkpoint; <code>wrapped_</code> rows ran after the 25,000-entry ring wrapped</caption><thead><tr><th>operation</th><th>calls in history</th><th>median</th><th>p99</th><th>reps</th><th>sectors r / w</th></tr></thead><tbody><tr><th scope='row'><code>fill_add</code></th><td>–</td><td>23.75 ms</td><td>32.04 ms</td><td>1000</td><td>1.8 / 7.0</td></tr><tr><th scope='row'><code>fill_calls</code></th><td>100</td><td>14.61 ms</td><td>33.61 ms</td><td>100</td><td>2.8 / 4.8</td></tr><tr><th scope='row'><code>call_recent20_top</code></th><td>100</td><td>2.05 ms</td><td>2.05 ms</td><td>100</td><td>5.0 / 0.0</td></tr><tr><th scope='row'><code>call_recent20</code></th><td>100</td><td>2.60 ms</td><td>2.64 ms</td><td>100</td><td>5.8 / 0.0</td></tr><tr><th scope='row'><code>call_add_known</code></th><td>100</td><td>14.66 ms</td><td>33.54 ms</td><td>100</td><td>3.2 / 4.8</td></tr><tr><th scope='row'><code>call_add_unknown</code></th><td>210</td><td>13.77 ms</td><td>32.71 ms</td><td>100</td><td>1.2 / 4.8</td></tr><tr><th scope='row'><code>fill_calls</code></th><td>1,000</td><td>14.76 ms</td><td>33.66 ms</td><td>680</td><td>2.8 / 4.8</td></tr><tr><th scope='row'><code>call_recent20_top</code></th><td>1,000</td><td>2.05 ms</td><td>2.05 ms</td><td>100</td><td>5.0 / 0.0</td></tr><tr><th scope='row'><code>call_recent20</code></th><td>1,000</td><td>2.66 ms</td><td>2.67 ms</td><td>100</td><td>5.8 / 0.0</td></tr><tr><th scope='row'><code>call_add_known</code></th><td>1,000</td><td>16.70 ms</td><td>24.16 ms</td><td>100</td><td>3.2 / 4.8</td></tr><tr><th scope='row'><code>call_add_unknown</code></th><td>1,110</td><td>15.73 ms</td><td>26.58 ms</td><td>100</td><td>1.2 / 4.8</td></tr><tr><th scope='row'><code>fill_calls</code></th><td>5,000</td><td>15.01 ms</td><td>33.55 ms</td><td>3780</td><td>2.8 / 4.8</td></tr><tr><th scope='row'><code>call_recent20_top</code></th><td>5,000</td><td>2.27 ms</td><td>2.27 ms</td><td>100</td><td>5.0 / 0.0</td></tr><tr><th scope='row'><code>call_recent20</code></th><td>5,000</td><td>2.77 ms</td><td>2.84 ms</td><td>100</td><td>5.8 / 0.0</td></tr><tr><th scope='row'><code>call_add_known</code></th><td>5,000</td><td>16.69 ms</td><td>33.41 ms</td><td>100</td><td>3.2 / 4.8</td></tr><tr><th scope='row'><code>call_add_unknown</code></th><td>5,110</td><td>13.74 ms</td><td>33.06 ms</td><td>100</td><td>1.2 / 4.8</td></tr><tr><th scope='row'><code>fill_calls</code></th><td>25,000</td><td>27.40 ms</td><td>33.66 ms</td><td>19780</td><td>2.8 / 4.8</td></tr><tr><th scope='row'><code>call_recent20_top</code></th><td>25,000</td><td>2.20 ms</td><td>2.21 ms</td><td>100</td><td>5.0 / 0.0</td></tr><tr><th scope='row'><code>call_recent20</code></th><td>25,000</td><td>2.67 ms</td><td>2.86 ms</td><td>100</td><td>5.8 / 0.0</td></tr><tr><th scope='row'><code>call_add_known</code></th><td>25,000</td><td>16.74 ms</td><td>27.56 ms</td><td>100</td><td>3.2 / 4.8</td></tr><tr><th scope='row'><code>call_add_unknown</code></th><td>25,000</td><td>15.79 ms</td><td>26.61 ms</td><td>100</td><td>1.2 / 4.8</td></tr><tr><th scope='row'><code>wrapped_fill_calls</code></th><td>25,000</td><td>27.45 ms</td><td>33.67 ms</td><td>4780</td><td>2.8 / 4.8</td></tr><tr><th scope='row'><code>wrapped_call_recent20_top</code></th><td>25,000</td><td>2.19 ms</td><td>2.19 ms</td><td>100</td><td>5.0 / 0.0</td></tr><tr><th scope='row'><code>wrapped_call_recent20</code></th><td>25,000</td><td>2.71 ms</td><td>2.84 ms</td><td>100</td><td>5.8 / 0.0</td></tr><tr><th scope='row'><code>wrapped_call_add_known</code></th><td>25,000</td><td>16.77 ms</td><td>27.52 ms</td><td>100</td><td>3.2 / 4.8</td></tr><tr><th scope='row'><code>wrapped_call_add_unknown</code></th><td>25,000</td><td>15.80 ms</td><td>26.45 ms</td><td>100</td><td>1.2 / 4.8</td></tr></tbody></table></div>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>4 · Init and recovery</h2>
+      <p><code>database_init()</code> recovers the journal and rebuilds the hash table, chat order, name index and ring buffer heads. At 10,000 contacts the name index rebuild accounts for roughly 64,000 of the 76,045 reads. The last row cuts the power after the first 6 writes of a message add. Recovery restored the correct counts in all 5 repetitions and added no I/O.</p>
+    </div>
+    <figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 380" font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12" role="img" aria-label="Boot time (database_init) by contacts stored">
+<rect fill="var(--chart-surface)"/>
+<text x="64" y="20" font-size="14" font-weight="600" fill="var(--chart-text)">Boot time (database_init) by contacts stored</text>
+<text x="64" y="36" font-size="11.5" fill="var(--chart-muted)">Median of 5 mounts on the target; no chats or messages</text>
+<line x1="64" y1="328.0" x2="530" y2="328.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="332.0" text-anchor="end" fill="var(--chart-muted)">0</text>
+<line x1="64" y1="258.0" x2="530" y2="258.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="262.0" text-anchor="end" fill="var(--chart-muted)">10</text>
+<line x1="64" y1="188.0" x2="530" y2="188.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="192.0" text-anchor="end" fill="var(--chart-muted)">20</text>
+<line x1="64" y1="118.0" x2="530" y2="118.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="122.0" text-anchor="end" fill="var(--chart-muted)">30</text>
+<line x1="64" y1="48.0" x2="530" y2="48.0" stroke="var(--chart-grid)" stroke-width="1"/>
+<text x="56" y="52.0" text-anchor="end" fill="var(--chart-muted)">40</text>
+<text x="64.0" y="346" text-anchor="middle" fill="var(--chart-muted)">0</text>
+<text x="157.2" y="346" text-anchor="middle" fill="var(--chart-muted)">2K</text>
+<text x="250.4" y="346" text-anchor="middle" fill="var(--chart-muted)">4K</text>
+<text x="343.6" y="346" text-anchor="middle" fill="var(--chart-muted)">6K</text>
+<text x="436.8" y="346" text-anchor="middle" fill="var(--chart-muted)">8K</text>
+<text x="530.0" y="346" text-anchor="middle" fill="var(--chart-muted)">10K</text>
+<line x1="64" y1="328" x2="530" y2="328" stroke="var(--chart-axis)" stroke-width="1"/>
+<text x="297.0" y="368" text-anchor="middle" fill="var(--chart-muted)">Contacts stored</text>
+<text x="16" y="188.0" transform="rotate(-90 16 188.0)" text-anchor="middle" fill="var(--chart-muted)">Seconds</text>
+<polyline points="64.0,328.0 110.6,317.4 180.5,290.9 297.0,230.1 530.0,71.8" fill="none" stroke="var(--chart-s1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt" data-tip="0 contacts: 0.01 s, 12 sector reads" tabindex="0"><title>0 contacts: 0.01 s, 12 sector reads</title><circle cx="64.0" cy="328.0" r="11" fill="transparent"/><circle cx="64.0" cy="328.0" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="1,000 contacts: 1.51 s, 3,263 sector reads" tabindex="0"><title>1,000 contacts: 1.51 s, 3,263 sector reads</title><circle cx="110.6" cy="317.4" r="11" fill="transparent"/><circle cx="110.6" cy="317.4" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="2,500 contacts: 5.31 s, 11,570 sector reads" tabindex="0"><title>2,500 contacts: 5.31 s, 11,570 sector reads</title><circle cx="180.5" cy="290.9" r="11" fill="transparent"/><circle cx="180.5" cy="290.9" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="5,000 contacts: 13.99 s, 29,573 sector reads" tabindex="0"><title>5,000 contacts: 13.99 s, 29,573 sector reads</title><circle cx="297.0" cy="230.1" r="11" fill="transparent"/><circle cx="297.0" cy="230.1" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<g class="pt" data-tip="10,000 contacts: 36.60 s, 76,045 sector reads" tabindex="0"><title>10,000 contacts: 36.60 s, 76,045 sector reads</title><circle cx="530.0" cy="71.8" r="11" fill="transparent"/><circle cx="530.0" cy="71.8" r="4.5" fill="var(--chart-s1)" stroke="var(--chart-surface)" stroke-width="2"/></g>
+<text x="540.0" y="75.8" text-anchor="start" font-size="12" font-weight="600" fill="var(--chart-text)">36.6 s (76,045 reads)</text>
+</svg><figcaption>Mount time is about 0.47 ms per sector read. Reads grow faster than the contact count because of the name index heapsort.</figcaption></figure>
+    <div class='tw'><table><caption>Format once, then <code>database_init()</code> at growing states</caption><thead><tr><th>operation</th><th>contacts</th><th>chats</th><th>messages</th><th>median</th><th>p99</th><th>reps</th><th>sectors r / w</th></tr></thead><tbody><tr><th scope='row'><code>format</code></th><td>–</td><td>–</td><td>–</td><td>30.72 s</td><td>30.77 s</td><td>3</td><td>2.0 / 10010.0</td></tr><tr><th scope='row'><code>mount</code></th><td>–</td><td>–</td><td>–</td><td>5.95 ms</td><td>6.09 ms</td><td>5</td><td>12.0 / 0.0</td></tr><tr><th scope='row'><code>fill_add</code></th><td>1,000</td><td>–</td><td>–</td><td>23.69 ms</td><td>32.22 ms</td><td>1000</td><td>1.8 / 7.0</td></tr><tr><th scope='row'><code>mount</code></th><td>1,000</td><td>–</td><td>–</td><td>1.51 s</td><td>1.51 s</td><td>5</td><td>3263.0 / 0.0</td></tr><tr><th scope='row'><code>fill_add</code></th><td>2,500</td><td>–</td><td>–</td><td>24.29 ms</td><td>33.71 ms</td><td>1500</td><td>3.0 / 7.0</td></tr><tr><th scope='row'><code>mount</code></th><td>2,500</td><td>–</td><td>–</td><td>5.31 s</td><td>5.31 s</td><td>5</td><td>11570.0 / 0.0</td></tr><tr><th scope='row'><code>fill_add</code></th><td>5,000</td><td>–</td><td>–</td><td>25.11 ms</td><td>33.58 ms</td><td>2500</td><td>3.9 / 7.0</td></tr><tr><th scope='row'><code>mount</code></th><td>5,000</td><td>–</td><td>–</td><td>13.99 s</td><td>13.99 s</td><td>5</td><td>29573.0 / 0.0</td></tr><tr><th scope='row'><code>fill_add</code></th><td>10,000</td><td>–</td><td>–</td><td>26.07 ms</td><td>35.24 ms</td><td>5000</td><td>5.0 / 7.0</td></tr><tr><th scope='row'><code>mount</code></th><td>10,000</td><td>–</td><td>–</td><td>36.60 s</td><td>36.60 s</td><td>5</td><td>76045.0 / 0.0</td></tr><tr><th scope='row'><code>mount</code></th><td>10,000</td><td>1,000</td><td>1,000</td><td>36.45 s</td><td>36.99 s</td><td>5</td><td>80194.0 / 0.0</td></tr><tr><th scope='row'><code>mount</code></th><td>10,000</td><td>1,000</td><td>5,000</td><td>39.01 s</td><td>39.01 s</td><td>5</td><td>81195.0 / 0.0</td></tr><tr><th scope='row'><code>mount_with_calls</code></th><td>10,000</td><td>1,000</td><td>5,000</td><td>36.80 s</td><td>36.80 s</td><td>5</td><td>81209.0 / 0.0</td></tr><tr><th scope='row'><code>mount_after_power_cut</code></th><td>10,000</td><td>1,000</td><td>5,000</td><td>36.80 s</td><td>36.91 s</td><td>5</td><td>81209.0 / 0.0</td></tr></tbody></table></div>
+  </section>
+
+  <section class="prose">
+    <h2>Reproduce</h2>
+    <p>On the NUCLEO-H723ZG with an SD card (the benchmark formats the card): <code>scripts/run_target.sh &lt;contacts|messages|calls|init&gt; Release</code>. Tables come from <code>scripts/summarize.py</code>, and <code>scripts/compare.py</code> compares two runs. Raw CSVs and run metadata are in <code>source/benchmark/database/results/</code>.</p>
+  </section>
+</main>
+<div id="tip" hidden></div>
+<script>
+(() => {
+  const tip = document.getElementById("tip");
+  const show = (el, x, y) => {
+    tip.textContent = el.dataset.tip;
+    tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.max(8, Math.min(x + 12, innerWidth - w - 8)) + "px";
+    tip.style.top = Math.max(8, y - h - 12) + "px";
+  };
+  document.querySelectorAll("figure .pt").forEach(el => {
+    el.querySelector("title")?.remove();
+    el.addEventListener("pointerenter", e => show(el, e.clientX, e.clientY));
+    el.addEventListener("pointermove", e => show(el, e.clientX, e.clientY));
+    el.addEventListener("pointerleave", () => { tip.hidden = true; });
+    el.addEventListener("focus", () => { const r = el.getBoundingClientRect(); show(el, r.left + r.width / 2, r.top); });
+    el.addEventListener("blur", () => { tip.hidden = true; });
+  });
+})();
+</script>

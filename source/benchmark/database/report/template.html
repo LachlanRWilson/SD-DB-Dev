@@ -1,0 +1,184 @@
+<title>Phone DBMS Benchmarks</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Public+Sans:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column for prose; tables break out to a wider measure and scroll inside their own box */
+:root {
+  --bg: #f6f8f7;
+  --surface: #ffffff;
+  --fg: #17201d;
+  --muted: #56645f;
+  --rule: #d5ddd9;
+  --accent: #0f6b5c;
+  --accent-soft: #e2f0ec;
+  --display: "Newsreader", Georgia, "Times New Roman", serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --chart-surface: #ffffff; --chart-text: #17201d; --chart-muted: #56645f; --chart-grid: #e6eae8; --chart-axis: #b4bfba;
+  --chart-s1: #2a78d6; --chart-s2: #eb6834; --chart-s3: #1baf7a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111715; --surface: #18201d; --fg: #e3ebe7; --muted: #9aaba4; --rule: #2c3833;
+    --accent: #5fc4ae; --accent-soft: #1d332d; color-scheme: dark;
+    --chart-surface: #18201d; --chart-text: #e3ebe7; --chart-muted: #9aaba4; --chart-grid: #26312d; --chart-axis: #3d4b45;
+    --chart-s1: #3987e5; --chart-s2: #d95926; --chart-s3: #199e70;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111715; --surface: #18201d; --fg: #e3ebe7; --muted: #9aaba4; --rule: #2c3833;
+  --accent: #5fc4ae; --accent-soft: #1d332d; color-scheme: dark;
+  --chart-surface: #18201d; --chart-text: #e3ebe7; --chart-muted: #9aaba4; --chart-grid: #26312d; --chart-axis: #3d4b45;
+  --chart-s1: #3987e5; --chart-s2: #d95926; --chart-s3: #199e70;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.6; }
+.page {
+  max-width: 1080px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 48px 72px;
+  display: grid; gap: 40px;
+}
+.prose { max-width: 68ch; display: grid; gap: 14px; min-width: 0; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 2.9rem); }
+h2 { font-size: 1.75rem; padding-top: 12px; border-top: 1px solid var(--rule); }
+h3 { font-size: 1.2rem; font-weight: 500; }
+p, ul { margin: 0; }
+ul { padding-left: 1.2em; display: grid; gap: 8px; }
+code { font-family: var(--mono); font-size: 0.86em; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eyebrow { font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.spec { display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: var(--mono); font-size: 0.82rem; color: var(--muted); }
+.spec b { color: var(--fg); font-weight: 600; }
+.findings { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 22px 24px; display: grid; gap: 12px; max-width: 80ch; }
+.findings li::marker { color: var(--accent); }
+.key { font-family: var(--mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+section { display: grid; gap: 18px; min-width: 0; }
+.tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; font-variant-numeric: tabular-nums; }
+caption { text-align: left; padding: 12px 14px 4px; color: var(--muted); font-size: 0.82rem; }
+th, td { padding: 6px 14px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+thead th { font-family: var(--mono); font-weight: 600; font-size: 0.76rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+tbody th, thead th:first-child { text-align: left; font-weight: 400; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--accent-soft); }
+.note { font-size: 0.9rem; color: var(--muted); max-width: 80ch; }
+figure { margin: 0; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); padding: 12px; max-width: 720px; min-width: 0; }
+figure svg { display: block; width: 100%; height: auto; }
+figure .pt { cursor: default; outline: none; }
+figure .pt:hover circle:last-child, figure .pt:focus-visible circle:last-child { r: 6; }
+figcaption { font-size: 0.85rem; color: var(--muted); padding: 8px 4px 0; }
+#tip { position: fixed; z-index: 20; pointer-events: none; background: var(--fg); color: var(--bg); font-family: var(--mono); font-size: 0.78rem; padding: 6px 9px; border-radius: 4px; max-width: 280px; }
+@media (prefers-reduced-motion: no-preference) { figure .pt circle:last-child { transition: r 0.12s; } }
+</style>
+
+<main class="page">
+  <header class="prose" style="max-width: 80ch">
+    <span class="eyebrow">Thesis · database API benchmark · 2026-10-20</span>
+    <h1>Phone DBMS Benchmarks</h1>
+    <p>Timings of the public <code>database_*</code> calls on the target hardware, measured through the journal and the SD storage layer. Each call also reports how many 512&nbsp;B sectors it read and wrote. This page reports measurements only; it does not recommend changes.</p>
+    <div class="spec">
+      <span><b>MCU</b> STM32H723ZG @ 520 MHz</span>
+      <span><b>Storage</b> microSD, SDMMC 4-bit @ 6 MHz</span>
+      <span><b>Build</b> -Os, I-cache on, D-cache off</span>
+      <span><b>Capacity</b> 10,000 contacts</span>
+    </div>
+  </header>
+
+  <div class="findings">
+    <h2 style="border:0;padding:0;font-size:1.35rem">Main findings</h2>
+    <ul>
+      <li><b>SD writes dominate every update.</b> Each sector read costs about <span class="key">0.45 ms</span> and each write about <span class="key">3 ms</span>; the raw transfer is only ~0.17 ms. A contact add makes 7 writes (<span class="key">22–28 ms</span>), a message add 12–14 (<span class="key">42–48 ms</span>), a call add 4.8 (<span class="key">14–17 ms</span>).</li>
+      <li><b>Boot time grows faster than the contact count.</b> <code>database_init()</code> takes <span class="key">1.5 s</span> at 1,000 contacts and <span class="key">36.6 s</span> at 10,000 (76,045 sector reads). Most of the reads come from rebuilding the name index: the heapsort reads both contacts from SD whenever two entries share an 8-byte key.</li>
+      <li><b>Reading back into a long chat grows linearly with the offset.</b> In a 1,000-message chat the newest 20 messages take <span class="key">3.9 ms</span> and the oldest 20 take <span class="key">155 ms</span>. Removing a 100-message chat takes <span class="key">571 ms</span>.</li>
+      <li><b>Lookups are fast.</b> <code>contact_get</code> takes ~0.9 ms (2 reads), a missed lookup under 1 µs, a prefix seek under 3 µs. Recent-message and recent-call pages take 2–6 ms.</li>
+      <li><b>Format takes 30.7 s</b>, almost all of it clearing the two 5,000-sector history rings.</li>
+    </ul>
+  </div>
+
+  <section>
+    <figure>{{FIG_time_vs_writes}}<figcaption>Each point is the median of one add, update or remove row on the target. A straight line fits the points with a slope of about 3.3 ms per sector written. Hover a point for details.</figcaption></figure>
+  </section>
+
+  <section class="prose">
+    <h2>Method</h2>
+    <ul>
+      <li>The timed region is one API call. Times come from the DWT cycle counter, with the 1 ms HAL tick for regions of 4 s or more. Interrupts stay enabled, because the SD driver waits on DMA through the scheduler.</li>
+      <li>Every database is formatted, then filled through the public API. Operations that would change the stored set (add, remove, update) are undone untimed, so each checkpoint keeps a known state.</li>
+      <li>100 timed repetitions after 10 warm-up per point on the target. Fill rows time every add, and their percentiles use at most 1,000 evenly spaced samples.</li>
+      <li>Contacts have unique phone numbers and "First Last" names drawn from 1,280 combinations. Names repeat as real names do; this generator probably produces more key ties than real names would.</li>
+      <li>The code lives in <code>source/benchmark/database/</code>. The firmware is linked with <code>-Wl,--wrap=DB_Init</code>, so <code>main.c</code> is unchanged. Host runs on a RAM-backed store exist for checking the code path but are not comparable and are not shown here.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>1 · Contacts</h2>
+      <p>Checkpoints run up to 9,999 contacts, one below capacity so that <code>add</code> still has a free slot. Read counts for add, update and remove grow with N because the name index reads stored contacts from SD to break ties between equal keys.</p>
+    </div>
+    <figure>{{FIG_contact_updates}}<figcaption>Medians of 100 calls. The remove line moves around between checkpoints with no trend in N.</figcaption></figure>
+    {{CONTACTS}}
+    <p class="note">Removing the <code>osDelay(1)</code> from the SD wait loops was tried and reverted. <code>fill_add</code> medians moved by −2.2% to +1.5%, which is within noise.</p>
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>2 · Messages and chats</h2>
+      <p>1,000 named contacts. Phase A opens more and more chats. Phase B grows one chat to 1,000 messages. Phase C times <code>remove_chat</code> on chats of 1, 10 and 100 messages. Phase D wraps the 10,000-entry message history. Messages are never undone, so the history only grows.</p>
+      <ul>
+        <li><code>chat_list20</code> makes 2 reads per chat (contact plus latest message). From a random rank it takes ~4–5 ms more CPU time than from the top.</li>
+        <li><code>recent20</code> reads 11 sectors in 4.6–5.6 ms, before and after the ring wraps.</li>
+      </ul>
+    </div>
+    <figure>{{FIG_chat_page_depth}}<figcaption>The newest page stays near 4 ms at any chat length. Older pages are read by walking message sectors back from the newest, at about one read per 3 messages skipped.</figcaption></figure>
+    {{MESSAGES}}
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>3 · Calls</h2>
+      <p>1,000 contacts. 80% of callers are known contacts and 20% are new numbers. A known caller costs 2 extra reads because the contact is copied into the call entry. Both adds stay flat from 100 calls to after the 25,000-entry ring wraps.</p>
+      <p>The two long fills (20,000 and 5,000 back-to-back adds) ran at a <span class="key">27.4 ms</span> median, against ~15 ms everywhere else, with identical sector counts. Per-call times look bimodal, which would fit a card-side effect under sustained writing. This was not verified.</p>
+    </div>
+    {{CALLS}}
+  </section>
+
+  <section>
+    <div class="prose">
+      <h2>4 · Init and recovery</h2>
+      <p><code>database_init()</code> recovers the journal and rebuilds the hash table, chat order, name index and ring buffer heads. At 10,000 contacts the name index rebuild accounts for roughly 64,000 of the 76,045 reads. The last row cuts the power after the first 6 writes of a message add. Recovery restored the correct counts in all 5 repetitions and added no I/O.</p>
+    </div>
+    <figure>{{FIG_mount_time}}<figcaption>Mount time is about 0.47 ms per sector read. Reads grow faster than the contact count because of the name index heapsort.</figcaption></figure>
+    {{INIT}}
+  </section>
+
+  <section class="prose">
+    <h2>Reproduce</h2>
+    <p>On the NUCLEO-H723ZG with an SD card (the benchmark formats the card): <code>scripts/run_target.sh &lt;contacts|messages|calls|init&gt; Release</code>. Tables come from <code>scripts/summarize.py</code>, and <code>scripts/compare.py</code> compares two runs. Raw CSVs and run metadata are in <code>source/benchmark/database/results/</code>.</p>
+  </section>
+</main>
+<div id="tip" hidden></div>
+<script>
+(() => {
+  const tip = document.getElementById("tip");
+  const show = (el, x, y) => {
+    tip.textContent = el.dataset.tip;
+    tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.max(8, Math.min(x + 12, innerWidth - w - 8)) + "px";
+    tip.style.top = Math.max(8, y - h - 12) + "px";
+  };
+  document.querySelectorAll("figure .pt").forEach(el => {
+    el.querySelector("title")?.remove();
+    el.addEventListener("pointerenter", e => show(el, e.clientX, e.clientY));
+    el.addEventListener("pointermove", e => show(el, e.clientX, e.clientY));
+    el.addEventListener("pointerleave", () => { tip.hidden = true; });
+    el.addEventListener("focus", () => { const r = el.getBoundingClientRect(); show(el, r.left + r.width / 2, r.top); });
+    el.addEventListener("blur", () => { tip.hidden = true; });
+  });
+})();
+</script>
