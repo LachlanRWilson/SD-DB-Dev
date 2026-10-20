@@ -12,18 +12,24 @@
  *   4. RULES      duplicate phone, invalid input, unknown contact
  *   5. MESSAGES   chats spanning message sectors, unknown sender
  *   6. HISTORY    latest messages across every chat
- *   7. CALLS      call history, known and unknown callers
- *   8. UPDATE     rename (moves in the list), new number (chat follows)
- *   9. DELETE     remove a contact (chat goes too), remove a chat
- *  10. REBOOT     wipe RAM, mount from the card, everything is rebuilt
- *  11. POWER CUT  cut power part way through a write, journal rollback
- *  12. SCALE      bulk add, timing, rebuild time
- *  13. SUMMARY
+ *   7. CHATS      chat order: most recent chat first, new chats at the top
+ *   8. CALLS      call history, known and unknown callers
+ *   9. UPDATE     rename (moves in the list), new number (chat follows)
+ *  10. DELETE     remove a contact (chat goes too), remove a chat
+ *  11. REBOOT     wipe RAM, mount from the card, everything is rebuilt
+ *  12. POWER CUT  cut power part way through a write, journal rollback
+ *  13. SCALE      bulk add, timing, rebuild time
+ *  14. SUMMARY
  *
  * Every check is printed green (OK) or red (FAIL); the last screen shows the
  * totals. The card is reset to an empty database at the start (usage bitmap,
  * journal and the start of each history ring), so it wipes any other demo or
  * test data set.
+ *
+ * Once mounted, every database call goes through the DB task (db_task.c) as a
+ * request and waits for its response, the same as the CLI's phone UI
+ * (phone_ui.c). Only the mount (boot) and the card reset run here directly,
+ * while the DB task is idle.
  */
 
 #include "FreeRTOS.h"
@@ -37,6 +43,8 @@
 
 #include "stm32h7xx_hal.h"
 #include "database.h"
+#include "db_task.h"
+#include "platform_os.h"
 #include "journal.h"
 #include "usage_bitmap.h"
 #include "ring_buffer.h"
@@ -65,7 +73,7 @@
 /* Contacts added in the SCALE section */
 #define DEMO_SCALE_N 200
 
-#define DEMO_SECTIONS 13
+#define DEMO_SECTIONS 14
 
 /* ------------------------------------------------------------------ *
  *  Data set
@@ -108,6 +116,7 @@ static const Person g_sorted[] = {
 #define CHARLIE      "0411000006"
 #define UNKNOWN_SMS  "0499000000"
 #define UNKNOWN_CALL "0488000000"
+#define DANA         "0411000007"
 
 /* After UPDATE (Zoe -> Aaron, Alice's new number) and DELETE (first Bob) */
 static const Person g_final[] = {
@@ -139,6 +148,14 @@ static ContactBuffer       g_page[8];
 static Message             g_msgs[8];
 static MessageHistoryEntry g_hist[8];
 static CallHistoryEntry    g_calls[8];
+static ChatSummary         g_chats[8];
+
+/* DB task: started once the card is mounted, owns g_db from then on */
+static DatabaseTaskContext *g_task;
+static PlatformQueue       *g_reply_q;
+static uint32_t             g_tag;
+static uint32_t             g_requests;     // requests answered by the DB task
+static uint32_t             g_stack_free;   // DB task's smallest free stack (bytes), set by the summary
 
 /* ------------------------------------------------------------------ *
  *  Storage wrapper: counts sector reads/writes and simulates power cuts
@@ -189,6 +206,145 @@ static void wrap_storage(void)
     g_db.storage.read_multiblock = Demo_ReadMultiBlock;
     g_db.storage.write_block = Demo_WriteBlock;
     g_db.storage.write_multiblock = Demo_WriteMultiBlock;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Database task requests (same as phone_ui.c)
+ * ------------------------------------------------------------------ */
+
+/**
+ * @brief Post a request to the database task and wait for its response. The
+ * wait has no timeout: list requests write into the caller's buffer, which
+ * must stay valid until the task has replied
+ *
+ * @param req request (reply_q and tag are set here)
+ * @param rsp response, may be NULL
+ * @retval STRG_RET of the request
+ */
+static STRG_RET db_call(DbRequest *req, DbResponse *rsp)
+{
+    DbResponse local;
+
+    rsp = (rsp != NULL) ? rsp : &local;
+    req->reply_q = g_reply_q;
+    req->tag = ++g_tag;
+    if (!db_task_post(g_task, req, PLATFORM_OS_WAIT_FOREVER))
+    {
+        return STRG_FAIL;
+    }
+    do
+    {
+        platform_os_QueueReceive(g_reply_q, rsp, PLATFORM_OS_WAIT_FOREVER);
+    } while (rsp->tag != req->tag);
+    g_requests++;
+    return rsp->ret;
+}
+
+static STRG_RET db_phone_req(DbRequestType type, const char *phone, DbResponse *rsp)
+{
+    DbRequest req = {.type = type};
+
+    snprintf(req.args.phone.phone, sizeof(req.args.phone.phone), "%s", phone);
+    return db_call(&req, rsp);
+}
+
+static STRG_RET db_range_req(DbRequestType type, size_t start, size_t n, void *out, size_t *count)
+{
+    DbRequest req = {.type = type, .args.range = {.start = start, .n = n, .out = out}};
+    DbResponse rsp;
+
+    STRG_RET ret = db_call(&req, &rsp);
+    *count = (ret == STRG_OK) ? rsp.result.range.count : 0;
+    return ret;
+}
+
+static STRG_RET db_contact_add(const char *name, const char *phone)
+{
+    DbRequest req = {.type = DB_REQ_CONTACT_ADD};
+
+    // the request fields hold the max lengths: reject instead of truncating
+    if ((strlen(name) > MAX_NAME_LEN) || (strlen(phone) > MAX_PHONE_LEN))
+    {
+        return STRG_FAIL;
+    }
+
+    snprintf(req.args.contact_add.name, sizeof(req.args.contact_add.name), "%s", name);
+    snprintf(req.args.contact_add.phone, sizeof(req.args.contact_add.phone), "%s", phone);
+    return db_call(&req, NULL);
+}
+
+static STRG_RET db_contact_get(const char *phone, ContactBuffer *out)
+{
+    DbResponse rsp;
+
+    STRG_RET ret = db_phone_req(DB_REQ_CONTACT_GET, phone, &rsp);
+    if (ret == STRG_OK)
+    {
+        *out = rsp.result.contact;
+    }
+    return ret;
+}
+
+static STRG_RET db_contact_update(const char *phone, const char *new_name, const char *new_phone)
+{
+    DbRequest req = {.type = DB_REQ_CONTACT_UPDATE};
+
+    snprintf(req.args.contact_update.phone, sizeof(req.args.contact_update.phone), "%s", phone);
+    snprintf(req.args.contact_update.new_name, sizeof(req.args.contact_update.new_name), "%s", new_name);
+    snprintf(req.args.contact_update.new_phone, sizeof(req.args.contact_update.new_phone), "%s", new_phone);
+    return db_call(&req, NULL);
+}
+
+static STRG_RET db_contact_seek(const char *prefix, size_t *rank)
+{
+    DbRequest req = {.type = DB_REQ_CONTACT_SEEK};
+    DbResponse rsp;
+
+    snprintf(req.args.contact_seek.prefix, sizeof(req.args.contact_seek.prefix), "%s", prefix);
+    STRG_RET ret = db_call(&req, &rsp);
+    *rank = (ret == STRG_OK) ? rsp.result.seek.rank : 0;
+    return ret;
+}
+
+static size_t db_contact_count(void)
+{
+    DbRequest req = {.type = DB_REQ_CONTACT_COUNT};
+    DbResponse rsp;
+
+    return (db_call(&req, &rsp) == STRG_OK) ? rsp.result.range.count : 0;
+}
+
+static STRG_RET db_message_add(const char *phone, uint32_t timestamp, bool direction, const char *str)
+{
+    DbRequest req = {.type = DB_REQ_MESSAGE_ADD,
+                     .args.message_add = {.timestamp = timestamp, .direction = direction}};
+
+    snprintf(req.args.message_add.phone, sizeof(req.args.message_add.phone), "%s", phone);
+    snprintf(req.args.message_add.str, sizeof(req.args.message_add.str), "%s", str);
+    return db_call(&req, NULL);
+}
+
+static STRG_RET db_message_get_chat(const char *phone, size_t start, size_t n, size_t *count, Message *out)
+{
+    DbRequest req = {.type = DB_REQ_MESSAGE_GET_CHAT, .args.chat = {.start = start, .n = n, .out = out}};
+    DbResponse rsp;
+
+    snprintf(req.args.chat.phone, sizeof(req.args.chat.phone), "%s", phone);
+    STRG_RET ret = db_call(&req, &rsp);
+    *count = (ret == STRG_OK) ? rsp.result.range.count : 0;
+    return ret;
+}
+
+/* Start the DB task on the mounted g_db (once; later mounts reuse it) */
+static bool start_task(void)
+{
+    if (g_reply_q == NULL)
+    {
+        // one request outstanding at a time
+        g_reply_q = platform_os_QueueCreate(1, sizeof(DbResponse));
+    }
+    g_task = db_init(&g_db);
+    return (g_reply_q != NULL) && (g_task != NULL);
 }
 
 /* ------------------------------------------------------------------ *
@@ -318,7 +474,7 @@ static void show_list(size_t start, size_t n)
     while (n > 0)
     {
         size_t want = (n < 8) ? n : 8;
-        if (database_contact_list(&g_db, start, want, &count, g_page) != STRG_OK || count == 0)
+        if (db_range_req(DB_REQ_CONTACT_LIST, start, want, g_page, &count) != STRG_OK || count == 0)
         {
             return;
         }
@@ -339,13 +495,13 @@ static bool list_is(const Person *expect, size_t n)
 {
     size_t count;
 
-    if (database_contact_count(&g_db) != n)
+    if (db_contact_count() != n)
     {
         return false;
     }
     for (size_t i = 0; i < n; i++)
     {
-        if (database_contact_list(&g_db, i, 1, &count, g_page) != STRG_OK || count != 1 ||
+        if (db_range_req(DB_REQ_CONTACT_LIST, i, 1, g_page, &count) != STRG_OK || count != 1 ||
             !contact_is(&g_page[0].contact, expect[i].name, expect[i].phone))
         {
             return false;
@@ -362,30 +518,68 @@ static bool list_consistent(void)
     size_t count;
     size_t i = 0;
 
-    while (database_contact_list(&g_db, i, 1, &count, g_page) == STRG_OK && count == 1)
+    while (db_range_req(DB_REQ_CONTACT_LIST, i, 1, g_page, &count) == STRG_OK && count == 1)
     {
         memcpy(phone, g_page[0].contact.phone, g_page[0].contact.phone_len);
         phone[g_page[0].contact.phone_len] = '\0';
-        if (database_contact_get(&g_db, phone, &found) != STRG_OK)
+        if (db_contact_get(phone, &found) != STRG_OK)
         {
             return false;
         }
         i++;
     }
-    return i == database_contact_count(&g_db);
+    return i == db_contact_count();
 }
 
 static size_t chat_len(const char *phone)
 {
     size_t count = 0;
-    if (database_message_get_chat(&g_db, phone, 0, 8, &count, g_msgs) != STRG_OK)
+    if (db_message_get_chat(phone, 0, 8, &count, g_msgs) != STRG_OK)
     {
         return 0;
     }
     return count;
 }
 
-/* Mount like a power cycle: wipe RAM state, database_init, re-wrap storage */
+/* Print the chat list from the chat order: "rank name latest message" */
+static void show_chats(void)
+{
+    char name[MAX_NAME_LEN + 1];
+    size_t count = 0;
+
+    db_range_req(DB_REQ_CHAT_LIST, 0, 8, g_chats, &count);
+    for (size_t i = 0; i < count; i++)
+    {
+        const ChatSummary *c = &g_chats[i];
+        lcd_log_line(LOG_COLOR_TEXT, "%u %-10.10s %s %.13s", (unsigned)i, name_of(&c->contact, name),
+                     c->latest.direction ? "->" : "<-", c->latest.str);
+        osDelay(DEMO_ROW_MS);
+    }
+}
+
+/* The whole chat list is exactly the chats of phones[] in order */
+static bool chats_are(const char *const *phones, size_t n)
+{
+    size_t count = 0;
+
+    if ((db_range_req(DB_REQ_CHAT_LIST, 0, 8, g_chats, &count) != STRG_OK) || (count != n))
+    {
+        return false;
+    }
+    for (size_t i = 0; i < n; i++)
+    {
+        size_t pl = strlen(phones[i]);
+        if ((g_chats[i].contact.phone_len != pl) || (memcmp(g_chats[i].contact.phone, phones[i], pl) != 0))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Mount like a power cycle: wipe RAM state, database_init, re-wrap storage.
+ * Runs here, not as a request: every request is waited on, so the DB task is
+ * blocked on its queue and not using g_db */
 static STRG_RET boot(uint32_t *ms)
 {
     uint32_t t0 = osKernelGetTickCount();
@@ -478,7 +672,13 @@ static bool step_start(void)
         lcd_log_line(LOG_COLOR_TEXT, "mounted in %lu ms", (unsigned long)ms);
     }
 
-    if (!check((ret == STRG_OK) && (database_contact_count(&g_db) == 0), "empty database ready"))
+    // from here every database call is a request to the DB task
+    if (!check((ret == STRG_OK) && start_task(), "DB task started"))
+    {
+        lcd_log_footer("TASK FAIL", LOG_COLOR_FAIL);
+        return false;
+    }
+    if (!check(db_contact_count() == 0, "empty database ready"))
     {
         lcd_log_footer("DB FAIL", LOG_COLOR_FAIL);
         return false;
@@ -494,7 +694,7 @@ static void step_contacts(void)
     for (size_t i = 0; i < N_PEOPLE; i++)
     {
         uint32_t w0 = g_writes;
-        STRG_RET ret = database_contact_add(&g_db, g_people[i].name, g_people[i].phone);
+        STRG_RET ret = db_contact_add(g_people[i].name, g_people[i].phone);
         lcd_log_line((ret == STRG_OK) ? LOG_COLOR_TEXT : LOG_COLOR_FAIL, "+ %-15.15s %s %luw",
                      g_people[i].name, strg_name(ret), (unsigned long)(g_writes - w0));
         osDelay(DEMO_ROW_MS);
@@ -503,7 +703,7 @@ static void step_contacts(void)
     lcd_log_line(LOG_COLOR_DIM, "w = sector writes: journal,");
     lcd_log_line(LOG_COLOR_DIM, "contact sector, usage bitmap");
     snprintf(line, sizeof(line), "%u contacts stored", (unsigned)N_PEOPLE);
-    check(database_contact_count(&g_db) == N_PEOPLE, line);
+    check(db_contact_count() == N_PEOPLE, line);
 }
 
 static void step_list(void)
@@ -521,7 +721,7 @@ static void search(const char *prefix, size_t expect_rank)
     char what[40];
     size_t rank = 0;
 
-    STRG_RET ret = database_contact_seek(&g_db, prefix, &rank);
+    STRG_RET ret = db_contact_seek(prefix, &rank);
     snprintf(what, sizeof(what), "\"%s\" -> rank %u", prefix, (unsigned)rank);
     check((ret == STRG_OK) && (rank == expect_rank), what);
     show_list(rank, 2);
@@ -546,30 +746,31 @@ static void step_rules(void)
     long_name[sizeof(long_name) - 1] = '\0';
 
     section(4, "RULES", "Phone number is the key:");
-    STRG_RET ret = database_contact_add(&g_db, "Someone Else", BOB);
+    STRG_RET ret = db_contact_add("Someone Else", BOB);
     lcd_log_line(LOG_COLOR_TEXT, "add dup %s -> %s", BOB, strg_name(ret));
     check(ret == STRG_EXISTS, "duplicate phone rejected");
 
-    ret = database_contact_add(&g_db, "No Number", "");
+    ret = db_contact_add("No Number", "");
     lcd_log_line(LOG_COLOR_TEXT, "add empty phone -> %s", strg_name(ret));
     check(ret == STRG_FAIL, "empty phone rejected");
 
-    ret = database_contact_add(&g_db, long_name, "0411000099");
+    ret = db_contact_add(long_name, "0411000099");
     lcd_log_line(LOG_COLOR_TEXT, "add 65 char name -> %s", strg_name(ret));
+    lcd_log_line(LOG_COLOR_DIM, " (too long for the request)");
     check(ret == STRG_FAIL, "name > 64 chars rejected");
 
-    ret = database_contact_get(&g_db, "0400000000", &out);
+    ret = db_contact_get("0400000000", &out);
     lcd_log_line(LOG_COLOR_TEXT, "get 0400000000 -> %s", strg_name(ret));
     check(ret == STRG_EMPTY, "unknown number not found");
 
-    check(database_contact_count(&g_db) == N_PEOPLE, "nothing was changed");
+    check(db_contact_count() == N_PEOPLE, "nothing was changed");
 }
 
 static void show_chat(const char *phone)
 {
     size_t count = 0;
 
-    database_message_get_chat(&g_db, phone, 0, 8, &count, g_msgs);
+    db_message_get_chat(phone, 0, 8, &count, g_msgs);
     for (size_t i = count; i-- > 0;)
     {
         lcd_log_line(LOG_COLOR_TEXT, " %s %.25s", g_msgs[i].direction ? "->" : "<-", g_msgs[i].str);
@@ -584,11 +785,11 @@ static void step_messages(void)
     ContactBuffer out;
 
     section(5, "MESSAGES", "alice's chat (3 per sector):");
-    database_message_add(&g_db, ALICE, ++g_ts, true, (char *)"Lunch tomorrow?");
-    database_message_add(&g_db, ALICE, ++g_ts, false, (char *)"Sure, 12:30?");
-    database_message_add(&g_db, BOB, ++g_ts, false, (char *)"Did you push the fix?");
-    database_message_add(&g_db, ALICE, ++g_ts, true, (char *)"Perfect, see you then");
-    database_message_add(&g_db, ALICE, ++g_ts, false, (char *)"Bring the slides");
+    db_message_add(ALICE, ++g_ts, true, "Lunch tomorrow?");
+    db_message_add(ALICE, ++g_ts, false, "Sure, 12:30?");
+    db_message_add(BOB, ++g_ts, false, "Did you push the fix?");
+    db_message_add(ALICE, ++g_ts, true, "Perfect, see you then");
+    db_message_add(ALICE, ++g_ts, false, "Bring the slides");
     show_chat(ALICE);
     count = chat_len(ALICE);
     snprintf(what, sizeof(what), "alice: %u msgs, 2 sectors", (unsigned)count);
@@ -596,11 +797,11 @@ static void step_messages(void)
     check(chat_len(BOB) == 1, "bob's chat kept separate");
 
     lcd_log_line(LOG_COLOR_DIM, "SMS from an unknown number:");
-    database_message_add(&g_db, UNKNOWN_SMS, ++g_ts, false, (char *)"Your parcel is on its way");
+    db_message_add(UNKNOWN_SMS, ++g_ts, false, "Your parcel is on its way");
     show_chat(UNKNOWN_SMS);
-    check((database_contact_get(&g_db, UNKNOWN_SMS, &out) == STRG_OK) && (out.contact.name_len == 0),
+    check((db_contact_get(UNKNOWN_SMS, &out) == STRG_OK) && (out.contact.name_len == 0),
           "unnamed contact created");
-    check(database_contact_count(&g_db) == N_PEOPLE + 1, "listed first (no name)");
+    check(db_contact_count() == N_PEOPLE + 1, "listed first (no name)");
 }
 
 static void step_history(void)
@@ -609,10 +810,11 @@ static void step_history(void)
     size_t count = 0;
 
     section(6, "HISTORY", "Latest messages, all chats:");
-    STRG_RET ret = database_message_recent(&g_db, 0, 6, &count, g_hist);
+    STRG_RET ret = db_range_req(DB_REQ_MESSAGE_RECENT, 0, 6, g_hist, &count);
     for (size_t i = 0; i < count; i++)
     {
-        // which chat: the message sector header holds the contact index
+        // which chat: the message sector header holds the contact index (a
+        // direct read of the card, the DB task is idle between requests)
         MessageSectorBuffer sector;
         ContactBuffer c;
         const char *who = "?";
@@ -631,17 +833,41 @@ static void step_history(void)
     check((count > 0) && (g_hist[0].message.timestamp_lo == (uint16_t)g_ts), "newest is the parcel SMS");
 }
 
+static void step_chats(void)
+{
+    static const char *const after_msgs[] = { UNKNOWN_SMS, ALICE, BOB };
+    static const char *const after_bob[] = { BOB, UNKNOWN_SMS, ALICE };
+    static const char *const after_new[] = { CHARLIE, DANA, BOB, UNKNOWN_SMS, ALICE };
+
+    section(7, "CHATS", "Chat order, newest first:");
+    show_chats();
+    check(chats_are(after_msgs, 3), "ordered by latest message");
+
+    lcd_log_line(LOG_COLOR_DIM, "Bob replies (oldest chat):");
+    db_message_add(BOB, ++g_ts, false, "Yep, pushed it");
+    show_chats();
+    check(chats_are(after_bob, 3), "bob moved to the top");
+
+    lcd_log_line(LOG_COLOR_DIM, "Dana, then Charlie, new chats:");
+    db_message_add(DANA, ++g_ts, true, "Coffee later?");
+    db_message_add(CHARLIE, ++g_ts, false, "Running 5 min late");
+    show_chats();
+    check(chats_are(after_new, 5), "new chats go on top");
+    lcd_log_line(LOG_COLOR_DIM, "hash slots in RAM, no card");
+    lcd_log_line(LOG_COLOR_DIM, "writes to reorder");
+}
+
 static void step_calls(void)
 {
     char name[MAX_NAME_LEN + 1];
     size_t count = 0;
 
-    section(7, "CALLS", "Log 3 calls:");
-    database_call_add(&g_db, ZOE);
-    database_call_add(&g_db, UNKNOWN_CALL);
-    database_call_add(&g_db, CHARLIE);
+    section(8, "CALLS", "Log 3 calls:");
+    db_phone_req(DB_REQ_CALL_ADD, ZOE, NULL);
+    db_phone_req(DB_REQ_CALL_ADD, UNKNOWN_CALL, NULL);
+    db_phone_req(DB_REQ_CALL_ADD, CHARLIE, NULL);
 
-    STRG_RET ret = database_call_recent(&g_db, 0, 8, &count, g_calls);
+    STRG_RET ret = db_range_req(DB_REQ_CALL_RECENT, 0, 8, g_calls, &count);
     for (size_t i = 0; i < count; i++)
     {
         lcd_log_line(LOG_COLOR_TEXT, "%u %-15.15s %.*s", (unsigned)i, name_of(&g_calls[i].contact, name),
@@ -651,22 +877,25 @@ static void step_calls(void)
     check((ret == STRG_OK) && (count == 3), "3 calls, newest first");
     check((count == 3) && contact_is(&g_calls[0].contact, "Charlie Day", CHARLIE), "known caller has name");
     check((count == 3) && (g_calls[1].contact_index == UINT16_MAX), "unknown caller: no name");
-    check(database_contact_count(&g_db) == N_PEOPLE + 1, "unknown caller not added");
+    check(db_contact_count() == N_PEOPLE + 1, "unknown caller not added");
 }
 
 static void step_update(void)
 {
     ContactBuffer out;
 
-    section(8, "UPDATE", "Rename Zoe Park -> Aaron Park:");
-    check(database_contact_update(&g_db, ZOE, "Aaron Park", ZOE) == STRG_OK, "renamed");
+    section(9, "UPDATE", "Rename Zoe Park -> Aaron Park:");
+    check(db_contact_update(ZOE, "Aaron Park", ZOE) == STRG_OK, "renamed");
     show_list(0, 3);
     lcd_log_line(LOG_COLOR_DIM, "moved from last to near top");
 
     lcd_log_line(LOG_COLOR_DIM, "alice gets a new number:");
-    check(database_contact_update(&g_db, ALICE, "alice Brown", ALICE_NEW) == STRG_OK, ALICE " -> " ALICE_NEW);
-    check(database_contact_get(&g_db, ALICE, &out) == STRG_EMPTY, "old number gone");
+    check(db_contact_update(ALICE, "alice Brown", ALICE_NEW) == STRG_OK, ALICE " -> " ALICE_NEW);
+    check(db_contact_get(ALICE, &out) == STRG_EMPTY, "old number gone");
     check(chat_len(ALICE_NEW) == 4, "chat followed (4 msgs)");
+
+    static const char *const chats[] = { CHARLIE, DANA, BOB, UNKNOWN_SMS, ALICE_NEW };
+    check(chats_are(chats, 5), "chat kept its place (4th)");
 }
 
 static void step_delete(void)
@@ -674,19 +903,24 @@ static void step_delete(void)
     ContactBuffer out;
     size_t count = 0;
 
-    section(9, "DELETE", "Remove first Bob Smith:");
-    check(database_contact_remove(&g_db, BOB) == STRG_OK, "removed " BOB);
-    check(database_contact_get(&g_db, BOB, &out) == STRG_EMPTY, "not found any more");
-    check(database_message_get_chat(&g_db, BOB, 0, 8, &count, g_msgs) == STRG_EMPTY, "his chat was deleted");
-    check(database_contact_get(&g_db, "0411000008", &out) == STRG_OK, "other Bob Smith kept");
+    section(10, "DELETE", "Remove first Bob Smith:");
+    check(db_phone_req(DB_REQ_CONTACT_REMOVE, BOB, NULL) == STRG_OK, "removed " BOB);
+    check(db_contact_get(BOB, &out) == STRG_EMPTY, "not found any more");
+    check(db_message_get_chat(BOB, 0, 8, &count, g_msgs) == STRG_EMPTY, "his chat was deleted");
+    check(db_contact_get("0411000008", &out) == STRG_OK, "other Bob Smith kept");
 
     lcd_log_line(LOG_COLOR_DIM, "Delete parcel chat only:");
-    check(database_message_remove_chat(&g_db, UNKNOWN_SMS) == STRG_OK, "chat removed");
-    check(database_contact_get(&g_db, UNKNOWN_SMS, &out) == STRG_OK, "contact kept");
+    check(db_phone_req(DB_REQ_MESSAGE_REMOVE_CHAT, UNKNOWN_SMS, NULL) == STRG_OK, "chat removed");
+    check(db_contact_get(UNKNOWN_SMS, &out) == STRG_OK, "contact kept");
 
     lcd_log_line(LOG_COLOR_DIM, "List now:");
     show_list(0, N_FINAL);
     check(list_is(g_final, N_FINAL), "list as expected");
+
+    static const char *const chats[] = { CHARLIE, DANA, ALICE_NEW };
+    lcd_log_line(LOG_COLOR_DIM, "Chats now:");
+    show_chats();
+    check(chats_are(chats, 3), "both chats left the order");
 }
 
 static void step_reboot(void)
@@ -694,21 +928,24 @@ static void step_reboot(void)
     uint32_t ms;
     char what[40];
 
-    section(10, "REBOOT", "Wipe RAM, mount from card:");
+    section(11, "REBOOT", "Wipe RAM, mount from card:");
     STRG_RET ret = boot(&ms);
     snprintf(what, sizeof(what), "mounted in %lu ms", (unsigned long)ms);
     check(ret == STRG_OK, what);
     lcd_log_line(LOG_COLOR_DIM, "rebuilt from the card:");
     lcd_log_line(LOG_COLOR_DIM, " hash table, free lists,");
-    lcd_log_line(LOG_COLOR_DIM, " name index, ring heads");
+    lcd_log_line(LOG_COLOR_DIM, " name index, ring heads,");
+    lcd_log_line(LOG_COLOR_DIM, " chat order (heapsort)");
     check(list_is(g_final, N_FINAL), "same contacts, same order");
     check(chat_len(ALICE_NEW) == 4, "alice's chat intact");
     check(chat_len(UNKNOWN_SMS) == 0, "deleted chat still gone");
+    static const char *const chats[] = { CHARLIE, DANA, ALICE_NEW };
+    check(chats_are(chats, 3), "chat order rebuilt");
     check(free_list_available(&g_db.contact_allocator) + free_list_used(&g_db.contact_allocator) ==
           HASH_TABLE_ENTRIES, "contact free list exact");
 
     size_t count = 0;
-    database_call_recent(&g_db, 0, 8, &count, g_calls);
+    db_range_req(DB_REQ_CALL_RECENT, 0, 8, g_calls, &count);
     check(count == 3, "call history intact");
 }
 
@@ -717,35 +954,35 @@ static void step_powercut(void)
     uint32_t ms;
     uint32_t w0;
     char what[40];
-    size_t before = database_contact_count(&g_db);
+    size_t before = db_contact_count();
     ContactBuffer out;
 
-    section(11, "POWER CUT", "Every write is journalled:");
+    section(12, "POWER CUT", "Every write is journalled:");
     w0 = g_writes;
-    database_contact_add(&g_db, "Eve Normal", "0411000010");
+    db_contact_add("Eve Normal", "0411000010");
     snprintf(what, sizeof(what), "normal add: %lu writes", (unsigned long)(g_writes - w0));
     lcd_log_line(LOG_COLOR_TEXT, "%s", what);
-    before = database_contact_count(&g_db);
+    before = db_contact_count();
 
     lcd_log_line(LOG_COLOR_RUN, "Cut power after 2 writes:");
     g_writes_left = 2;
-    STRG_RET ret = database_contact_add(&g_db, "Half Written", "0411000011");
+    STRG_RET ret = db_contact_add("Half Written", "0411000011");
     lcd_log_line(LOG_COLOR_TEXT, "add -> %s (power lost)", strg_name(ret));
     ret = boot(&ms);
     snprintf(what, sizeof(what), "reboot + rollback %lu ms", (unsigned long)ms);
     check(ret == STRG_OK, what);
-    check(database_contact_count(&g_db) == before, "half add rolled back");
-    check(database_contact_get(&g_db, "0411000011", &out) == STRG_EMPTY, "no trace of it");
+    check(db_contact_count() == before, "half add rolled back");
+    check(db_contact_get("0411000011", &out) == STRG_EMPTY, "no trace of it");
     check(list_consistent(), "list consistent");
 
     lcd_log_line(LOG_COLOR_RUN, "Cut power after 6 writes:");
     g_writes_left = 6;
-    ret = database_contact_add(&g_db, "Nearly Done", "0411000012");
+    ret = db_contact_add("Nearly Done", "0411000012");
     lcd_log_line(LOG_COLOR_TEXT, "add -> %s (power lost)", strg_name(ret));
     boot(&ms);
-    bool landed = (database_contact_get(&g_db, "0411000012", &out) == STRG_OK);
+    bool landed = (db_contact_get("0411000012", &out) == STRG_OK);
     lcd_log_line(LOG_COLOR_TEXT, "after reboot: %s", landed ? "contact kept" : "rolled back");
-    check(database_contact_count(&g_db) == before + (landed ? 1 : 0), "old or new, never half");
+    check(db_contact_count() == before + (landed ? 1 : 0), "old or new, never half");
     check(list_consistent(), "list consistent");
 }
 
@@ -755,16 +992,16 @@ static void step_scale(void)
     char phone[16];
     char what[40];
     uint32_t ms;
-    size_t start = database_contact_count(&g_db);
+    size_t start = db_contact_count();
     uint32_t added = 0;
 
-    section(12, "SCALE", "Bulk add contacts:");
+    section(13, "SCALE", "Bulk add contacts:");
     uint32_t t0 = osKernelGetTickCount();
     for (uint32_t i = 0; i < DEMO_SCALE_N; i++)
     {
         snprintf(name, sizeof(name), "Contact %03lu", (unsigned long)i);
         snprintf(phone, sizeof(phone), "0422%06lu", (unsigned long)i);
-        if (database_contact_add(&g_db, name, phone) == STRG_OK)
+        if (db_contact_add(name, phone) == STRG_OK)
         {
             added++;
         }
@@ -780,32 +1017,53 @@ static void step_scale(void)
     check(added == DEMO_SCALE_N, what);
 
     STRG_RET ret = boot(&ms);
-    snprintf(what, sizeof(what), "%u contacts mount %lu ms", (unsigned)database_contact_count(&g_db),
+    snprintf(what, sizeof(what), "%u contacts mount %lu ms", (unsigned)db_contact_count(),
              (unsigned long)ms);
-    check((ret == STRG_OK) && (database_contact_count(&g_db) == start + DEMO_SCALE_N), what);
+    check((ret == STRG_OK) && (db_contact_count() == start + DEMO_SCALE_N), what);
 
     size_t rank = 0;
-    database_contact_seek(&g_db, "contact 1", &rank);
+    db_contact_seek("contact 1", &rank);
     lcd_log_line(LOG_COLOR_DIM, "search \"contact 1\":");
     show_list(rank, 2);
     check(list_consistent(), "consistent after reboot");
+}
+
+/* Smallest free stack the DB task has had (bytes), 0 if not found */
+static uint32_t db_task_stack_free(void)
+{
+    osThreadId_t threads[8];
+    uint32_t n = osThreadEnumerate(threads, 8);
+
+    for (uint32_t i = 0; i < n; i++)
+    {
+        const char *name = osThreadGetName(threads[i]);
+        if ((name != NULL) && (strcmp(name, "DB Task") == 0))
+        {
+            return osThreadGetStackSpace(threads[i]);
+        }
+    }
+    return 0;
 }
 
 static void step_summary(uint32_t elapsed_ms)
 {
     char footer[24];
 
-    lcd_log_init("13/13 SUMMARY");
+    lcd_log_init("14/14 SUMMARY");
     lcd_log_line(LOG_COLOR_SECTION, "Shown on the real SD card:");
     lcd_log_line(LOG_COLOR_TEXT, " contacts: add/get/update/rm");
     lcd_log_line(LOG_COLOR_TEXT, " sorted list + prefix search");
     lcd_log_line(LOG_COLOR_TEXT, " chats across message sectors");
+    lcd_log_line(LOG_COLOR_TEXT, " chat order, newest first");
     lcd_log_line(LOG_COLOR_TEXT, " message + call history rings");
     lcd_log_line(LOG_COLOR_TEXT, " reboot rebuild from card");
     lcd_log_line(LOG_COLOR_TEXT, " journal power-cut rollback");
     lcd_log_line(LOG_COLOR_DIM, " ");
-    lcd_log_line(LOG_COLOR_TEXT, "%lu contacts on the card", (unsigned long)database_contact_count(&g_db));
+    lcd_log_line(LOG_COLOR_TEXT, "%lu contacts on the card", (unsigned long)db_contact_count());
     lcd_log_line(LOG_COLOR_TEXT, "%lu reads, %lu writes", (unsigned long)g_reads, (unsigned long)g_writes);
+    lcd_log_line(LOG_COLOR_TEXT, "%lu DB task requests", (unsigned long)g_requests);
+    g_stack_free = db_task_stack_free();
+    lcd_log_line(LOG_COLOR_TEXT, "DB task stack free %lu B", (unsigned long)g_stack_free);
     lcd_log_line(LOG_COLOR_TEXT, "demo time %lu s", (unsigned long)(elapsed_ms / 1000U));
     lcd_log_line(LOG_COLOR_DIM, " ");
     lcd_log_line((g_bad == 0) ? LOG_COLOR_PASS : LOG_COLOR_FAIL, "%lu / %lu checks passed",
@@ -824,7 +1082,7 @@ static void run_demo(void)
     typedef void (*Step)(void);
     static const Step steps[] = {
         step_contacts, step_list, step_search, step_rules, step_messages, step_history,
-        step_calls, step_update, step_delete, step_reboot, step_powercut, step_scale,
+        step_chats, step_calls, step_update, step_delete, step_reboot, step_powercut, step_scale,
     };
     char footer[24];
     uint32_t t0 = osKernelGetTickCount();

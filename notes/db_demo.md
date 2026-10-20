@@ -4,7 +4,9 @@
 
 For a PC version with no board, see the CLI in [db_cli.md](db_cli.md).
 
-Last result (2026-10-17, 520 MHz, SD at 6 MHz): **57/57 checks**, all 13 sections.
+Once the card is mounted, the demo starts the DB task ([`db_task.c`](../source/app/src/db_task.c)) on its database and makes every database call as a request, waiting for the response on its own reply queue. This is the same request/response path as the CLI's phone UI ([`phone_ui.c`](../source/demo/db_cli/phone_ui.c)). Only the mount (`boot()`), the card reset and HISTORY's sender lookup touch the card directly, and they run while the DB task is waiting for its next request.
+
+Last result (2026-10-20, 520 MHz, SD at 6 MHz): **64/64 checks**, all 14 sections, 793 requests to the DB task. The DB task's 4 KB stack had 976 B free at its lowest point.
 
 ## Build and flash
 
@@ -22,7 +24,7 @@ cmake -S . -B build -DDB_DEMO=OFF         # back to the db_main.c tests afterwar
 |---|---|
 | Reset (black button) | Start screen. The card is reset to an empty database (about 1 s) |
 | **Hold blue while pressing reset** | Full `database_format()` instead (about 35 s, clears every history ring sector) |
-| Blue button | Next section. The footer shows `BLUE: next n/13` while waiting and `running...` while a section runs |
+| Blue button | Next section. The footer shows `BLUE: next n/14` while waiting and `running...` while a section runs |
 | Reset after the summary | Run again |
 
 The button is PC13 (B1, pressed = high). The demo sets it up itself (input, pull-down), so `firmware.ioc` is unchanged. A press must read high on 5 samples in a row, 10 ms apart (`button_held()`). PC13 sits next to the SD clock pin (PC12), and with a looser debounce, sections once advanced on their own.
@@ -31,14 +33,14 @@ The button is PC13 (B1, pressed = high). The demo sets it up itself (input, pull
 
 ```
 +------------------------------+
-| 5/13 MESSAGES                |  section n/13 and title
+| 5/14 MESSAGES                |  section n/14 and title
 |------------------------------|
 | alice's chat (3 per sector): |  dim: what's happening
 |  -> Lunch tomorrow?          |  white: data read back from the card
 | ...                          |
 | OK   alice: 4 msgs, 2 sectors|  green OK / red FAIL: a check
 |------------------------------|
-| BLUE: next 6/13              |  footer
+| BLUE: next 6/14              |  footer
 +------------------------------+
 ```
 
@@ -57,16 +59,17 @@ The data set is 8 contacts added in scrambled order (`g_people`):
 | 1 | CONTACTS | 8 adds, each with its write count (7 per add) | 8 adds OK, 8 stored |
 | 2 | LIST | the list from the name index (sorted array) | alphabetical order (case-insensitive, same name by phone); index matches hash table |
 | 3 | SEARCH | `"al"` → 0, `"B"` → 3, `"da"` → 6, `"zz"` → 8 (past every name), with the rows found | 4 ranks |
-| 4 | RULES | duplicate phone, empty phone, 65 character name, unknown number | `EXISTS`, `FAIL`, `FAIL`, `EMPTY`; nothing changed |
+| 4 | RULES | duplicate phone, empty phone, 65 character name, unknown number | `EXISTS`, `FAIL`, `FAIL`, `EMPTY`; nothing changed. The request's name field holds 64 characters, so the demo's request wrapper rejects the long name rather than truncating it |
 | 5 | MESSAGES | alice's 4 messages over 2 message sectors (3 per sector), bob's separate chat, an SMS from an unknown number | 4 msgs; bob separate; unnamed contact created and listed first |
 | 6 | HISTORY | 6 newest messages across all chats, with the sender's name from the chat header | 6 newest; newest is the parcel SMS |
-| 7 | CALLS | Zoe, an unknown number, Charlie | 3 newest first; known caller named; unknown caller has no contact index and isn't added |
-| 8 | UPDATE | Zoe Park → Aaron Park (moves near the top); alice → new number | renamed; old number gone; chat followed (4 msgs) |
-| 9 | DELETE | remove the first Bob Smith; remove only the parcel chat; final list | contact and chat gone; other Bob kept; chat removed, contact kept; list matches `g_final` |
-| 10 | REBOOT | RAM wiped, `database_init()` mounts from the card | mount OK (time shown); same list; chats intact; deleted chat still gone; contact free list exact (used + free = 10,000); call history intact |
-| 11 | POWER CUT | a normal add's write count, then power cut after 2 writes, then after 6 | half add rolled back with no trace; list consistent; the after-6 add is either fully there or fully gone |
-| 12 | SCALE | 200 more contacts ("Contact 000"…, all on the tiebreak path), progress every 50, then a reboot | 200 added (ms per add shown); mount with every contact; search `"contact 1"`; consistent |
-| 13 | SUMMARY | feature list, contacts on the card, total sector reads and writes, demo time | final `57/57 OK` |
+| 7 | CHATS | the chat list (chat order): newest chat first. Bob replies, then Dana and Charlie start chats | ordered by latest message; bob moved to the top; new chats go on top |
+| 8 | CALLS | Zoe, an unknown number, Charlie | 3 newest first; known caller named; unknown caller has no contact index and isn't added |
+| 9 | UPDATE | Zoe Park → Aaron Park (moves near the top); alice → new number | renamed; old number gone; chat followed (4 msgs); alice's chat kept its place in the chat order |
+| 10 | DELETE | remove the first Bob Smith; remove only the parcel chat; final list and chats | contact and chat gone; other Bob kept; chat removed, contact kept; list matches `g_final`; both chats left the chat order |
+| 11 | REBOOT | RAM wiped, `database_init()` mounts from the card | mount OK (time shown); same list; chats intact; deleted chat still gone; chat order rebuilt (heapsort by latest message); contact free list exact (used + free = 10,000); call history intact |
+| 12 | POWER CUT | a normal add's write count, then power cut after 2 writes, then after 6 | half add rolled back with no trace; list consistent; the after-6 add is either fully there or fully gone |
+| 13 | SCALE | 200 more contacts ("Contact 000"…, all on the tiebreak path), progress every 50, then a reboot | 200 added (ms per add shown); mount with every contact; search `"contact 1"`; consistent |
+| 14 | SUMMARY | feature list, contacts on the card, total sector reads and writes, DB task requests and stack free, demo time | final `64/64 OK` |
 
 The power cut is simulated by a storage wrapper that makes every write after the Nth fail, followed by a real remount. It isn't an actual loss of power, but the card ends up in the same state.
 
@@ -100,10 +103,11 @@ This wipes whatever another test or demo left on the card. The card holds the de
 ## Implementation notes
 
 - Task: `DB_Demo_Init()` → `demoTask` (8 KB static stack). It uses the RAM_D1 pools in `database.c` (about 290 KB, 90% of RAM_D1).
+- DB task: started by `start_task()` with `db_init(&g_db)` after the first mount, and kept for the rest of the run (a later `boot()` remounts the same `g_db` under it). Requests go through `db_call()`, copied from `phone_ui.c`: it tags each request and waits on a one-slot reply queue. `g_requests` counts the replies, `g_stack_free` is the DB task's lowest free stack (set on the summary screen).
 - A storage wrapper is installed over `g_db.storage` after every mount. It counts sector reads and writes, and implements the power cut through `g_writes_left`.
 - Message timestamps are a counter (`g_ts`), since there's no RTC.
-- Counters for checking without the LCD: `g_ok`, `g_bad`, `g_reads`, `g_writes`. Get the addresses with `arm-none-eabi-nm build/firmware/MyProject.elf | grep -E ' g_(ok|bad|reads|writes)$'`, then read with `STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -r32 <addr> 4`.
-- **Stepping without pressing the button** (as used for the 57/57 run): over SWD, set PC13's pull to up and then back to down:
+- Counters for checking without the LCD: `g_ok`, `g_bad`, `g_reads`, `g_writes`, `g_requests`, `g_stack_free`. Get the addresses with `arm-none-eabi-nm build/firmware/MyProject.elf | grep -E ' g_(ok|bad|reads|writes|requests|stack_free)$'`, then read with `STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -r32 <addr> 4`.
+- **Stepping without pressing the button** (as used for the 64/64 run): over SWD, set PC13's pull to up and then back to down:
   ```sh
   STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -w32 0x5802080C 0x05010000   # press  (GPIOC PUPDR, PC13 pull-up)
   STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -w32 0x5802080C 0x09010000   # release (PC13 pull-down)
