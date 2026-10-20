@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 380" width="680" height="380" font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12" role="img" aria-label="Reading a page of 20 messages from one chat">
+<rect width="680" height="380" fill="#fcfcfb"/>
+<text x="64" y="20" font-size="14" font-weight="600" fill="#0b0b0b">Reading a page of 20 messages from one chat</text>
+<text x="64" y="36" font-size="11.5" fill="#52514e">Median of 100 reads, by chat length</text>
+<line x1="64" y1="328.0" x2="530" y2="328.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="56" y="332.0" text-anchor="end" fill="#52514e">0</text>
+<line x1="64" y1="258.0" x2="530" y2="258.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="56" y="262.0" text-anchor="end" fill="#52514e">50</text>
+<line x1="64" y1="188.0" x2="530" y2="188.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="56" y="192.0" text-anchor="end" fill="#52514e">100</text>
+<line x1="64" y1="118.0" x2="530" y2="118.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="56" y="122.0" text-anchor="end" fill="#52514e">150</text>
+<line x1="64" y1="48.0" x2="530" y2="48.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="56" y="52.0" text-anchor="end" fill="#52514e">200</text>
+<text x="64.0" y="346" text-anchor="middle" fill="#52514e">0</text>
+<text x="157.2" y="346" text-anchor="middle" fill="#52514e">200</text>
+<text x="250.4" y="346" text-anchor="middle" fill="#52514e">400</text>
+<text x="343.6" y="346" text-anchor="middle" fill="#52514e">600</text>
+<text x="436.8" y="346" text-anchor="middle" fill="#52514e">800</text>
+<text x="530.0" y="346" text-anchor="middle" fill="#52514e">1K</text>
+<line x1="64" y1="328" x2="530" y2="328" stroke="#b9b8b2" stroke-width="1"/>
+<text x="297.0" y="368" text-anchor="middle" fill="#52514e">Messages in the chat</text>
+<text x="16" y="188.0" transform="rotate(-90 16 188.0)" text-anchor="middle" fill="#52514e">Milliseconds</text>
+<polyline points="73.3,323.2 110.6,306.0 297.0,219.0 530.0,110.6" fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt"><title>oldest 20, 20-message chat: 3.4 ms, 8 reads</title><circle cx="73.3" cy="323.2" r="11" fill="transparent"/><circle cx="73.3" cy="323.2" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>oldest 20, 100-message chat: 15.7 ms, 35 reads</title><circle cx="110.6" cy="306.0" r="11" fill="transparent"/><circle cx="110.6" cy="306.0" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>oldest 20, 500-message chat: 77.8 ms, 168 reads</title><circle cx="297.0" cy="219.0" r="11" fill="transparent"/><circle cx="297.0" cy="219.0" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>oldest 20, 1,000-message chat: 155.3 ms, 335 reads</title><circle cx="530.0" cy="110.6" r="11" fill="transparent"/><circle cx="530.0" cy="110.6" r="4.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/></g>
+<polyline points="73.3,323.2 110.6,314.2 297.0,270.9 530.0,216.8" fill="none" stroke="#eb6834" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt"><title>middle 20, 20-message chat: 3.4 ms, 8 reads</title><circle cx="73.3" cy="323.2" r="11" fill="transparent"/><circle cx="73.3" cy="323.2" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>middle 20, 100-message chat: 9.8 ms, 22 reads</title><circle cx="110.6" cy="314.2" r="11" fill="transparent"/><circle cx="110.6" cy="314.2" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>middle 20, 500-message chat: 40.8 ms, 88 reads</title><circle cx="297.0" cy="270.9" r="11" fill="transparent"/><circle cx="297.0" cy="270.9" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>middle 20, 1,000-message chat: 79.4 ms, 172 reads</title><circle cx="530.0" cy="216.8" r="11" fill="transparent"/><circle cx="530.0" cy="216.8" r="4.5" fill="#eb6834" stroke="#fcfcfb" stroke-width="2"/></g>
+<polyline points="73.3,323.2 110.6,322.7 297.0,323.2 530.0,322.6" fill="none" stroke="#1baf7a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+<g class="pt"><title>newest 20, 20-message chat: 3.4 ms, 8 reads</title><circle cx="73.3" cy="323.2" r="11" fill="transparent"/><circle cx="73.3" cy="323.2" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>newest 20, 100-message chat: 3.8 ms, 9 reads</title><circle cx="110.6" cy="322.7" r="11" fill="transparent"/><circle cx="110.6" cy="322.7" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>newest 20, 500-message chat: 3.4 ms, 8 reads</title><circle cx="297.0" cy="323.2" r="11" fill="transparent"/><circle cx="297.0" cy="323.2" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<g class="pt"><title>newest 20, 1,000-message chat: 3.9 ms, 9 reads</title><circle cx="530.0" cy="322.6" r="11" fill="transparent"/><circle cx="530.0" cy="322.6" r="4.5" fill="#1baf7a" stroke="#fcfcfb" stroke-width="2"/></g>
+<line x1="64" y1="46" x2="78" y2="46" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<text x="83.0" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="#52514e">oldest 20</text>
+<line x1="147.6" y1="46" x2="161.6" y2="46" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/>
+<text x="166.6" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="#52514e">middle 20</text>
+<line x1="231.2" y1="46" x2="245.2" y2="46" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/>
+<text x="250.2" y="50.0" text-anchor="start" font-size="11.5" font-weight="400" fill="#52514e">newest 20</text>
+<line x1="538" y1="110.6" x2="552" y2="110.6" stroke="#2a78d6" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="114.6" text-anchor="start" font-size="12" font-weight="400" fill="#0b0b0b">oldest 20: 155 ms</text>
+<line x1="538" y1="216.8" x2="552" y2="216.8" stroke="#eb6834" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="220.8" text-anchor="start" font-size="12" font-weight="400" fill="#0b0b0b">middle 20: 79 ms</text>
+<line x1="538" y1="322.6" x2="552" y2="322.6" stroke="#1baf7a" stroke-width="2" stroke-linecap="round"/>
+<text x="557.0" y="326.6" text-anchor="start" font-size="12" font-weight="400" fill="#0b0b0b">newest 20: 4 ms</text>
+</svg>

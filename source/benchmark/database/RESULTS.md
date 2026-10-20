@@ -24,6 +24,7 @@ All code lives in `source/benchmark/database/`. The firmware hook is `-Wl,--wrap
 - Target: `scripts/run_target.sh <bench> [Release|Debug] [quick]` → `results/<date>_target_<Os|O0>_<bench>.*`. Needs the NUCLEO on ST-LINK with an SD card. **The benchmark formats the database on the card.** OpenOCD stays attached for semihosting, and `name_index/scripts/ocd_resume.py` runs alongside as a watchdog.
 - Tables: `scripts/summarize.py results/<file>.csv [--stat median|p99|mean|min|max] [--long]`
 - Two runs side by side: `scripts/compare.py <base.csv> <new.csv> [--stat ...]`
+- Figures: `scripts/plot.py` → `plots/<date>_target_Os_*.svg` (standard library only; `--inline` writes CSS-themed variants for HTML pages)
 - `DB_BENCH_TAG=<tag> scripts/run_target.sh ...` appends `_<tag>` to the result names.
 
 CSV columns: `n_contacts, n_chats, msgs_per_chat, history_len` give the database state each row ran against. The contacts CSVs from before the messages benchmark were rewritten to this layout; their two new columns are 0 and no values changed.
@@ -412,3 +413,14 @@ Times of 4 s or more are measured with the 1 ms HAL tick (see Method).
 - **Mount time is set by sector reads and grows faster than N:** 1.5 s at 1,000 contacts (3,263 reads), 5.3 s at 2,500 (11,570), 14.0 s at 5,000 (29,573) and 36.6 s at 10,000 (76,045). That is about 0.47 ms per read throughout. Chats and messages add little (+5,150 reads for 1,000 chats and 5,000 messages), and calls add 14 reads.
 - **Most mount reads come from rebuilding the name index.** `name_index_build` (`database.c`) reads each contact once, about 10,000 reads, and then heapsorts. When two entries have equal 8-byte keys, each comparison reads both contacts from storage (`sorted_array.c` `entry_cmp` → `tiebreak_fn`). At 10,000 contacts that is roughly 64,000 of the 76,045 reads. The 1,280-name generator ties more than real names would, but real names also share keys (57% of entries at N = 10,000 in `name_index/RESULTS.md`).
 - **Mount after a power cut** takes the same time and I/O as a normal mount (36.8 s, 81,209 reads, 0 writes). The rebuilt counts were correct in all 5 repetitions. The rollback wrote nothing, so with this cut point (after 6 writes) recovery added no measurable cost.
+
+## Figures
+
+Made from the target CSVs by `scripts/plot.py`:
+
+| Figure | File |
+|---|---|
+| Median update time against sectors written, with a least-squares fit (2.0 ms + 3.35 ms per write, 53 rows) | `plots/2026-10-20_target_Os_time_vs_writes.svg` |
+| Contact add / update name / remove against contacts stored | `plots/2026-10-20_target_Os_contact_updates.svg` |
+| `get_chat20` newest / middle / oldest page against chat length | `plots/2026-10-20_target_Os_chat_page_depth.svg` |
+| Boot time (`database_init`) against contacts stored | `plots/2026-10-20_target_Os_mount_time.svg` |
