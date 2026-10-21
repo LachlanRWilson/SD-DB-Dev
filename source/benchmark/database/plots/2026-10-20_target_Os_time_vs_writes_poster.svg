@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 420" width="600" height="420" font-family="system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="24" role="img" aria-label="Update time (ms)">
+<rect width="600" height="420" fill="#fcfcfb"/>
+<text x="8" y="40" font-size="36" font-weight="600" fill="#0b0b0b">Update time (ms)</text>
+<line x1="56" y1="334.0" x2="576" y2="334.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="48" y="342.0" text-anchor="end" fill="#52514e">0</text>
+<line x1="56" y1="269.0" x2="576" y2="269.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="48" y="277.0" text-anchor="end" fill="#52514e">20</text>
+<line x1="56" y1="204.0" x2="576" y2="204.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="48" y="212.0" text-anchor="end" fill="#52514e">40</text>
+<line x1="56" y1="139.0" x2="576" y2="139.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="48" y="147.0" text-anchor="end" fill="#52514e">60</text>
+<line x1="56" y1="74.0" x2="576" y2="74.0" stroke="#e6e5e1" stroke-width="1"/>
+<text x="48" y="82.0" text-anchor="end" fill="#52514e">80</text>
+<text x="56.0" y="362" text-anchor="middle" fill="#52514e">0</text>
+<text x="186.0" y="362" text-anchor="middle" fill="#52514e">5</text>
+<text x="316.0" y="362" text-anchor="middle" fill="#52514e">10</text>
+<text x="446.0" y="362" text-anchor="middle" fill="#52514e">15</text>
+<text x="576.0" y="362" text-anchor="middle" fill="#52514e">20</text>
+<line x1="56" y1="334" x2="576" y2="334" stroke="#b9b8b2" stroke-width="1"/>
+<text x="316.0" y="410" text-anchor="middle" font-size="32" fill="#52514e">Sectors written per call</text>
+<line x1="56.0" y1="327.5" x2="576.0" y2="110.0" stroke="#b9b8b2" stroke-width="3"/>
+<text x="68.0" y="98.0" text-anchor="start" font-size="24" font-weight="600" fill="#0b0b0b">line: 3.3 ms / write</text>
+<g class="pt"><title>contact add: 22.1 ms, 7.0 writes, 0.4 reads</title><circle cx="238.0" cy="262.1" r="16" fill="transparent"/><circle cx="238.0" cy="262.1" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_name: 24.6 ms, 7.0 writes, 6.8 reads</title><circle cx="238.0" cy="254.0" r="16" fill="transparent"/><circle cx="238.0" cy="254.0" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_phone: 25.7 ms, 7.0 writes, 6.2 reads</title><circle cx="238.0" cy="250.5" r="16" fill="transparent"/><circle cx="238.0" cy="250.5" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact remove: 18.3 ms, 5.0 writes, 5.3 reads</title><circle cx="186.0" cy="274.6" r="16" fill="transparent"/><circle cx="186.0" cy="274.6" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact add: 22.2 ms, 7.0 writes, 2.1 reads</title><circle cx="238.0" cy="261.8" r="16" fill="transparent"/><circle cx="238.0" cy="261.8" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_name: 26.4 ms, 7.0 writes, 8.5 reads</title><circle cx="238.0" cy="248.1" r="16" fill="transparent"/><circle cx="238.0" cy="248.1" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_phone: 26.7 ms, 7.0 writes, 7.3 reads</title><circle cx="238.0" cy="247.3" r="16" fill="transparent"/><circle cx="238.0" cy="247.3" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact remove: 14.7 ms, 5.0 writes, 5.5 reads</title><circle cx="186.0" cy="286.1" r="16" fill="transparent"/><circle cx="186.0" cy="286.1" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact add: 24.8 ms, 7.0 writes, 1.6 reads</title><circle cx="238.0" cy="253.5" r="16" fill="transparent"/><circle cx="238.0" cy="253.5" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_name: 27.0 ms, 7.0 writes, 9.2 reads</title><circle cx="238.0" cy="246.4" r="16" fill="transparent"/><circle cx="238.0" cy="246.4" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_phone: 26.9 ms, 7.0 writes, 8.9 reads</title><circle cx="238.0" cy="246.7" r="16" fill="transparent"/><circle cx="238.0" cy="246.7" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact remove: 18.7 ms, 5.0 writes, 6.4 reads</title><circle cx="186.0" cy="273.1" r="16" fill="transparent"/><circle cx="186.0" cy="273.1" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact add: 22.8 ms, 7.0 writes, 2.7 reads</title><circle cx="238.0" cy="259.8" r="16" fill="transparent"/><circle cx="238.0" cy="259.8" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_name: 28.1 ms, 7.0 writes, 11.1 reads</title><circle cx="238.0" cy="242.8" r="16" fill="transparent"/><circle cx="238.0" cy="242.8" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_phone: 28.4 ms, 7.0 writes, 10.9 reads</title><circle cx="238.0" cy="241.6" r="16" fill="transparent"/><circle cx="238.0" cy="241.6" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact remove: 21.3 ms, 5.0 writes, 7.0 reads</title><circle cx="186.0" cy="264.9" r="16" fill="transparent"/><circle cx="186.0" cy="264.9" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact add: 24.8 ms, 7.0 writes, 4.7 reads</title><circle cx="238.0" cy="253.5" r="16" fill="transparent"/><circle cx="238.0" cy="253.5" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_name: 30.1 ms, 7.0 writes, 13.1 reads</title><circle cx="238.0" cy="236.3" r="16" fill="transparent"/><circle cx="238.0" cy="236.3" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_phone: 29.4 ms, 7.0 writes, 12.8 reads</title><circle cx="238.0" cy="238.5" r="16" fill="transparent"/><circle cx="238.0" cy="238.5" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact remove: 16.8 ms, 5.0 writes, 7.8 reads</title><circle cx="186.0" cy="279.5" r="16" fill="transparent"/><circle cx="186.0" cy="279.5" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact add: 24.2 ms, 7.0 writes, 5.2 reads</title><circle cx="238.0" cy="255.2" r="16" fill="transparent"/><circle cx="238.0" cy="255.2" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_name: 31.2 ms, 7.0 writes, 14.0 reads</title><circle cx="238.0" cy="232.7" r="16" fill="transparent"/><circle cx="238.0" cy="232.7" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_phone: 31.1 ms, 7.0 writes, 14.4 reads</title><circle cx="238.0" cy="232.9" r="16" fill="transparent"/><circle cx="238.0" cy="232.9" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact remove: 22.9 ms, 5.0 writes, 8.6 reads</title><circle cx="186.0" cy="259.6" r="16" fill="transparent"/><circle cx="186.0" cy="259.6" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact add: 28.1 ms, 7.0 writes, 5.7 reads</title><circle cx="238.0" cy="242.5" r="16" fill="transparent"/><circle cx="238.0" cy="242.5" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_name: 32.2 ms, 7.0 writes, 15.0 reads</title><circle cx="238.0" cy="229.4" r="16" fill="transparent"/><circle cx="238.0" cy="229.4" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact update_phone: 31.3 ms, 7.0 writes, 14.8 reads</title><circle cx="238.0" cy="232.3" r="16" fill="transparent"/><circle cx="238.0" cy="232.3" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>contact remove: 18.2 ms, 5.0 writes, 8.7 reads</title><circle cx="186.0" cy="274.9" r="16" fill="transparent"/><circle cx="186.0" cy="274.9" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message add_msg: 48.3 ms, 13.6 writes, 5.8 reads</title><circle cx="409.6" cy="177.1" r="16" fill="transparent"/><circle cx="409.6" cy="177.1" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message add_msg_new_contact: 65.5 ms, 19.0 writes, 6.7 reads</title><circle cx="550.0" cy="121.3" r="16" fill="transparent"/><circle cx="550.0" cy="121.3" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message add_msg: 42.5 ms, 12.8 writes, 5.7 reads</title><circle cx="387.5" cy="195.8" r="16" fill="transparent"/><circle cx="387.5" cy="195.8" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message add_msg_new_contact: 65.8 ms, 19.0 writes, 7.3 reads</title><circle cx="550.0" cy="120.3" r="16" fill="transparent"/><circle cx="550.0" cy="120.3" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message add_msg: 44.9 ms, 12.2 writes, 5.5 reads</title><circle cx="373.2" cy="187.9" r="16" fill="transparent"/><circle cx="373.2" cy="187.9" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message add_msg_new_contact: 67.1 ms, 19.0 writes, 8.4 reads</title><circle cx="550.0" cy="115.8" r="16" fill="transparent"/><circle cx="550.0" cy="115.8" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message add_msg: 41.7 ms, 12.2 writes, 5.5 reads</title><circle cx="371.9" cy="198.6" r="16" fill="transparent"/><circle cx="371.9" cy="198.6" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message add_msg_new_contact: 66.3 ms, 19.0 writes, 7.4 reads</title><circle cx="550.0" cy="118.6" r="16" fill="transparent"/><circle cx="550.0" cy="118.6" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads</title><circle cx="412.2" cy="184.5" r="16" fill="transparent"/><circle cx="412.2" cy="184.5" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message deep_add_msg: 45.9 ms, 13.7 writes, 5.8 reads</title><circle cx="412.2" cy="184.8" r="16" fill="transparent"/><circle cx="412.2" cy="184.8" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads</title><circle cx="412.2" cy="184.7" r="16" fill="transparent"/><circle cx="412.2" cy="184.7" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message deep_add_msg: 46.0 ms, 13.7 writes, 5.8 reads</title><circle cx="412.2" cy="184.4" r="16" fill="transparent"/><circle cx="412.2" cy="184.4" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>message wrapped_add_msg: 46.5 ms, 14.2 writes, 5.9 reads</title><circle cx="425.2" cy="182.9" r="16" fill="transparent"/><circle cx="425.2" cy="182.9" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call call_add_known: 14.7 ms, 4.8 writes, 3.2 reads</title><circle cx="180.8" cy="286.3" r="16" fill="transparent"/><circle cx="180.8" cy="286.3" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call call_add_unknown: 13.8 ms, 4.8 writes, 1.2 reads</title><circle cx="180.8" cy="289.3" r="16" fill="transparent"/><circle cx="180.8" cy="289.3" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads</title><circle cx="180.8" cy="279.7" r="16" fill="transparent"/><circle cx="180.8" cy="279.7" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call call_add_unknown: 15.7 ms, 4.8 writes, 1.2 reads</title><circle cx="180.8" cy="282.9" r="16" fill="transparent"/><circle cx="180.8" cy="282.9" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads</title><circle cx="180.8" cy="279.8" r="16" fill="transparent"/><circle cx="180.8" cy="279.8" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call call_add_unknown: 13.7 ms, 4.8 writes, 1.2 reads</title><circle cx="180.8" cy="289.4" r="16" fill="transparent"/><circle cx="180.8" cy="289.4" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call call_add_known: 16.7 ms, 4.8 writes, 3.2 reads</title><circle cx="180.8" cy="279.6" r="16" fill="transparent"/><circle cx="180.8" cy="279.6" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call call_add_unknown: 15.8 ms, 4.8 writes, 1.2 reads</title><circle cx="180.8" cy="282.7" r="16" fill="transparent"/><circle cx="180.8" cy="282.7" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call wrapped_call_add_known: 16.8 ms, 4.8 writes, 3.2 reads</title><circle cx="180.8" cy="279.5" r="16" fill="transparent"/><circle cx="180.8" cy="279.5" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>call wrapped_call_add_unknown: 15.8 ms, 4.8 writes, 1.2 reads</title><circle cx="180.8" cy="282.7" r="16" fill="transparent"/><circle cx="180.8" cy="282.7" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>remove_chat (1 msg): 18.2 ms, 5.0 writes, 3.0 reads</title><circle cx="186.0" cy="275.0" r="16" fill="transparent"/><circle cx="186.0" cy="275.0" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+<g class="pt"><title>remove_chat (10 msg): 68.2 ms, 20.0 writes, 6.0 reads</title><circle cx="576.0" cy="112.3" r="16" fill="transparent"/><circle cx="576.0" cy="112.3" r="7.5" fill="#2a78d6" stroke="#fcfcfb" stroke-width="3"/></g>
+</svg>

@@ -28,15 +28,7 @@ SortedArrayEntry sa_mem[SORTED_ARRAY_ENTRIES];
 uint16_t co_mem[CHAT_ORDER_ENTRIES];
 #endif
 
-// Chat order rebuild scratch entry, sorted in sa_mem before the name index is built (6B)
-typedef struct
-{
-    uint16_t timestamp_hi;  // latest message timestamp (as Message)
-    uint16_t timestamp_lo;
-    uint16_t hash_slot;
-} ChatOrderScratch;
-
-STATIC_ASSERT(sizeof(ChatOrderScratch) * CHAT_ORDER_ENTRIES <= sizeof(SortedArrayEntry) * SORTED_ARRAY_ENTRIES,
+STATIC_ASSERT(CHAT_ORDER_SCRATCH_BYTES <= sizeof(SortedArrayEntry) * SORTED_ARRAY_ENTRIES,
         "Chat order rebuild scratch doesn't fit in sa_mem");
 
 
@@ -77,196 +69,6 @@ static STRG_RET find_occupied(Database *db, const char *phone, HashEntry **entry
     if (!hash_find_entry(&db->htable, phone, entry) || ((*entry)->state != ENTRY_OCCUPIED))
     {
         return STRG_EMPTY;
-    }
-
-    return STRG_OK;
-}
-
-/**
- * @brief Rebuild the name index from the hash table. Every contact is appended
- * in hash slot order then sorted once
- *
- * @param db database struct pointer
- * @retval STRG_RET
- */
-static STRG_RET name_index_build(Database *db)
-{
-    ContactBuffer contact;
-    SortedArrayEntry entry;
-    STRG_RET ret;
-
-    if (!sorted_array_init(&db->name_index, htable_mem, &db->storage, sa_mem))
-    {
-        return STRG_FAIL;
-    }
-
-    for (uint16_t slot = 0; slot < HASH_TABLE_SIZE; slot++)
-    {
-        if (htable_mem[slot].state != ENTRY_OCCUPIED)
-        {
-            continue;
-        }
-
-        ret = read_contact(&db->storage, htable_mem[slot].sector, &contact);
-        if (ret != STRG_OK)
-        {
-            return ret;
-        }
-
-        sorted_array_make_key(contact.contact.name, contact.contact.name_len, entry.key);
-        entry.hash_slot = slot;
-
-        if (!sorted_array_append(&db->name_index, &entry))
-        {
-            return STRG_FULL;
-        }
-    }
-
-    return sorted_array_sort(&db->name_index);
-}
-
-/**
- * @brief Compare two chat order rebuild entries: latest message first, then
- * hash slot so the order is the same every boot
- *
- * @param a first entry
- * @param b second entry
- * @retval < 0 if a comes before b, > 0 if a comes after b, 0 if equal
- */
-static int chat_scratch_cmp(const ChatOrderScratch *a, const ChatOrderScratch *b)
-{
-    uint32_t ta = ((uint32_t)a->timestamp_hi << 16) | a->timestamp_lo;
-    uint32_t tb = ((uint32_t)b->timestamp_hi << 16) | b->timestamp_lo;
-
-    if (ta != tb)
-    {
-        return (ta > tb) ? -1 : 1;
-    }
-    return (int)a->hash_slot - (int)b->hash_slot;
-}
-
-/**
- * @brief Swap two chat order rebuild entries
- *
- * @param a first entry
- * @param b second entry
- */
-static void chat_scratch_swap(ChatOrderScratch *a, ChatOrderScratch *b)
-{
-    ChatOrderScratch temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-/**
- * @brief Move the entry at root down the max heap [0, end) until both of its
- * children are smaller than it
- *
- * @param scratch chat order rebuild entries
- * @param root index of the entry being moved down
- * @param end number of entries in the heap
- */
-static void chat_scratch_sift_down(ChatOrderScratch *scratch, size_t root, size_t end)
-{
-    size_t child;
-
-    while ((child = (2 * root) + 1) < end)
-    {
-        // pick the larger of the two children
-        if (((child + 1) < end) && (chat_scratch_cmp(&scratch[child], &scratch[child + 1]) < 0))
-        {
-            child++;
-        }
-
-        // heap property holds once root is not smaller than its larger child
-        if (chat_scratch_cmp(&scratch[root], &scratch[child]) >= 0)
-        {
-            break;
-        }
-
-        chat_scratch_swap(&scratch[root], &scratch[child]);
-        root = child;
-    }
-}
-
-/**
- * @brief Sort the chat order rebuild entries in place using heapsort (same as
- * sorted_array_sort). No recursion and no extra memory
- *
- * @param scratch chat order rebuild entries
- * @param n number of entries
- */
-static void chat_scratch_sort(ChatOrderScratch *scratch, size_t n)
-{
-    if (n < 2)
-    {
-        return;
-    }
-
-    // build a max heap, starting from the last entry that has a child
-    for (size_t i = n / 2; i-- > 0;)
-    {
-        chat_scratch_sift_down(scratch, i, n);
-    }
-
-    // move the largest entry to the end of the array, then repair the heap
-    for (size_t end = n - 1; end > 0; end--)
-    {
-        chat_scratch_swap(&scratch[0], &scratch[end]);
-        chat_scratch_sift_down(scratch, 0, end);
-    }
-}
-
-/**
- * @brief Rebuild the chat order from the hash table. The latest message of every
- * chat is read, then the chats are sorted by its timestamp. sa_mem is used as
- * scratch memory, so this must run before name_index_build
- *
- * @param db database struct pointer
- * @retval STRG_RET
- */
-static STRG_RET chat_order_build(Database *db)
-{
-    ChatOrderScratch *scratch = (ChatOrderScratch *)(void *)sa_mem;
-    size_t chats = 0;
-    Message latest;
-    size_t count;
-    STRG_RET ret;
-
-    if (!chat_order_init(&db->chat_order, co_mem))
-    {
-        return STRG_FAIL;
-    }
-
-    for (uint16_t slot = 0; slot < HASH_TABLE_SIZE; slot++)
-    {
-        if ((htable_mem[slot].state != ENTRY_OCCUPIED) || (htable_mem[slot].latest_msg_extent == UINT16_MAX))
-        {
-            continue;
-        }
-
-        if (chats >= CHAT_ORDER_ENTRIES)
-        {
-            return STRG_FULL;
-        }
-
-        ret = read_n_messages(&db->storage, htable_mem[slot].latest_msg_extent, 0, 1, &count, &latest);
-        if (ret != STRG_OK)
-        {
-            return ret;
-        }
-
-        scratch[chats].timestamp_hi = latest.timestamp_hi;
-        scratch[chats].timestamp_lo = latest.timestamp_lo;
-        scratch[chats].hash_slot = slot;
-        chats++;
-    }
-
-    chat_scratch_sort(scratch, chats);
-
-    for (size_t i = 0; i < chats; i++)
-    {
-        chat_order_append(&db->chat_order, scratch[i].hash_slot);
     }
 
     return STRG_OK;
@@ -335,13 +137,13 @@ static STRG_RET database_mount(Database *db)
     }
 
     // chat order uses sa_mem as scratch, so it is built before the name index
-    ret = chat_order_build(db);
+    ret = chat_order_build(&db->chat_order, htable_mem, &db->storage, co_mem, sa_mem);
     if (ret != STRG_OK)
     {
         return ret;
     }
 
-    ret = name_index_build(db);
+    ret = sorted_array_build(&db->name_index, htable_mem, &db->storage, sa_mem);
     if (ret != STRG_OK)
     {
         return ret;

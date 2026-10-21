@@ -586,3 +586,48 @@ bool sorted_array_init(SortedArray *sa, HashEntry *htable_mem, Storage *storage,
     return true;
 }
 
+/**
+ * @brief Initialise and rebuild the sorted array from the hash table. Every
+ * contact is appended in hash slot order then sorted once
+ *
+ * @param sa sorted array struct
+ * @param htable_mem hash table memory
+ * @param storage storage struct
+ * @param sa_memory pre-allocated RAM_D1 memory pointer (SORTED_ARRAY_ENTRIES long)
+ * @retval STRG_RET
+ */
+STRG_RET sorted_array_build(SortedArray *sa, HashEntry *htable_mem, Storage *storage, SortedArrayEntry *sa_memory)
+{
+    ContactBuffer contact;
+    SortedArrayEntry entry;
+    STRG_RET ret;
+
+    if (!sorted_array_init(sa, htable_mem, storage, sa_memory))
+    {
+        return STRG_FAIL;
+    }
+
+    for (uint16_t slot = 0; slot < HASH_TABLE_SIZE; slot++)
+    {
+        if (htable_mem[slot].state != ENTRY_OCCUPIED)
+        {
+            continue;
+        }
+
+        ret = read_contact(storage, htable_mem[slot].sector, &contact);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        sorted_array_make_key(contact.contact.name, contact.contact.name_len, entry.key);
+        entry.hash_slot = slot;
+
+        if (!sorted_array_append(sa, &entry))
+        {
+            return STRG_FULL;
+        }
+    }
+
+    return sorted_array_sort(sa);
+}

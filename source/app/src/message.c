@@ -756,3 +756,5 @@ void create_new_message_sector(MessageSectorBuffer *mSector, uint16_t contact_in
     mSector->var.header.msg_count = 0;
     mSector->var.header.contact_index = contact_index;
 }
+
+

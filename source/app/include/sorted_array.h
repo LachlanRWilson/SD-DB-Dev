@@ -101,6 +101,18 @@ STRG_RET sorted_array_sort(SortedArray *sa);
 bool sorted_array_init(SortedArray *sa, HashEntry *htable_mem, Storage *storage, SortedArrayEntry* sa_memory);
 
 /**
+ * @brief Initialise and rebuild the sorted array from the hash table. Every
+ * contact is appended in hash slot order then sorted once
+ *
+ * @param sa sorted array struct
+ * @param htable_mem hash table memory
+ * @param storage storage struct
+ * @param sa_memory pre-allocated RAM_D1 memory pointer (SORTED_ARRAY_ENTRIES long)
+ * @retval STRG_RET
+ */
+STRG_RET sorted_array_build(SortedArray *sa, HashEntry *htable_mem, Storage *storage, SortedArrayEntry *sa_memory);
+
+/**
  * @brief create a key from contact name, ignore case
  *
  * @param name contact name

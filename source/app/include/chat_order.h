@@ -12,8 +12,15 @@ extern "C" {
 #include "mem_layout.h"
 #include "storage.h"
 
+// Opaque Declarations
+typedef struct HashEntry HashEntry;
+
 // At most one chat per contact
 #define CHAT_ORDER_ENTRIES HASH_TABLE_ENTRIES
+
+// Scratch memory needed by chat_order_build
+#define CHAT_ORDER_SCRATCH_ENTRY_BYTES 6
+#define CHAT_ORDER_SCRATCH_BYTES (CHAT_ORDER_SCRATCH_ENTRY_BYTES * CHAT_ORDER_ENTRIES)
 
 // Chat Order: hash slots of every contact with a message chat, most recent message first
 typedef struct {
@@ -92,6 +99,19 @@ bool chat_order_append(ChatOrder *co, uint16_t hash_slot);
  * @retval false if a pointer is NULL
  */
 bool chat_order_init(ChatOrder *co, uint16_t *co_memory);
+
+/**
+ * @brief Initialise and rebuild the chat order from the hash table. The latest
+ * message of every chat is read, then the chats are sorted by its timestamp
+ *
+ * @param co chat order struct
+ * @param htable_mem hash table memory
+ * @param storage storage struct
+ * @param co_memory pre-allocated RAM_D1 memory pointer (CHAT_ORDER_ENTRIES long)
+ * @param scratch_memory scratch memory (at least CHAT_ORDER_SCRATCH_BYTES), free until the build returns
+ * @retval STRG_RET
+ */
+STRG_RET chat_order_build(ChatOrder *co, HashEntry *htable_mem, Storage *storage, uint16_t *co_memory, void *scratch_memory);
 
 
 #ifdef __cplusplus

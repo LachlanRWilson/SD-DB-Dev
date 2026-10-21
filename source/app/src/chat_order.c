@@ -1,5 +1,17 @@
 #include <string.h>
 #include "chat_order.h"
+#include "hash_table.h"
+#include "message.h"
+
+// Chat order rebuild scratch entry (6B)
+typedef struct
+{
+    uint16_t timestamp_hi;  // latest message timestamp (as Message)
+    uint16_t timestamp_lo;
+    uint16_t hash_slot;
+} ChatOrderScratch;
+
+STATIC_ASSERT(sizeof(ChatOrderScratch) == CHAT_ORDER_SCRATCH_ENTRY_BYTES, "Unknown Size for Chat Order Scratch Entry");
 
 
 
@@ -188,4 +200,154 @@ bool chat_order_init(ChatOrder *co, uint16_t *co_memory)
     co->occupancy = 0;
 
     return true;
+}
+
+/**
+ * @brief Compare two chat order rebuild entries: latest message first, then
+ * hash slot so the order is the same every boot
+ *
+ * @param a first entry
+ * @param b second entry
+ * @retval < 0 if a comes before b, > 0 if a comes after b, 0 if equal
+ */
+static int chat_scratch_cmp(const ChatOrderScratch *a, const ChatOrderScratch *b)
+{
+    uint32_t ta = ((uint32_t)a->timestamp_hi << 16) | a->timestamp_lo;
+    uint32_t tb = ((uint32_t)b->timestamp_hi << 16) | b->timestamp_lo;
+
+    if (ta != tb)
+    {
+        return (ta > tb) ? -1 : 1;
+    }
+    return (int)a->hash_slot - (int)b->hash_slot;
+}
+
+/**
+ * @brief Swap two chat order rebuild entries
+ *
+ * @param a first entry
+ * @param b second entry
+ */
+static void chat_scratch_swap(ChatOrderScratch *a, ChatOrderScratch *b)
+{
+    ChatOrderScratch temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+/**
+ * @brief Move the entry at root down the max heap [0, end) until both of its
+ * children are smaller than it
+ *
+ * @param scratch chat order rebuild entries
+ * @param root index of the entry being moved down
+ * @param end number of entries in the heap
+ */
+static void chat_scratch_sift_down(ChatOrderScratch *scratch, size_t root, size_t end)
+{
+    size_t child;
+
+    while ((child = (2 * root) + 1) < end)
+    {
+        // pick the larger of the two children
+        if (((child + 1) < end) && (chat_scratch_cmp(&scratch[child], &scratch[child + 1]) < 0))
+        {
+            child++;
+        }
+
+        // heap property holds once root is not smaller than its larger child
+        if (chat_scratch_cmp(&scratch[root], &scratch[child]) >= 0)
+        {
+            break;
+        }
+
+        chat_scratch_swap(&scratch[root], &scratch[child]);
+        root = child;
+    }
+}
+
+/**
+ * @brief Sort the chat order rebuild entries in place using heapsort (same as
+ * sorted_array_sort). No recursion and no extra memory
+ *
+ * @param scratch chat order rebuild entries
+ * @param n number of entries
+ */
+static void chat_scratch_sort(ChatOrderScratch *scratch, size_t n)
+{
+    if (n < 2)
+    {
+        return;
+    }
+
+    // build a max heap, starting from the last entry that has a child
+    for (size_t i = n / 2; i-- > 0;)
+    {
+        chat_scratch_sift_down(scratch, i, n);
+    }
+
+    // move the largest entry to the end of the array, then repair the heap
+    for (size_t end = n - 1; end > 0; end--)
+    {
+        chat_scratch_swap(&scratch[0], &scratch[end]);
+        chat_scratch_sift_down(scratch, 0, end);
+    }
+}
+
+/**
+ * @brief Initialise and rebuild the chat order from the hash table. The latest message of every
+ * chat is read, then the chats are sorted by its timestamp
+ *
+ * @param co chat order struct
+ * @param htable_mem hash table memory
+ * @param storage storage struct
+ * @param co_memory pre-allocated RAM_D1 memory pointer (CHAT_ORDER_ENTRIES long)
+ * @param scratch_memory scratch memory (at least CHAT_ORDER_SCRATCH_BYTES), free until the build returns
+ * @retval STRG_RET
+ */
+STRG_RET chat_order_build(ChatOrder *co, HashEntry *htable_mem, Storage *storage, uint16_t *co_memory, void *scratch_memory)
+{
+    ChatOrderScratch *scratch = (ChatOrderScratch *)scratch_memory;
+    size_t chats = 0;
+    Message latest;
+    size_t count;
+    STRG_RET ret;
+
+    if (!chat_order_init(co, co_memory))
+    {
+        return STRG_FAIL;
+    }
+
+    for (uint16_t slot = 0; slot < HASH_TABLE_SIZE; slot++)
+    {
+        if ((htable_mem[slot].state != ENTRY_OCCUPIED) || (htable_mem[slot].latest_msg_extent == UINT16_MAX))
+        {
+            continue;
+        }
+
+        if (chats >= CHAT_ORDER_ENTRIES)
+        {
+            return STRG_FULL;
+        }
+
+        ret = read_n_messages(storage, htable_mem[slot].latest_msg_extent, 0, 1, &count, &latest);
+        if (ret != STRG_OK)
+        {
+            return ret;
+        }
+
+        scratch[chats].timestamp_hi = latest.timestamp_hi;
+        scratch[chats].timestamp_lo = latest.timestamp_lo;
+        scratch[chats].hash_slot = slot;
+        chats++;
+    }
+
+    chat_scratch_sort(scratch, chats);
+
+    for (size_t i = 0; i < chats; i++)
+    {
+        chat_order_append(co, scratch[i].hash_slot);
+    }
+
+    return STRG_OK;
 }
