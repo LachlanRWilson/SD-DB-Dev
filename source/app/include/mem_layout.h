@@ -9,9 +9,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stdint.h>
 
-/* ================================================================
- * Fundamental storage constants
- * ================================================================ */
+/* ------------------ Fundamental storage constants ----------------------- */
 #define SECTOR_SIZE 512
 
 // Every data sector ends in a CRC-32 trailer covering bytes [0, SECTOR_PAYLOAD_BYTES)

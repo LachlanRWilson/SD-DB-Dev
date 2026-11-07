@@ -23,11 +23,21 @@ if(BUILD_STM32)
     return()
 endif()
 
-# Find GoogleTest (GTest)
+# Find GoogleTest (GTest): use a local copy in external/ if present, otherwise download it
 include(GoogleTest)
-add_subdirectory(${CMAKE_SOURCE_DIR}/external/googletest # actual source location of gtest
-                 ${CMAKE_BINARY_DIR}/external/googletest_build # where build files of gtest are located
-                 )
+if(EXISTS ${CMAKE_SOURCE_DIR}/external/googletest/CMakeLists.txt)
+    add_subdirectory(${CMAKE_SOURCE_DIR}/external/googletest # actual source location of gtest
+                     ${CMAKE_BINARY_DIR}/external/googletest_build # where build files of gtest are located
+                     )
+else()
+    include(FetchContent)
+    FetchContent_Declare(googletest
+        URL https://github.com/google/googletest/archive/refs/tags/v1.16.0.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+endif()
 
 # Include GTest Directories
 include_directories(

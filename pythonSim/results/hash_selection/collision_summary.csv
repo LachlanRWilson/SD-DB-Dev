@@ -1,0 +1,4 @@
+method,firmware,load_factor,entries,simulations,sims_all_inserted_pct,mean_inserted,hit_mean_probes,hit_mean_p99_probes,hit_mean_max_probes,hit_worst_probes,miss_mean_probes,miss_worst_probes,hit_mean_sd_reads,miss_mean_sd_reads,mean_relocations,worst_relocations,theory_hit_probes,theory_miss_probes
+Linear probing,False,0.7,10005,100,100.0,10005,2.303,18.39,79,175,7.2562,198,1.0764,0.1523,0,0,2.1667,6.0556
+Double hashing,True,0.7,10005,100,100.0,10005,1.7547,7.99,21.11,36,3.4576,39,1.0764,0.1523,0,0,1.72,3.3333
+Cuckoo hashing,False,0.7,10005,100,0.0,7355.72,1.3081,2,2,2,1.9999,2,1,0,0.3688,249,,

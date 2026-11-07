@@ -15,6 +15,7 @@ Memory Sizing:
 - **Message Size**: 164B
 - **Message Sector Capacity**: 2
 ## Contents
+- [Building and Running](#building-and-running)
 - [Relational Model](#relational-model)
 - [SD Card Structure](#sd-card-structure)
 - [Data Structures](#data-structures)
@@ -22,6 +23,34 @@ Memory Sizing:
 - [Rollback Journal](#rollback-journal)
 - [Message and Contact Access](#message-and-contact-access-pattern)
 - [Collission Handling and Tombstone Cleanup](#collission-handling-and-tombstone-cleanup)
+
+## Building and Running
+The project has two builds selected by the `BUILD_STM32` CMake option: a **host** build that runs the database against a simulated SD card with GoogleTest unit tests, and an **STM32** build for the STM32H723 board.
+
+### Host Build (unit tests)
+Requirements: CMake ≥ 3.22, a C/C++ compiler (GCC or Clang), internet access on first configure (GoogleTest v1.16.0 is downloaded automatically via `FetchContent`; a local copy in `external/googletest` is used instead if present).
+```bash
+cmake -S . -B build-host
+cmake --build build-host -j
+ctest --test-dir build-host                                   # run all tests
+N=<test_regex> cmake --build build-host --target run_tests    # run matching tests
+cmake --build build-host --target test_help                   # list test targets/usage
+```
+
+### STM32 Build (hardware)
+Requirements: `arm-none-eabi-gcc`, Ninja, STM32CubeMX, and for flashing/debugging `STM32_Programmer_CLI`, `openocd` and `gdb-multiarch`.
+
+The CubeMX-generated libraries (`firmware/Drivers`, `firmware/Middlewares`, `firmware/FATFS`) are not tracked in git. Generate them first by opening `firmware/firmware.ioc` in STM32CubeMX and clicking **Generate Code** (CMake toolchain), keeping the existing user code.
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE="firmware/cmake/gcc-arm-none-eabi.cmake" -DBUILD_STM32=ON
+cmake --build build
+cmake --build build --target flash    # flash over SWD (ST-Link)
+cmake --build build --target debug    # start OpenOCD and attach gdb
+```
+Alternative hardware programs (demos, hardware unit tests, SD diagnostics) are selected with options in `source/CMakeLists.txt`, e.g. `-DDB_DEMO=ON`.
+
+### Optional Tools
+`cppcheck` enables the `misra` target and `ctags` the `tags` target. `struct_layout` prints the in-memory struct layouts (Python 3).
 
 
 ## Relational Model
